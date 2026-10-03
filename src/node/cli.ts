@@ -194,7 +194,9 @@ function toolHelp(tool: ToolDef): string {
   const required = new Set(schema.required ?? []);
   const rows = Object.entries(props).map(([k, p]) => {
     const flag = `${p.default === true ? "--no-" : "--"}${kebab(k)} ${typeLabel(p)}`.trim();
-    const bits = [p.description ?? "", required.has(k) ? "(required)" : "", p.default !== undefined ? `(default ${JSON.stringify(p.default)})` : ""].filter(Boolean);
+    // default-on booleans are listed as their --no- form, so say what turning them off does
+    const desc = p.default === true ? `Turn off: ${(p.description ?? "").replace(/^./, (c) => c.toLowerCase())}` : p.description ?? "";
+    const bits = [desc, required.has(k) ? "(required)" : "", p.default !== undefined ? `(default ${JSON.stringify(p.default)})` : ""].filter(Boolean);
     return [flag, bits.join(" ")] as const;
   });
   const w = Math.max(0, ...rows.map((r) => r[0].length)) + 2;
