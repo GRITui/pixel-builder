@@ -4,3 +4,4 @@ dist
 *.log
 pixel-assets/
 previews/
+dist-node
