@@ -226,6 +226,7 @@
   text-align: center;
   color: var(--ed-dim);
 }
+.id-frame.is-over { outline: 2px dashed var(--ed-accent); }
 .id-drop.is-over { border-color: var(--ed-accent); color: var(--ed-text); background: color-mix(in srgb, var(--ed-accent) 10%, transparent); }
 .id-previews { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 12px 16px; overflow: auto; align-content: start; }
 .id-pane { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
