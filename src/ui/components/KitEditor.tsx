@@ -1,5 +1,5 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
-import * as ai from "../../ai/client";
+import { vibeKit } from "../../ai/client";
 import { generatorById, coerceParams, type GenResult } from "../../core/generators";
 import { KIT_PRESETS, resolveRamps } from "../../core/kit";
 import { MATERIALS, PALETTES, RAMP_LEN, type Material } from "../../core/palette";
@@ -8,14 +8,6 @@ import { paletteFor } from "../render";
 import { aiOffReason, Modal } from "./common";
 import { AnimThumb } from "./SpriteView";
 import type { AiStatus } from "../../ai/client";
-
-type VibeKitFn = (a: { prompt: string; kit: StyleKit }) => Promise<{ kit: Partial<StyleKit>; notes: string }>;
-// `vibeKit` is added to the AI client by Lane C; look it up dynamically so this
-// file compiles before/after it lands. The integrator can turn this into a plain import.
-const vibeKitFn = (): VibeKitFn | undefined => {
-  const f = (ai as unknown as { vibeKit?: unknown }).vibeKit;
-  return typeof f === "function" ? (f as VibeKitFn) : undefined;
-};
 
 const SAMPLES: { label: string; gen: string; params: Record<string, unknown> }[] = [
   { label: "Character", gen: "character", params: {} },
@@ -104,16 +96,15 @@ export function KitEditor(props: {
   };
   const close = () => guard(props.onClose)();
 
-  const vibeFn = vibeKitFn();
-  const aiOn = !!props.status?.enabled && !!vibeFn;
-  const aiTitle = !props.status?.enabled ? aiOffReason(props.status) : !vibeFn ? "The AI client doesn't provide vibeKit yet." : "Let Claude adjust palette, outline, light and shading to match the description";
+  const aiOn = !!props.status?.enabled;
+  const aiTitle = !aiOn ? aiOffReason(props.status) : "Let Claude adjust palette, outline, light and shading to match the description";
 
   const describe = async () => {
-    if (!vibeFn || !styleText.trim()) return;
+    if (!styleText.trim()) return;
     setBusy(true);
     setMsg(null);
     try {
-      const r = await vibeFn({ prompt: styleText.trim(), kit: draft });
+      const r = await vibeKit({ prompt: styleText.trim(), kit: draft });
       setDraft((d) => {
         const k = r.kit;
         const paletteChanged = k.paletteId !== undefined && k.paletteId !== d.paletteId;
