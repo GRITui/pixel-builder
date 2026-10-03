@@ -56,6 +56,11 @@ class D {
     this.P.rect(x0, y0, Math.max(1, this.u(x + w) - x0), Math.max(1, this.u(y + h) - y0), m, level);
   }
   px(x: number, y: number, m: Material, level: number) { this.rect(x, y, 1, 1, m, level); }
+  /** Mirror a design-grid x span when the kit light comes from the right. */
+  mx(x: number, w = 1) { return this.P.lightSide > 0 ? 16 - x - w : x; }
+  /** Hand-placed highlight/shadow: authored for light from the left, mirrored for light from the right. */
+  hpx(x: number, y: number, m: Material, level: number) { this.rect(this.mx(x), y, 1, 1, m, level); }
+  hrect(x: number, y: number, w: number, h: number, m: Material, level: number) { this.rect(this.mx(x, w), y, w, h, m, level); }
   ell(cx: number, cy: number, rx: number, ry: number, m: Material, flat = 0, tone = 0) {
     this.P.ellipse(cx * this.k, cy * this.k, rx * this.k, ry * this.k, m, { flat, tone });
   }
@@ -115,7 +120,7 @@ function chest({ d, m, a, v }: Ctx) {
   d.rect(7, 7, 2, 3, "gold", 3);
   d.rect(7, 9, 2, 1, "gold", 2);
   d.px(7, 8, "ink", 0);
-  d.px(8, 7, "gold", 4);
+  d.hpx(8, 7, "gold", 4);
 }
 
 function chestOpen({ d, m, a, v }: Ctx) {
@@ -127,8 +132,8 @@ function chestOpen({ d, m, a, v }: Ctx) {
   d.bandV(13, 1, 1, 8, a, 2, 3);
   // treasure heap
   d.ell(8, 8.6, 5.6, 3, "gold", 0.2);
-  d.px(6, 7, "gold", 4); d.px(10, 8, "gold", 4); d.px(8, 6, "gold", 4);
-  d.px(5, 8, "gold", 2); d.px(11, 9, "gold", 2);
+  d.hpx(6, 7, "gold", 4); d.hpx(10, 8, "gold", 4); d.hpx(8, 6, "gold", 4);
+  d.hpx(5, 8, "gold", 2); d.hpx(11, 9, "gold", 2);
   if (v % 2 === 1) { d.px(9, 7, "cloth2", 4); d.px(7, 8, "water", 4); }
   // body
   d.box(2, 9, 12, 5, m, [0, 0, 1], -1);
@@ -180,17 +185,17 @@ function potion({ d, m, a, v }: Ctx) {
     d.box(6, 4, 4, 4, glass, [0, 0, 1], 1);
     d.box(5, 3, 6, 1, glass, [0, -1, 0.6], 2);
     d.rect(6, 1, 4, 2, a, 2);
-    d.rect(6, 1, 2, 1, a, 3);
-    d.px(5, 9, glass, 4); d.px(5, 10, glass, 4); d.px(6, 8, glass, 4);
-    d.px(6, 5, glass, 4);
+    d.hrect(6, 1, 2, 1, a, 3);
+    d.hpx(5, 9, glass, 4); d.hpx(5, 10, glass, 4); d.hpx(6, 8, glass, 4);
+    d.hpx(6, 5, glass, 4);
   } else if (body === 1) {
     d.poly([[6, 5], [10, 5], [14, 13], [2, 13]], glass, [0, 0, 1]);
     d.ell(8, 12, 6, 1.8, glass, 0.1);
     d.box(6, 4, 4, 2, glass, [0, 0, 1], 1);
     d.box(5, 3, 6, 1, glass, [0, -1, 0.6], 2);
     d.rect(6, 1, 4, 2, a, 2);
-    d.px(6, 1, a, 3);
-    d.px(6, 9, glass, 4); d.px(5, 11, glass, 4);
+    d.hpx(6, 1, a, 3);
+    d.hpx(6, 9, glass, 4); d.hpx(5, 11, glass, 4);
   } else {
     d.box(4, 8, 8, 6, glass, [0, 0, 1]);
     d.ell(8, 12, 4, 2, glass, 0.1);
@@ -198,7 +203,7 @@ function potion({ d, m, a, v }: Ctx) {
     d.box(6, 3, 4, 6, glass, [0, 0, 1], 1);
     d.box(5, 3, 6, 1, glass, [0, -1, 0.6], 2);
     d.rect(6, 1, 4, 2, a, 2);
-    d.px(5, 10, glass, 4); d.px(5, 11, glass, 4); d.px(6, 5, glass, 4);
+    d.hpx(5, 10, glass, 4); d.hpx(5, 11, glass, 4); d.hpx(6, 5, glass, 4);
   }
 }
 
@@ -239,7 +244,7 @@ function axe({ d, m, a, v }: Ctx) {
   d.poly(wide ? [[9, 2], [13, 1], [15, 3], [15, 8], [13, 9], [10, 6]] : [[9, 2], [13, 2], [14, 4], [14, 7], [12, 8], [10, 6]], m, [0.2, -0.2, 1]);
   d.rect(9, 3, 2, 3, m, 2);
   d.line(14, 3, 14, 7, m, 4);
-  d.px(10, 3, m, 4);
+  d.hpx(10, 3, m, 4);
 }
 
 function shield({ d, m, a, v }: Ctx) {
@@ -251,22 +256,22 @@ function shield({ d, m, a, v }: Ctx) {
   if (v % 3 === 0) {
     d.rect(7, 3, 2, 8, a, 3); // vertical bar
     d.rect(4, 5, 8, 2, a, 3);
-    d.px(7, 5, a, 4);
+    d.hpx(7, 5, a, 4);
   } else if (v % 3 === 1) {
     d.ell(8, 7, 2.2, 2.2, "gold", 0.3);
-    d.px(7, 6, "gold", 4);
+    d.hpx(7, 6, "gold", 4);
   } else {
     d.poly([[8, 3], [13, 3], [13, 8], [8, 12]], a, [0.35, 0, 1], -1);
     d.rect(8, 3, 1, 9, a, 2);
   }
 }
 
-function bow({ d, m, a, v }: Ctx) {
+function bow({ d, m, a, v, side }: Ctx) {
   const arrow = v % 2 === 1;
   for (let t = -6; t <= 6; t++) {
     const x = 3 + Math.round((t * t) / 7);
-    d.px(x, 8 + t, m, 3);
-    d.px(x + 1, 8 + t, m, 1);
+    d.px(x, 8 + t, m, side > 0 ? 1 : 3);
+    d.px(x + 1, 8 + t, m, side > 0 ? 3 : 1);
   }
   d.px(4, 8, "leather", 3); d.px(4, 7, "leather", 2); d.px(4, 9, "leather", 2);
   d.line(9, 2, 9, 14, a, 3);
@@ -282,37 +287,37 @@ function coin({ d, m, a, f }: Ctx) {
   const rx = [5.6, 3.8, 1.3, 3.8][f];
   if (f === 2) {
     d.box(7, 2, 2, 12, m, [0.5, 0, 1]);
-    d.rect(7, 2, 1, 12, m, 3);
-    d.rect(8, 2, 1, 12, m, 2);
-    d.px(7, 3, m, 4);
+    d.hrect(7, 2, 1, 12, m, 3);
+    d.hrect(8, 2, 1, 12, m, 2);
+    d.hpx(7, 3, m, 4);
     return;
   }
   d.ell(8, 8, rx, 6, m, 0.4);
   if (f === 0) {
     d.ell(8, 8, 4.1, 4.5, a, 0.9, -1);
     d.rect(7, 5, 2, 6, m, 3);
-    d.px(7, 5, m, 4);
-    d.px(7, 3, m, 4);
+    d.hpx(7, 5, m, 4);
+    d.hpx(7, 3, m, 4);
   } else if (f === 1) {
     d.ell(8, 8, 2.2, 4.4, a, 0.9, -1);
-    d.rect(8, 6, 1, 4, m, 3);
+    d.hrect(8, 6, 1, 4, m, 3);
   } else {
     d.ell(8, 8, 2.2, 4.4, a, 0.9, -1);
-    d.rect(7, 6, 1, 4, m, 3);
+    d.hrect(7, 6, 1, 4, m, 3);
   }
 }
 
 function key({ d, m, a, v }: Ctx) {
   d.ell(8, 4.5, 3.6, 3.6, m, 0.3);
   d.erase(7, 3, 2, 2);
-  d.px(5, 3, m, 4);
+  d.hpx(5, 3, m, 4);
   d.column(7, 2, () => [8, 14], m);
   const teeth = v % 3;
   d.box(9, 11, 2, 1, a, [0, 0, 1]);
   d.box(9, 13, 2, 1, a, [0, 0, 1]);
   if (teeth === 1) d.box(9, 9, 3, 1, a, [0, 0, 1]);
   if (teeth === 2) { d.box(9, 11, 3, 1, a, [0, 0, 1]); d.box(9, 13, 3, 1, a, [0, 0, 1]); }
-  d.px(7, 8, m, 4);
+  d.hpx(7, 8, m, 4);
 }
 
 function torch({ d, m, a, f }: Ctx) {
@@ -336,8 +341,8 @@ function sign({ d, m, a, v, r }: Ctx) {
   d.box(2, 2, 12, 8, m, [0, 0, 1]);
   d.box(2, 2, 12, 1, m, [0, -1, 0.6], 1);
   d.box(2, 9, 12, 1, m, [0, 1, 0.6], -1);
-  d.rect(2, 2, 1, 8, m, 3);
-  d.rect(13, 2, 1, 8, m, 1);
+  d.hrect(2, 2, 1, 8, m, 3);
+  d.hrect(13, 2, 1, 8, m, 1);
   d.rect(4, 4, r.int(6, 8), 1, m, 0);
   d.rect(4, 6, v % 2 ? 4 : r.int(5, 7), 1, m, 0);
   if (v % 2) d.px(10, 6, m, 0);
@@ -353,8 +358,8 @@ function pot({ d, m, a, v }: Ctx) {
   d.ell(8, 4.1, 3.2, 1, a, 0.9, -2);
   d.bandH(2, 14, 8, a, 2, 3);
   if (v % 2 === 1) d.bandH(2, 14, 10, a, 1, 2);
-  d.px(4, 7, m, 4);
-  d.px(3, 8, m, 4);
+  d.hpx(4, 7, m, 4);
+  d.hpx(3, 8, m, 4);
 }
 
 function gem({ d, m, a, v, f, r }: Ctx) {
@@ -365,7 +370,7 @@ function gem({ d, m, a, v, f, r }: Ctx) {
   d.poly([[5, 3], [11, 3], [rr, 7], [l, 7]], m, [0, -0.3, 1], 2);
   d.poly([[l, 7], [8, 7], [8, 14]], m, [-0.6, 0.4, 0.7], -1);
   d.poly([[8, 7], [rr, 7], [8, 14]], m, [0.6, 0.4, 0.7], -2);
-  d.rect(5, 4, 3, 1, m, 4);
+  d.hrect(5, 4, 3, 1, m, 4);
   d.line(l + 1, 7, 8, 7, m, 4);
   const spots: [number, number][] = [[4, 4], [11, 9], [3, 9], [12, 4]];
   const s1 = spots[r.int(0, 1) * 2], s2 = spots[r.int(0, 1) * 2 + 1];
@@ -396,8 +401,8 @@ function heart({ d, m, a }: Ctx) {
   d.ell(5.2, 6, 3.7, 3.6, m, 0.15);
   d.ell(10.8, 6, 3.7, 3.6, m, 0.15);
   d.poly([[1.6, 7], [14.4, 7], [8, 14]], m, [0, 0, 1], 0);
-  d.rect(3, 4, 2, 1, a === m ? m : a, 4);
-  d.px(3, 5, a === m ? m : a, 4);
+  d.hrect(3, 4, 2, 1, a === m ? m : a, 4);
+  d.hpx(3, 5, a === m ? m : a, 4);
   d.erase(7, 3, 2, 1);
 }
 
@@ -408,7 +413,7 @@ function bomb({ d, m, a, v }: Ctx) {
   d.line(10, 3, 12, 1, a, 3);
   d.px(12, 2, a, 2);
   d.px(13, 1, "gold", 4); d.px(12, 0 + 1, "cloth2", 4);
-  d.px(4, 8, m, 4); d.px(4, 9, m, 4); d.px(5, 7, m, 4);
+  d.hpx(4, 8, m, 4); d.hpx(4, 9, m, 4); d.hpx(5, 7, m, 4);
   if (v % 2 === 1) d.bandH(2, 13, 10, "cloth2", 3, 4);
 }
 
@@ -422,7 +427,7 @@ function book({ d, m, a, v }: Ctx) {
   if (v % 2 === 0) {
     d.rect(7, 5, 4, 4, a, 3);
     d.rect(8, 6, 2, 2, m, 1);
-    d.px(7, 5, a, 4);
+    d.hpx(7, 5, a, 4);
   } else {
     d.rect(7, 5, 4, 1, a, 3);
     d.rect(7, 7, 3, 1, a, 2);
@@ -437,7 +442,7 @@ function mushroom({ d, m, a, v }: Ctx) {
   d.erase(1, 9, 14, 2);
   d.rect(2, 9, 12, 1, m, 1);
   d.rect(5, 9, 6, 1, m, 0);
-  d.px(5, 4, "sand", 4); d.px(6, 4, "sand", 4);
+  d.hpx(5, 4, "sand", 4); d.hpx(6, 4, "sand", 4);
   d.rect(9, 3, 2, 2, "sand", 4);
   d.rect(3, 7, 2, 2, "sand", 4);
   d.px(12, 7, "sand", 4);
@@ -447,7 +452,7 @@ function mushroom({ d, m, a, v }: Ctx) {
 function apple({ d, m, a, v }: Ctx) {
   d.ell(8, 9, 5.8, 5.2, m, 0.1);
   d.erase(8, 4, 1, 1);
-  d.px(5, 7, m, 4); d.px(5, 8, m, 4); d.px(6, 6, m, 4);
+  d.hpx(5, 7, m, 4); d.hpx(5, 8, m, 4); d.hpx(6, 6, m, 4);
   d.line(8, 4, 9, 2, "leather", 2);
   d.poly([[9, 3], [12, 2], [13, 3], [11, 5]], a, [0.2, -0.3, 1]);
   d.px(11, 3, a, 4);

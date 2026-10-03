@@ -60,7 +60,7 @@ describe("png encode/decode", () => {
     ];
     expect(Array.from(decodePng(rawPng(2, 2, 8, 2, rows)).rgba)).toEqual([10, 20, 30, 255, 40, 50, 60, 255, 50, 70, 90, 255, 100, 120, 140, 255]);
     // Average and Paeth on a 2x2 gray image: (10,20 / 30,40)
-    const avg = decodePng(rawPng(2, 2, 8, 0, [[0, 10, 20], [3, 25, 5]])).rgba; // 30 = 25 + floor(10/2); 40 = 5 + floor((30+20)/2)
+    const avg = decodePng(rawPng(2, 2, 8, 0, [[0, 10, 20], [3, 25, 15]])).rgba; // 30 = 25 + floor(10/2); 40 = 15 + floor((30+20)/2)
     expect([avg[0], avg[4], avg[8], avg[12]]).toEqual([10, 20, 30, 40]);
     const paeth = decodePng(rawPng(2, 2, 8, 0, [[0, 10, 20], [4, 20, 10]])).rgba; // 30 = 20 + paeth(0,10,0)=10 ; 40 = 10 + paeth(30,20,10)=30
     expect([paeth[0], paeth[4], paeth[8], paeth[12]]).toEqual([10, 20, 30, 40]);

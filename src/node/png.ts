@@ -109,7 +109,7 @@ export function decodePng(buf: Uint8Array): RgbaImage {
   if (ctype === 3 && depth !== 8) throw new Error("Unsupported indexed PNG bit depth; re-save the image as 8-bit RGBA");
   if (interlace !== 0) throw new Error("Interlaced PNGs are not supported; re-save the image without interlacing (e.g. `magick in.png -interlace none PNG32:out.png`)");
   if (ctype === 3 && !palette) throw new Error("Indexed PNG has no PLTE chunk");
-  if (!idat.length) throw new Error("PNG has no image data");
+  if (!idat.length) throw new Error(sawEnd ? "PNG has no image data" : "PNG is truncated (no image data before the end of the file)");
 
   const bytes = depth / 8;
   const ch = CHANNELS[ctype];

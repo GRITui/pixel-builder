@@ -1,5 +1,6 @@
 // MCP adapter over the tool layer: stdio by default, `--http` for Streamable HTTP.
 // stdio rule: stdout carries protocol messages only; everything else goes to stderr.
+import { createHash, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -132,21 +133,49 @@ function jsonError(res: ServerResponse, status: number, message: string, code = 
   res.end(JSON.stringify({ jsonrpc: "2.0", error: { code, message }, id: null }));
 }
 
-const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
+const LOOPBACK = new Set(["localhost", "127.0.0.1", "::1"]);
 
-/** DNS-rebinding guard for loopback binds: only local Host / Origin headers are accepted. */
-function localOnly(req: IncomingMessage): boolean {
-  const host = (req.headers.host ?? "").replace(/:\d+$/, "").toLowerCase();
-  if (!LOOPBACK.has(host)) return false;
+/** Lower-cased hostname from a Host header value, a bare host, `host:port`, `[v6]:port` or a full URL. */
+export function normalizeHost(value: string): string {
+  let v = value.trim().toLowerCase();
+  if (v.includes("://")) {
+    try {
+      return new URL(v).hostname.replace(/^\[|\]$/g, "");
+    } catch {
+      return v;
+    }
+  }
+  if (v.startsWith("[")) return v.slice(1, v.indexOf("]") < 0 ? undefined : v.indexOf("]"));
+  if ((v.match(/:/g) ?? []).length === 1) v = v.slice(0, v.indexOf(":"));
+  return v;
+}
+
+/** Host list from a flag/env value: comma-separated, each entry normalised, empties dropped. */
+export function parseHostList(...values: (string | undefined)[]): string[] {
+  return [...new Set(values.flatMap((v) => (v ?? "").split(",")).map(normalizeHost).filter(Boolean))];
+}
+
+/** DNS-rebinding guard: Host (and Origin, when sent) must be loopback or explicitly allowed. */
+function hostAllowed(req: IncomingMessage, allowed: ReadonlySet<string>): boolean {
+  if (!allowed.has(normalizeHost(req.headers.host ?? ""))) return false;
   const origin = req.headers.origin;
   if (origin) {
     try {
-      if (!LOOPBACK.has(new URL(origin).hostname.toLowerCase())) return false;
+      if (!allowed.has(new URL(origin).hostname.replace(/^\[|\]$/g, "").toLowerCase())) return false;
     } catch {
       return false;
     }
   }
   return true;
+}
+
+/** Constant-time check of `Authorization: Bearer <token>`. */
+function bearerOk(req: IncomingMessage, token: string): boolean {
+  const m = /^Bearer\s+(.+)$/i.exec(req.headers.authorization ?? "");
+  if (!m) return false;
+  const a = createHash("sha256").update(m[1].trim()).digest();
+  const b = createHash("sha256").update(token).digest();
+  return timingSafeEqual(a, b);
 }
 
 export interface HttpHandle {
@@ -155,18 +184,39 @@ export interface HttpHandle {
   close(): Promise<void>;
 }
 
+export interface HttpOptions {
+  port?: number;
+  /** Bind address. Default 127.0.0.1. */
+  host?: string;
+  /** Extra Host/Origin names to accept (tunnels, reverse proxies), on top of loopback. */
+  allowedHosts?: string[];
+  /** When set, every request must carry `Authorization: Bearer <token>`. */
+  token?: string;
+}
+
 /**
  * Streamable HTTP transport at `/mcp` (stateless: one server per request, JSON responses).
- * Binds 127.0.0.1 by default; pass host explicitly to expose it (no auth is implemented).
+ * Binds 127.0.0.1 and only accepts loopback Host/Origin headers by default. `allowedHosts` extends
+ * that list (needed behind cloudflared/ngrok) and `token` adds bearer auth; use both when exposing it.
  */
-export async function startHttp(ws: Workspace, opts: { port?: number; host?: string } = {}): Promise<HttpHandle> {
+export async function startHttp(ws: Workspace, opts: HttpOptions = {}): Promise<HttpHandle> {
   const host = opts.host ?? "127.0.0.1";
-  const guard = LOOPBACK.has(host) || host === "::1";
+  const extra = parseHostList(...(opts.allowedHosts ?? []));
+  const token = opts.token || undefined;
+  const loopbackBind = LOOPBACK.has(normalizeHost(host));
+  const allowed = new Set([...LOOPBACK, ...extra]);
+  const guard = loopbackBind || extra.length > 0;
+  if (!loopbackBind && !token) process.stderr.write(`[pixel-builder] WARNING: listening on ${host} without --token: anyone who can reach this port can create, edit and delete assets and write files in the workspace.\n`);
+  else if (extra.length && !token) process.stderr.write(`[pixel-builder] WARNING: accepting requests for ${extra.join(", ")} without --token (PIXEL_BUILDER_TOKEN): anyone with that address can drive this server.\n`);
   const http = createServer(async (req, res) => {
     try {
       const path = (req.url ?? "/").split("?")[0];
       if (path !== "/mcp" && path !== "/") return jsonError(res, 404, "Not found. The MCP endpoint is /mcp.", -32601);
-      if (guard && !localOnly(req)) return jsonError(res, 403, "Forbidden: only local Host/Origin headers are accepted.");
+      if (guard && !hostAllowed(req, allowed)) return jsonError(res, 403, "Forbidden: Host/Origin not allowed. Start the server with --allowed-host <name> to accept it.");
+      if (token && !bearerOk(req, token)) {
+        res.setHeader("www-authenticate", 'Bearer realm="pixel-builder"');
+        return jsonError(res, 401, "Unauthorized: send `Authorization: Bearer <token>`.");
+      }
       if (req.method !== "POST") {
         res.setHeader("allow", "POST");
         return jsonError(res, 405, "Method not allowed: this server is stateless; POST JSON-RPC to /mcp.");
@@ -197,6 +247,6 @@ export async function startHttp(ws: Workspace, opts: { port?: number; host?: str
   const addr = http.address();
   const port = typeof addr === "object" && addr ? addr.port : (opts.port ?? DEFAULT_HTTP_PORT);
   const url = `http://${host.includes(":") ? `[${host}]` : host}:${port}/mcp`;
-  process.stderr.write(`[pixel-builder] MCP server (Streamable HTTP) at ${url} (workspace ${ws.dir})\n`);
+  process.stderr.write(`[pixel-builder] MCP server (Streamable HTTP) at ${url} (workspace ${ws.dir})${token ? ", bearer token required" : ""}\n`);
   return { server: http, url, close: () => new Promise<void>((resolve) => http.close(() => resolve())) };
 }
