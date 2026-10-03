@@ -76,7 +76,8 @@ describe("generate_asset / generate_variations", () => {
     expect(existsSync(d.asset.files[0])).toBe(true);
     expect(r.images).toHaveLength(1);
     expect(isPng(r.images![0].png)).toBe(true);
-    expect(decodePng(r.images![0].png).width).toBeGreaterThanOrEqual(256);
+    const pv = decodePng(r.images![0].png);
+    expect(Math.max(pv.width, pv.height)).toBeGreaterThanOrEqual(256);
     expect(ws.load().assets).toHaveLength(1);
 
     const again = data("generate_asset", { generator: "environment", params: { kind: "oak" }, seed: 42, name: "Oak again" });

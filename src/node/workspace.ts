@@ -120,7 +120,8 @@ export function findAsset(project: ProjectFile, idOrName: string): Asset {
   const byName = project.assets.filter((a) => a.name.toLowerCase() === idOrName.toLowerCase());
   if (byName.length === 1) return byName[0];
   if (byName.length > 1) throw new ToolError(`Name '${idOrName}' matches ${byName.length} assets (${byName.map((a) => a.id).join(", ")}); use an id.`);
-  const near = project.assets.filter((a) => a.id.includes(idOrName) || a.name.toLowerCase().includes(idOrName.toLowerCase())).slice(0, 5);
+  const q = idOrName.toLowerCase();
+  const near = project.assets.filter((a) => a.id.includes(idOrName) || a.name.toLowerCase().includes(q) || q.includes(a.name.toLowerCase())).slice(0, 5);
   throw new ToolError(
     `No asset '${idOrName}'.` + (near.length ? ` Did you mean: ${near.map((a) => `${a.id} (${a.name})`).join(", ")}?` : " Use list_assets to see ids."),
   );
