@@ -1,5 +1,5 @@
 import { finalize } from "../enforce";
-import { lightVector } from "../kit";
+import { lightVector, proportions } from "../kit";
 import { Painter } from "../painter";
 import { colorIndex, type Material } from "../palette";
 import { hashString, rng, valueNoise, type Rng } from "../rng";
@@ -19,6 +19,12 @@ const ACCENTS: Material[] = ["cloth2", "accent", "gold", "cloth", "skin", "sand"
 
 const WATER_FRAMES = 4;
 
+export const TREE_KINDS = ["oak", "pine", "palm", "dead-tree"] as const;
+/** Canvas height of a prop: trees are ~2x a character (proportions) plus a 2px margin, the rest are square. */
+export function treeHeight(kit: StyleKit, kind: string): number {
+  return (TREE_KINDS as readonly string[]).includes(kind) ? proportions(kit).tree + 2 : kit.sizes.environment;
+}
+
 // ---------------------------------------------------------------------------
 // Props. Authored on a 32px grid, scaled by k = size / 32. `G` is the ground
 // line (exclusive): the last painted row is G-1 so a 1px margin stays free for
@@ -28,6 +34,8 @@ const WATER_FRAMES = 4;
 interface Ctx {
   P: Painter;
   S: number;
+  /** canvas height (taller than S for trees) */
+  H: number;
   k: number;
   G: number;
   r: Rng;
@@ -56,30 +64,36 @@ function cone(c: Ctx, cx: number, baseY: number, halfW: number, h: number, m: Ma
   P.box(Math.ceil(cx - halfW + 1), baseY - 1, Math.max(1, Math.floor(halfW * 2 - 2)), 1, m, [0, 0.4, 1], { tone: -1 });
 }
 
+/** Trees are authored in "u" units: 32px-wide grid, u measured upward from the ground line. */
+const Yu = (c: Ctx, u: number) => c.G - u * c.k;
+
 function oak(c: Ctx) {
-  const { P, S, k, r, G, R, R1 } = c;
+  const { P, S, k, r, G, R1 } = c;
   const cx = S / 2;
-  const tw = R1(6) + (c.v % 3 === 0 ? 1 : 0);
+  const tw = R1(8) + (c.v % 3 === 0 ? 1 : 0);
   const tx = Math.round(cx - tw / 2);
-  const trunkTop = R(15);
+  const trunkTop = Math.round(Yu(c, 32));
   P.cylinder(tx, trunkTop, tw, G - trunkTop, c.trunk);
-  P.box(tx - 1, G - R1(2), 1, R1(2), c.trunk, [-0.6, 0, 0.8]);
-  P.box(tx + tw, G - R1(2), 1, R1(2), c.trunk, [0.6, 0, 0.8], { tone: -1 });
-  if (c.v % 4 === 1) P.px(tx + Math.floor(tw / 2), R(21), c.trunk, 0); // knot
+  P.box(tx - 1, G - R1(3), 1, R1(3), c.trunk, [-0.6, 0, 0.8]);
+  P.box(tx + tw, G - R1(3), 1, R1(3), c.trunk, [0.6, 0, 0.8], { tone: -1 });
+  if (c.v % 4 === 1) P.px(tx + Math.floor(tw / 2), Math.round(Yu(c, 12)), c.trunk, 0); // knot
 
   const j = () => (r.next() - 0.5) * 2 * k;
-  const cy = 12 * k;
-  P.ellipse(cx, cy + 3 * k, 13 * k, 9 * k, c.foliage, { tone: -1 });
-  P.ellipse(cx - 7 * k + j(), cy + 1 * k, 7.5 * k, 6.5 * k, c.foliage);
-  P.ellipse(cx + 7.5 * k + j(), cy + 2.5 * k, 6.5 * k, 5.5 * k, c.foliage);
-  P.ellipse(cx - 1 * k + j(), cy - 3 * k, 10 * k, 8 * k, c.foliage);
-  P.ellipse(cx - 5 * k + j(), cy - 5.5 * k, 4.5 * k, 3 * k, c.foliage, { tone: 1 });
-  P.ellipse(cx + 6 * k, cy + 6 * k, 4.5 * k, 2.5 * k, c.foliage, { tone: -1 });
-  P.ellipse(cx + 3 * k + j(), cy + 0 * k, 3 * k, 2.2 * k, c.foliage, { tone: 1 });
+  const L = (dx: number, u: number, rx: number, ry: number, tone = 0) => P.ellipse(cx + dx * k + j(), Yu(c, u), rx * k, ry * k, c.foliage, { tone });
+  P.ellipse(cx, Yu(c, 38), 14 * k, 9 * k, c.foliage, { tone: -1 });
+  L(-8, 41, 7.5, 8);
+  L(8, 42, 7.5, 7.5);
+  L(0, 50, 11, 9);
+  L(-5.5, 55, 6.5, 5);
+  L(6, 54, 6, 4.5);
+  L(-6, 35, 5, 3, -1);
+  L(7, 34.5, 5, 3, -1);
+  P.ellipse(cx - 5 * k, Yu(c, 57.5), 4 * k, 2.4 * k, c.foliage, { tone: 1 });
+  P.ellipse(cx + 3 * k + j(), Yu(c, 45), 3.2 * k, 2.4 * k, c.foliage, { tone: 1 });
   if (c.v >= 5) {
-    const spots: [number, number][] = [[-7, 2], [2, 6], [8, -1], [-2, -4]];
-    for (const [dx, dy] of spots) {
-      const x = Math.round(cx + dx * k), y = Math.round(cy + dy * k);
+    const spots: [number, number][] = [[-9, 41], [2, 36], [9, 45], [-2, 52], [5, 56]];
+    for (const [dx, u] of spots) {
+      const x = Math.round(cx + dx * k), y = Math.round(Yu(c, u));
       P.px(x, y, c.accent, 3);
       if (k >= 1) P.px(x + 1, y, c.accent, 2);
     }
@@ -89,50 +103,51 @@ function oak(c: Ctx) {
 function pine(c: Ctx) {
   const { P, S, k, G, R, R1 } = c;
   const cx = S / 2;
-  const n = 3 + (c.v % 2);
-  const tw = R1(4);
-  P.cylinder(Math.round(cx - tw / 2), G - R1(7), tw, R1(7), c.trunk);
-  const top = 1.5 * k, bottom = G - R(5);
-  const h = ((bottom - top) / (n + 0.7)) * 1.7;
-  const step = (bottom - top) / (n + 0.7);
+  const n = 5 + (c.v % 2);
+  const tw = R1(5);
+  const th = R1(10);
+  P.cylinder(Math.round(cx - tw / 2), G - th, tw, th, c.trunk);
+  const top = 1.5 * k, bottom = G - R(8);
+  const step = (bottom - top) / (n + 0.9);
+  const h = step * 1.9;
   for (let i = n - 1; i >= 0; i--) {
-    const halfW = (4.5 + (7.5 * i) / (n - 1)) * k;
+    const halfW = (5 + (9.5 * i) / (n - 1)) * k;
     cone(c, cx, Math.round(top + h + i * step), halfW, Math.round(h), c.foliage, c.v + i);
   }
 }
 
 function palm(c: Ctx) {
-  const { P, S, k, r, G, R, R1 } = c;
+  const { P, S, k, r, G, R1 } = c;
   const cx = S / 2;
-  const lean = (c.v % 2 ? 1 : -1) * 2 * k;
+  const lean = (c.v % 2 ? 1 : -1) * 3 * k;
   const x0 = cx - 2 * k, y0 = G - 1;
-  const x2 = cx + 2 * k + lean, y2 = R(14);
-  const x1 = cx - 3 * k + lean * 0.3, y1 = R(23);
-  const tw = R1(3);
-  for (let t = 0; t <= 1.0001; t += 1 / 70) {
+  const x2 = cx + 2 * k + lean, y2 = Yu(c, 47);
+  const x1 = cx - 4 * k + lean * 0.3, y1 = Yu(c, 26);
+  const tw = R1(4);
+  for (let t = 0; t <= 1.0001; t += 1 / 150) {
     const x = (1 - t) ** 2 * x0 + 2 * (1 - t) * t * x1 + t * t * x2;
     const y = (1 - t) ** 2 * y0 + 2 * (1 - t) * t * y1 + t * t * y2;
-    P.cylinder(Math.round(x - tw / 2), Math.round(y), tw, 1, c.trunk, { tone: Math.floor(t * 10) % 2 ? -1 : 0 });
+    P.cylinder(Math.round(x - tw / 2), Math.round(y), tw, 1, c.trunk, { tone: Math.floor(t * 14) % 2 ? -1 : 0 });
   }
-  P.box(Math.round(x0 - tw / 2) - 1, G - R1(2), tw + 2, R1(2), c.trunk, [0, 0, 1], { tone: -1 });
+  P.box(Math.round(x0 - tw / 2) - 1, G - R1(3), tw + 2, R1(3), c.trunk, [0, 0, 1], { tone: -1 });
   const hx = x2, hy = y2;
   // [angle, length, droop, tone]: back fronds first (darker), then the front ones
   const fronds: [number, number, number, number][] =
     k < 1
-      ? [[-90, 9, 2, -1], [-150, 10, 4, 0], [-30, 10, 4, 0], [176, 9, 5, 0], [4, 9, 5, 0]]
+      ? [[-90, 9, 2, -1], [-150, 11, 5, 0], [-30, 11, 5, 0], [176, 10, 7, 0], [4, 10, 7, 0]]
       : [
-          [-100, 9, 3, -1], [-68, 9, 4, -1], [-150, 12, 6, -1], [-30, 12, 6, -1],
-          [-125, 13, 6, 0], [-52, 13, 6, 0], [172, 11, 7, 0], [8, 11, 7, 0],
+          [-100, 10, 3, -1], [-68, 10, 4, -1], [-150, 13, 7, -1], [-30, 13, 7, -1],
+          [-125, 14, 8, 0], [-52, 14, 8, 0], [172, 13, 11, 0], [8, 13, 11, 0],
         ];
   for (const [deg, len, droop, tone] of fronds) {
     const a = (deg * Math.PI) / 180 + (r.next() - 0.5) * 0.12;
-    const L = len * k;
-    for (let s = 0; s <= L; s += Math.max(0.7, k * 0.7)) {
-      const f = s / L;
+    const Ln = len * k;
+    for (let s = 0; s <= Ln; s += Math.max(0.7, k * 0.7)) {
+      const f = s / Ln;
       const px = hx + Math.cos(a) * s;
       const py = hy + Math.sin(a) * s + f * f * droop * k;
-      const w = Math.max(0.9, (2.1 - 1.3 * f) * k);
-      P.ellipse(px, py, w, Math.max(0.8, w * 0.65), c.foliage, { tone: tone + (f > 0.75 ? 0 : 0) });
+      const w = Math.max(0.9, (2.2 - 1.3 * f) * k);
+      P.ellipse(px, py, w, Math.max(0.8, w * 0.65), c.foliage, { tone });
     }
   }
   P.ellipse(hx - 1.5 * k, hy + 2.5 * k, 1.8 * k, 1.8 * k, c.trunk, { tone: -1 });
@@ -140,35 +155,35 @@ function palm(c: Ctx) {
 }
 
 function deadTree(c: Ctx) {
-  const { P, S, k, r, G, R, R1 } = c;
+  const { P, S, k, r, G, R1 } = c;
   const cx = S / 2;
-  const top = R(4);
+  const top = Math.round(Yu(c, 58));
   const phase = c.v * 1.3;
   const rows = G - top;
-  const xAt = (y: number) => cx + Math.sin(((G - y) / rows) * 3 + phase) * 1.2 * k;
+  const xAt = (y: number) => cx + Math.sin(((G - y) / rows) * 3 + phase) * 1.5 * k;
   for (let y = G - 1; y >= top; y--) {
     const t = (G - 1 - y) / rows;
-    const w = Math.max(2, Math.round(R1(6) * (1 - 0.6 * t)));
+    const w = Math.max(2, Math.round(R1(8) * (1 - 0.65 * t)));
     P.cylinder(Math.round(xAt(y) - w / 2), y, w, 1, c.trunk);
   }
-  P.box(Math.round(cx - R1(3)) - 1, G - R1(2), R1(6) + 2, R1(2), c.trunk, [0, 0, 1], { tone: -1 });
+  P.box(Math.round(cx - R1(4)) - 1, G - R1(3), R1(8) + 2, R1(3), c.trunk, [0, 0, 1], { tone: -1 });
   const branch = (fromY: number, dx: number, dy: number, fork: boolean) => {
-    const x0 = Math.round(xAt(fromY)), y0 = fromY;
+    const x0 = Math.round(xAt(fromY)), y0 = Math.round(fromY);
     const x1 = Math.round(x0 + dx * k), y1 = Math.round(y0 + dy * k);
     if (k >= 1) P.line(x0, y0 + 1, x1, y1 + 1, c.trunk, 1);
     P.line(x0, y0, x1, y1, c.trunk, k >= 1 ? 2 : 1);
     if (fork) {
       const mx = Math.round((x0 + x1) / 2), my = Math.round((y0 + y1) / 2);
-      const fx = Math.round(mx + Math.sign(dx) * 4 * k), fy = Math.round(my - 5 * k);
+      const fx = Math.round(mx + Math.sign(dx) * 4 * k), fy = Math.round(my - 7 * k);
       P.line(mx, my, fx, fy, c.trunk, k >= 1 ? 2 : 1);
     }
     if (k >= 1) P.px(x1, y1 - 1, c.trunk, 3);
   };
-  branch(R(14), -9 + r.int(-1, 1), -10, true);
-  branch(R(10), 8 + r.int(-1, 1), -8, c.v % 2 === 0);
-  branch(R(20), 6, -5, false);
-  branch(R(22), -6, -4, false);
-  P.px(Math.round(cx), R(18), c.trunk, 0); // knot hole
+  branch(Yu(c, 38), -10 + r.int(-1, 1), -13, true);
+  branch(Yu(c, 28), 9 + r.int(-1, 1), -10, c.v % 2 === 0);
+  branch(Yu(c, 47), 6, -7, false);
+  branch(Yu(c, 20), -7, -5, false);
+  P.px(Math.round(cx), Math.round(Yu(c, 14)), c.trunk, 0); // knot hole
 }
 
 function bush(c: Ctx) {
@@ -535,11 +550,13 @@ export const environmentGenerator: Generator = {
 
     const S = kit.sizes.environment;
     const k = S / 32;
+    const H = treeHeight(kit, kind);
     const ctx: Ctx = {
-      P: new Painter(S, S, kit),
+      P: new Painter(S, H, kit),
       S,
+      H,
       k,
-      G: S - 1,
+      G: H - 1,
       r,
       v: variant,
       foliage: mat(p, "foliage"),

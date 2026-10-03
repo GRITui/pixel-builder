@@ -5,7 +5,7 @@
 import { mkdirSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { DEFAULT_HTTP_PORT, VERSION, startHttp, startStdio } from "./mcp";
+import { DEFAULT_HTTP_PORT, VERSION, parseHostList, startHttp, startStdio } from "./mcp";
 import { TOOLS, ToolError, callTool, inputJsonSchema, nearest, type ToolDef, type ToolResult } from "./tools";
 import { DEFAULT_WORKSPACE, Workspace, atomicWrite, slugify } from "./workspace";
 
@@ -236,11 +236,11 @@ function mainHelp(): string {
     "",
     "Commands (same names as the MCP tools, kebab-case):",
     ...TOOLS.map((t) => `  ${kebab(t.name).padEnd(w)}${firstSentence(t.description)}`),
-    `  ${"mcp".padEnd(w)}Run the MCP server (stdio; --http [--port ${DEFAULT_HTTP_PORT}] [--host 127.0.0.1] for Streamable HTTP).`,
+    `  ${"mcp".padEnd(w)}Run the MCP server (stdio; --http [--port ${DEFAULT_HTTP_PORT}] [--allowed-host h] [--token t] for Streamable HTTP).`,
     "",
     "Global options:",
     "  --workspace, -w <dir>  Workspace folder (default: $PIXEL_BUILDER_WORKSPACE, else ./" + DEFAULT_WORKSPACE + ").",
-    "                         It holds pixel-builder.json (the project) and exports in <category>s/ folders.",
+    "                         It holds pixel-builder.json (the project) and exports in <category>s/ folders (characters/, buildings/, environments/, objects/, maps/; UI assets go in ui/).",
     "  --json                 Machine-readable output ({ok, ...result, previews}); errors as {ok:false,error}.",
     "  --help, -h             Help; `pixel-builder <command> --help` lists a command's options.",
     "  --version              Print the version.",
@@ -315,10 +315,22 @@ export interface CliIO {
 
 const stdio: CliIO = { out: (t) => process.stdout.write(t + "\n"), err: (t) => process.stderr.write(t + "\n") };
 
+const MCP_USAGE = `Usage: pixel-builder mcp [--http] [--port ${DEFAULT_HTTP_PORT}] [--host 127.0.0.1] [--allowed-host <name>]... [--token <secret>] [--workspace <dir>]
+
+Runs the MCP server. Default: stdio (Claude Code, Cursor, Codex, Gemini CLI, Hermes, ...); stdout carries only protocol messages.
+--http serves Streamable HTTP at http://127.0.0.1:${DEFAULT_HTTP_PORT}/mcp, loopback only: requests whose Host/Origin is not localhost/127.0.0.1/::1 get 403.
+  --allowed-host <name>  Also accept this Host/Origin (repeatable or comma-separated; env PIXEL_BUILDER_ALLOWED_HOSTS).
+                         Needed behind a tunnel (cloudflared, ngrok): --allowed-host my-tunnel.trycloudflare.com
+  --token <secret>       Require "Authorization: Bearer <secret>" (env PIXEL_BUILDER_TOKEN, preferred: argv is visible in process lists).
+Use --token whenever you expose the server beyond localhost; a warning is printed on stderr if you do not.
+Tool output (exports) goes to <workspace>/<category>s/ (UI assets: ui/).`;
+
 async function runMcp(tokens: string[], workspace: string | undefined, io: CliIO): Promise<number> {
   let http = false;
   let port = DEFAULT_HTTP_PORT;
   let host = "127.0.0.1";
+  let token = process.env.PIXEL_BUILDER_TOKEN || undefined;
+  const allowed: string[] = [process.env.PIXEL_BUILDER_ALLOWED_HOSTS ?? ""];
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i];
     const [name, inline] = t.includes("=") ? [t.slice(0, t.indexOf("=")), t.slice(t.indexOf("=") + 1)] : [t, undefined];
@@ -329,12 +341,15 @@ async function runMcp(tokens: string[], workspace: string | undefined, io: CliIO
       port = Number(value());
       if (!Number.isInteger(port) || port < 0 || port > 65535) throw new UsageError("--port expects 0..65535");
     } else if (name === "--host") host = value();
+    else if (name === "--allowed-host") allowed.push(value());
+    else if (name === "--token") token = value() || undefined;
     else if (name === "--workspace" || name === "-w") workspace = value();
-    else throw new UsageError(`Unknown option ${t} for mcp. Usage: pixel-builder mcp [--http] [--port ${DEFAULT_HTTP_PORT}] [--host 127.0.0.1] [--workspace dir]`);
+    else throw new UsageError(`Unknown option ${t} for mcp.\n${MCP_USAGE}`);
   }
+  if (!http && (token || allowed.some((a) => a.trim()) || host !== "127.0.0.1")) io.err("[pixel-builder] note: --host/--allowed-host/--token only apply with --http; running on stdio.");
   const ws = new Workspace(workspace);
   if (http) {
-    const handle = await startHttp(ws, { port, host });
+    const handle = await startHttp(ws, { port, host, allowedHosts: parseHostList(...allowed), token });
     const stop = () => void handle.close().then(() => process.exit(0));
     process.once("SIGINT", stop);
     process.once("SIGTERM", stop);
@@ -343,7 +358,6 @@ async function runMcp(tokens: string[], workspace: string | undefined, io: CliIO
     process.once("SIGINT", () => process.exit(0));
     process.once("SIGTERM", () => process.exit(0));
   }
-  void io;
   return 0;
 }
 
@@ -377,7 +391,7 @@ export async function main(argv: string[], io: CliIO = stdio): Promise<number> {
     }
     if (command === "mcp") {
       if (rest.includes("--help") || rest.includes("-h")) {
-        io.out(`Usage: pixel-builder mcp [--http] [--port ${DEFAULT_HTTP_PORT}] [--host 127.0.0.1] [--workspace <dir>]\n\nRuns the MCP server. Default: stdio (for Claude Code, Cursor, Codex, Gemini CLI, Hermes...).\n--http serves Streamable HTTP at http://127.0.0.1:${DEFAULT_HTTP_PORT}/mcp (loopback only unless --host is given; no auth).`);
+        io.out(MCP_USAGE);
         return 0;
       }
       return await runMcp(rest.filter((t) => t !== "--json"), workspace, io);
