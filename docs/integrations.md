@@ -27,7 +27,7 @@ All placeholders: `<ABS>` = absolute path of this repo checkout,
 |---|---|---|
 | Dev stdio (inside this repo) | `npx tsx src/node/cli.ts mcp` | project configs in this repo |
 | Built stdio | `node <ABS>/dist-node/cli.mjs mcp` (after `npm run build:node`) | global / other projects |
-| Linked bin | `pixel-builder mcp` (after `npm link` in this repo) | you want a short command on `PATH` |
+| Linked bin | `pixel-builder mcp` (after `npm link` in this repo; uses `dist-node/cli.mjs` if built, else falls back to tsx) | you want a short command on `PATH` |
 | Streamable HTTP | `npx tsx src/node/cli.ts mcp --http --port 8788` -> `http://127.0.0.1:8788/mcp` | clients that connect to a URL |
 | CLI | `npx tsx src/node/cli.ts <command> --json` | agents with a shell |
 
@@ -40,14 +40,16 @@ GUI apps do not control, so in global configs use an absolute `<GAME>/pixel-asse
 
 **Notes**
 
-- Don't launch the stdio server with plain `npm run mcp`: npm prints a banner to
-  stdout, which corrupts the stdio protocol. Use `npx tsx ...` as above (or
-  `npm run -s mcp`).
+- Don't launch the stdio server with plain `npm run mcp`: npm prints a banner
+  (`> pixel-builder@0.1.0 mcp`) to stdout, which corrupts the stdio protocol
+  (I confirmed this). Use `npx tsx ...` as above, or `npm run -s mcp`.
 - GUI apps (Claude Desktop, Windsurf, Cursor from the dock) often don't inherit
   your shell `PATH`. If `npx`/`node` isn't found, put the absolute path of the
   binary (`which node`) in `command`.
 - Check the server works before wiring a client:
   `npx tsx src/node/cli.ts get-style-guide --json` should print the kit and legend.
+  I ran the stdio server (dev and built), the HTTP server and the CLI examples in
+  this guide against the current code: all 16 tools list over both transports.
 
 ## 1. Claude Code
 
@@ -429,9 +431,12 @@ excerpt.) The JavaScript/TypeScript Agents SDK was not checked.
 
 ## 12. Remote MCP clients (HTTP transport)
 
-Start the server: `npx tsx src/node/cli.ts mcp --http --port 8788`. It listens on
-`127.0.0.1` only, endpoint `http://127.0.0.1:8788/mcp` (Streamable HTTP). Any
-MCP client that takes a URL can use that directly (see the HTTP variants above).
+Start the server: `npx tsx src/node/cli.ts mcp --http --port 8788`. It prints
+`MCP server (Streamable HTTP) at http://127.0.0.1:8788/mcp` on stderr. Endpoint
+`http://127.0.0.1:8788/mcp`, Streamable HTTP, **stateless** (each request is
+independent; only `POST` is accepted, a `GET` returns 405). Any MCP client that
+takes a URL can use it directly (see the HTTP variants above). Flags:
+`--port <n>`, `--host <addr>` (default `127.0.0.1`), `--workspace <dir>`.
 
 Hosted clients such as ChatGPT developer mode need a public HTTPS URL. Docs:
 <https://developers.openai.com/api/docs/guides/developer-mode> (**excerpt-verified**).
@@ -439,17 +444,30 @@ In ChatGPT, enable Developer mode (see the doc for the current menu path), add a
 connector, and enter the MCP URL **including the `/mcp` path**; supported
 transports are Streamable HTTP and SSE.
 
-Expose the local server with a tunnel (for example `cloudflared tunnel --url
-http://127.0.0.1:8788`, or ngrok) and use the tunnel URL + `/mcp`.
+To reach the local server from the internet you need a tunnel (for example
+`cloudflared` or ngrok). Two gotchas I confirmed in the code:
 
-**Warning:** the HTTP server has no authentication of its own. Anyone who can
-reach the URL can read and write your workspace. Only tunnel it with access
-control (tunnel auth, an authenticating reverse proxy) and shut it down when done.
-Claude Desktop's remote connectors and Claude.ai also need a public URL; not
-verified here.
+- On loopback binds the server only accepts `Host` / `Origin` headers that are
+  `localhost`, `127.0.0.1` or `::1` (DNS-rebinding guard), so a tunnel that
+  forwards the public hostname gets **403**. Configure the tunnel to rewrite the
+  Host header to `localhost` (cloudflared `--http-host-header`, ngrok
+  `--host-header`; those flags are from memory, check your tunnel's docs).
+- There is **no authentication**. Anyone who can reach the URL can read and
+  write your workspace. Only expose it behind tunnel-level access control, and
+  stop it when done. Binding to another interface with `--host` turns the guard
+  off, so don't do that on an untrusted network.
 
-**Check:** `curl -i http://127.0.0.1:8788/mcp` returns an HTTP response (not
-"connection refused"); the client lists the tools after connecting.
+Claude Desktop's remote connectors and Claude.ai also need a public HTTPS URL
+(not verified here).
+
+**Check:** this lists the 16 tools (a plain `GET` in a browser gives 405, which
+also proves it is up):
+
+```bash
+curl -s -X POST http://127.0.0.1:8788/mcp \
+  -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
 
 ## 13. Any agent with a shell (CLI)
 
@@ -457,20 +475,26 @@ No MCP needed. From this repo `npx tsx src/node/cli.ts <command> --json`; after
 `npm run build:node` use `node <ABS>/dist-node/cli.mjs <command> --json`; after
 `npm link`, `pixel-builder <command> --json`. Give the agent
 [`SKILL.md`](../skills/pixel-builder/SKILL.md) (paste it, or `@`-reference it) so
-it knows the workflow.
+it knows the workflow. The first positional argument is each command's main input
+(`generator`, `id` or exact name, `name`, `kit_id`, `path`); arrays and objects
+take JSON, `@file.json` or `k=v,k=v`; `pixel-builder <command> --help` lists every
+option. Exit codes: 0 ok, 1 tool error, 2 usage error. `--json` prints
+`{"ok": true, ...result, "previews": [...]}` or `{"ok": false, "error": "..."}`.
 
 ```bash
 pixel-builder get-style-guide --json
 pixel-builder list-generators --category object --json
-pixel-builder generate-asset --generator object --params '{"kind":"chest"}' --seed 3 --name chest --json
-pixel-builder generate-variations --generator environment --params '{"kind":"oak"}' --count 6 --json
-pixel-builder export-asset --id <id> --format spritesheet --scale 1 --json
+pixel-builder generate-asset object --params kind=chest --seed 3 --name chest --json
+pixel-builder generate-variations environment --params kind=oak --count 6 --json
+pixel-builder paint-asset --name gem --category object --width 8 --height 8 --frames @gem.json
+pixel-builder export-asset chest --format spritesheet --scale 4 --out-dir ./game/art
 pixel-builder --workspace <GAME>/pixel-assets list-assets --json
 ```
 
-Preview images are written as PNG files next to the exports; have the agent open
-them with its image-reading tool, since looking at the output is part of the
-workflow. **Check:** `pixel-builder list-kits --json` lists the built-in kits.
+Preview images (including the contact sheet from `generate-variations`) are
+saved to `<workspace>/.previews/`; have the agent open them with its
+image-reading tool, since looking at the output is part of the workflow.
+**Check:** `pixel-builder list-kits --json` lists the built-in kits.
 
 ## Tool reference (same names in MCP and CLI)
 

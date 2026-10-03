@@ -60,12 +60,14 @@ biggest consistency win: pick palette + outline + light, then size the sprites.
 | `character` | character | top-down RPG humanoid or slime, 4-direction x 4-frame walk | `archetype`, `build`, `skin`, `hair`, `hair_style`, `top`, `bottom`, `boots`, `headwear`, `weapon`, `accent_mat`, `cape` |
 | `building` | building | 3/4 view cottage / shop / tower / keep / barn | `style`, `wall`, `roof`, `roof_style`, `floors` 1-3, `width`, `lit_windows`, `chimney`, `trim` |
 | `environment` | environment | trees, bushes, rocks, flowers, crystals, and seamless ground tiles (`water-tile` animates) | `kind`, `foliage`, `trunk`, `stone`, `accent`, `variant` 0-9 |
-| `object` | object | 16px items and props (chest, barrel, potion, sword, coin, torch, gem, ...) | `kind`, `main`, `accent`, `variant` |
+| `object` | object | 16px items and props (chest, barrel, potion, sword, coin, torch, gem, ...) | `kind`, `main`, `accent` (`natural` = the item's own colours, or any material to re-skin), `variant` |
 | `ui` | ui | button (normal/hover/pressed), panel (9-slice), slot, bar (frame/fill), icon-frame, cursor, tab, checkbox, dialog-arrow | `kind`, `material`, `accent`, `width`, `height`, `style` |
 | `map` | map | procedural tile map from the kit's tiles and props | `biome` (meadow/forest/island/desert/winter), `cols`, `rows`, `density`, `path` |
 
-Material params take one of the 18 material names. `seed` changes shapes
-within a generator; characters are fully parametric (seed has no effect).
+Material params take one of the 18 material names (each param lists its own
+allowed subset; objects also accept `natural`). `seed` changes shapes within a
+generator; characters are fully parametric (seed has no effect). `ui` `width` /
+`height` of 0 mean the generator's default size for that `kind`.
 
 Choosing a generator: can a generator express it? Use it (consistent lighting
 for free). Only if it can't (a specific logo, an unusual creature, a custom
@@ -76,12 +78,16 @@ icon) use `paint_asset`, and keep it in the same sizes and materials.
 - Asset = one or more animation rows of frames + `fps`. Static assets have one
   row, one frame. `category` is one of `character`, `building`, `environment`,
   `object`, `ui`, `map`.
-- Exports: `<workspace>/<category>s/<slug>.png` (animated assets also
-  `<slug>.json` with frame size, rows, fps, nineSlice meta; maps also
-  `<slug>.tiled.json`, a Tiled-compatible map with one tileset image).
-- `export_asset` `format`: `png` (first frame / preview), `spritesheet`
-  (PNG + JSON), `tiled` (maps). `scale` is an integer upscale (1, 2, 4, 8) with
-  nearest-neighbour; for engines, prefer 1x and scale in the engine.
+- Exports go to `<workspace>/<folder>/<slug>.png`, folder = `characters`,
+  `buildings`, `environments`, `objects`, `ui` or `maps`. Animated assets export
+  as a spritesheet PNG plus `<slug>.json` (image, frame size, columns/rows, fps,
+  animations by row, nineSlice meta); maps also get `<slug>.tiled.json` (a
+  Tiled-compatible map) with `<slug>.tileset.png` / `<slug>.deco.png`.
+- `export_asset` `format`: `png` (static image, or spritesheet if animated),
+  `spritesheet` (always PNG + JSON), `tiled` (maps only). `scale` is an integer
+  upscale (1-16, nearest-neighbour); for engines, prefer 1x and scale in the
+  engine. `out_dir` overrides the folder.
+- Tools that take an asset `id` also accept its exact name if unambiguous.
 - UI panels carry `meta.nineSlice {left, top, right, bottom}`: use it for
   9-slice scaling instead of stretching.
 
@@ -98,12 +104,18 @@ icon) use `paint_asset`, and keep it in the same sizes and materials.
 
 ## Troubleshooting
 
-- "row has wrong length": every row in `frames` must be exactly `width` chars
-  and there must be exactly `height` rows per frame.
-- "unknown char": it isn't in the legend (quotes, backslash and space are never
-  legend characters). Re-read `get_style_guide`.
-- Colours look off after changing the kit: `rerender_assets` regenerates
-  procedural assets; hand-painted assets recolour automatically (they store
-  palette indices), but re-check their previews.
+Tool errors come back as readable messages (MCP `isError`, CLI `{"ok": false}` and
+exit code 1; usage errors exit 2). Common causes:
+
+- Painting: every row must be exactly `width` chars and each frame exactly
+  `height` rows; use only legend characters (`.` = transparent; quotes,
+  backslash and space are never legend chars); a frame with no painted pixels is
+  rejected. `paint_asset` / `edit_asset` can't make or change maps.
+- After `update_kit`: palette/ramp changes recolour existing assets by
+  themselves (they store palette indices); outline, light, shade steps, dither,
+  ambient or size changes need `rerender_assets`, which regenerates procedural
+  assets only. Hand-painted and imported assets are skipped: re-paint them with
+  `paint_asset` / `edit_asset`.
 - Output looks flat or noisy: adjust `shadeSteps` / `dither` / `ambient` in the
   kit rather than editing assets one by one.
+- Unknown asset: ids and exact names both work; `list_assets` shows them.

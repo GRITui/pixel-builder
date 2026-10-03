@@ -10,7 +10,7 @@
 // never leaves a half-written project or PNG behind.
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
-import { emptyProject, parseProject, serializeProject, type ProjectFile } from "../core/project";
+import { emptyProject, parseProject, type ProjectFile } from "../core/project";
 import type { Asset, Category, Sprite, StyleKit, TileMap } from "../core/types";
 import { blankImage, drawSprite, encodePng, kitColors, scaleImage, sheetImage, spriteImage, type RgbaImage } from "./png";
 
@@ -38,6 +38,16 @@ export const CATEGORY_DIR: Record<Category, string> = {
 /** `--workspace` > `PIXEL_BUILDER_WORKSPACE` > `./pixel-assets`. */
 export function resolveWorkspaceDir(explicit?: string): string {
   return resolve(explicit || process.env.PIXEL_BUILDER_WORKSPACE || DEFAULT_WORKSPACE);
+}
+
+/**
+ * ProjectFile as JSON with one asset per line: valid input for `parseProject`, but ~10x smaller than
+ * the pretty-printed form (sprites are number arrays) and friendly to git diffs.
+ */
+export function serializeProjectCompact(p: ProjectFile): string {
+  const kits = JSON.stringify(p.kits, null, 2).replace(/\n/g, "\n  ");
+  const assets = p.assets.map((a) => `    ${JSON.stringify(a)}`).join(",\n");
+  return `{\n  "format": ${JSON.stringify(p.format)},\n  "version": ${p.version},\n  "activeKitId": ${JSON.stringify(p.activeKitId)},\n  "kits": ${kits},\n  "assets": [${assets ? `\n${assets}\n  ` : ""}]\n}\n`;
 }
 
 export function atomicWrite(path: string, data: string | Uint8Array): void {
@@ -79,7 +89,7 @@ export class Workspace {
   }
 
   save(project: ProjectFile): void {
-    atomicWrite(this.projectPath, serializeProject(project) + "\n");
+    atomicWrite(this.projectPath, serializeProjectCompact(project));
   }
 
   /** Path relative to the workspace (posix separators) for compact output; absolute if outside it. */

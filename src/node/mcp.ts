@@ -6,9 +6,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { serializeProject } from "../core/project";
 import { TOOLS, ToolError, callTool, type ToolDef, type ToolResult } from "./tools";
-import { Workspace } from "./workspace";
+import { Workspace, serializeProjectCompact } from "./workspace";
 
 export const VERSION = "0.1.0";
 export const DEFAULT_HTTP_PORT = 8788;
@@ -81,7 +80,7 @@ export function createMcpServer(ws: Workspace): McpServer {
     "project",
     "pixel-builder://project",
     { title: "Project file", description: "The workspace project (kits + assets) as pixel-builder/project JSON, the same format the web app imports and exports.", mimeType: "application/json" },
-    async (uri) => ({ contents: [{ uri: uri.href, mimeType: "application/json", text: serializeProject(ws.load()) }] }),
+    async (uri) => ({ contents: [{ uri: uri.href, mimeType: "application/json", text: serializeProjectCompact(ws.load()) }] }),
   );
   server.registerResource(
     "style-guide",

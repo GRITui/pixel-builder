@@ -297,7 +297,7 @@ export function contactSheet(sprites: Sprite[], kit: StyleKit, opts: { columns?:
   const rows = Math.ceil(n / columns);
   const cw = Math.max(1, ...sprites.map((s) => s.w));
   const ch = Math.max(1, ...sprites.map((s) => s.h));
-  const scale = opts.scale ?? previewScale(cw * columns, ch * rows, 640, 1600);
+  const scale = opts.scale ?? previewScale(cw * columns, ch * rows, 512, 1600);
   const pad = 2, label = opts.numbers === false ? 0 : 7;
   const cellW = (cw + pad * 2) * scale, cellH = (ch + pad * 2) * scale + label * Math.max(1, Math.floor(scale / 2));
   const img = blankImage(columns * cellW, rows * cellH, [40, 38, 52, 255]);

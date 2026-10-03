@@ -78,7 +78,10 @@ export function parseInput(tool: ToolDef, raw: unknown): any {
   if (r.success) return r.data;
   const lines = r.error.issues.map((i) => {
     const where = i.path.length ? i.path.join(".") : "(input)";
-    if (i.code === "unrecognized_keys") return `unknown input ${(i as { keys: string[] }).keys.map((k) => `'${k}'`).join(", ")}; valid inputs: ${Object.keys(tool.shape).join(", ")}`;
+    if (i.code === "unrecognized_keys") {
+      const keys = (i as { keys: string[] }).keys.map((k) => `'${k}'`).join(", ");
+      return i.path.length ? `${where}: unknown key ${keys}` : `unknown input ${keys}; valid inputs: ${Object.keys(tool.shape).join(", ")}`;
+    }
     return `${where}: ${i.message}`;
   });
   throw new ToolError(`Invalid input for ${tool.name}: ${lines.join("; ")}`);
@@ -111,11 +114,11 @@ function levenshtein(a: string, b: string): number {
 }
 
 /** Closest candidates to `input` (case-insensitive substring or small edit distance). */
-function nearest(input: string, candidates: readonly string[], max = 3): string[] {
+export function nearest(input: string, candidates: readonly string[], max = 3): string[] {
   const q = input.toLowerCase();
   return candidates
     .map((c) => ({ c, d: c.toLowerCase().includes(q) || q.includes(c.toLowerCase()) ? 0 : levenshtein(q, c.toLowerCase()) }))
-    .filter((x) => x.d <= Math.max(2, Math.floor(q.length / 3)))
+    .filter((x) => x.d <= Math.max(1, Math.floor(q.length / 3)))
     .sort((a, b) => a.d - b.d)
     .slice(0, max)
     .map((x) => x.c);
@@ -124,15 +127,16 @@ function nearest(input: string, candidates: readonly string[], max = 3): string[
 function resolveGenerator(id: string): Generator {
   const g = generatorById(id) ?? GENERATORS.find((x) => x.id === id.toLowerCase());
   if (g) return g;
-  const hints: string[] = [];
-  for (const near of nearest(id, GENERATORS.map((x) => x.id))) hints.push(`'${near}'`);
+  const hints: string[] = nearest(id, GENERATORS.map((x) => x.id), 2).map((n) => `'${n}'`);
   const q = id.toLowerCase();
-  for (const gen of GENERATORS)
-    for (const s of gen.params)
-      if (s.type === "select") {
-        const opts = s.options.filter((o) => o === q || o.includes(q) || nearest(q, [o], 1).length > 0).slice(0, 2);
-        for (const o of opts) hints.push(`'${gen.id}' with params {"${s.key}":"${o}"}`);
-      }
+  const optionHints = (fuzzy: boolean) =>
+    GENERATORS.flatMap((gen) =>
+      gen.params.flatMap((s) =>
+        s.type !== "select" ? [] : s.options.filter((o) => (fuzzy ? nearest(q, [o], 1).length > 0 : o === q || o.includes(q))).slice(0, 2).map((o) => `'${gen.id}' with params {"${s.key}":"${o}"}`),
+      ),
+    );
+  const byOption = optionHints(false);
+  hints.push(...(byOption.length ? byOption : optionHints(true)));
   throw new ToolError(
     `Unknown generator '${id}'.` + (hints.length ? ` Did you mean ${[...new Set(hints)].slice(0, 4).join(" or ")}?` : "") + ` Generators: ${GENERATORS.map((x) => x.id).join(", ")} (see list_generators).`,
   );
@@ -289,7 +293,7 @@ const getStyleGuide = defineTool({
   name: "get_style_guide",
   title: "Get style guide",
   description:
-    "Read this before hand-painting. Returns the kit summary (vibe, light, outline, shade steps, sizes), the palette legend (one char per palette colour, for paint_asset / edit_asset rows) and the painting rules that keep hand-painted art on-kit.",
+    "Get a kit's style guide. Read it before hand-painting: it has the kit summary (vibe, light, outline, shade steps, sizes), the palette legend (one char per palette colour, used in paint_asset / edit_asset rows) and the painting rules that keep hand-painted art on-kit.",
   shape: {
     kit_id: kitIdField,
     materials: z.array(z.enum(MATERIALS)).optional().describe("Only list these materials in the legend (default: all). Chars never change."),

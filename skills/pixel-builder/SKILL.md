@@ -53,9 +53,11 @@ look at it before moving on.
    param specs; use real option values, materials come from the 18 names.
 3. **Generate.** `generate_asset` with `generator`, `params`, `seed`, `name`.
    Look at the preview. If it's close, change one or two params and regenerate.
-4. **Explore cheaply.** `generate_variations` (`count` 6, `vary: "seed"` for
-   shape variety, `"params"` for different looks). Pick the best `{seed, params}`
-   and call `generate_asset` with exactly those.
+4. **Explore cheaply.** `generate_variations` (`count` 6; `vary: "seed"` for
+   shape variety with your params pinned, `"params"` to randomise what you didn't
+   pin). The sheet is numbered left-to-right, top-to-bottom; the result lists each
+   number's `{seed, params}`. Pick the best and call `generate_asset` with exactly
+   those.
 5. **Hand-paint only the gaps.** Logos, signs with text, a one-off emblem, a
    special frame. Use `paint_asset` (new) or `edit_asset` (fix). Rules below.
 6. **Check as a set.** `list_assets` / `get_asset`; assets of the same category
@@ -105,7 +107,9 @@ Rules:
   material is enough; do not use all 5 everywhere.
 - Leave a 1px transparent margin so the outline fits. Keep silhouettes simple
   and readable at 1x.
-- Animated assets: pass several frames and `fps`; name rows with `row_names`.
+- Animated assets: pass several frames and `fps`. With `row_names` (e.g.
+  `["walk-down","walk-up"]`) the frames are split evenly across the rows in
+  order, so give a multiple of the row count. Maps can't be painted.
 - Match the sizes in the style guide (`sizes.character`, `.object`, ...); don't
   invent new sprite sizes for a category.
 - Keep `outline: true` and `cleanup: true` unless you are touching up a sprite
@@ -140,17 +144,20 @@ Copy or point the game at those files. MCP also exposes the resources
 
 ## No MCP? Use the CLI
 
-Same commands, kebab-case, with `--json` for machine output. From the pixel-builder
-repo: `npx tsx src/node/cli.ts <command> --json` (or `pixel-builder <command>`
-after `npm link`). Preview images are written as PNG files; open them with your
-image-reading tool. Examples:
+Same commands, kebab-case, flags = input names in kebab-case. From the
+pixel-builder repo: `npx tsx src/node/cli.ts <command> --json` (or
+`pixel-builder <command>` after `npm link`). `--json` prints
+`{"ok": true, ...result, "previews": [paths]}` (errors: `{"ok": false, "error"}`).
+Preview images are saved to `<workspace>/.previews/`; open those PNGs with your
+image-reading tool to look at them. The first positional argument is the main
+input (`generator`, `id`, `name`, `kit_id` or `path`); arrays/objects take JSON,
+`@file.json`, or `k=v,k=v`. `pixel-builder <command> --help` lists every option.
 
 ```bash
-pixel-builder get-style-guide --json
-pixel-builder list-generators --category object --json
-pixel-builder generate-asset --generator object --params '{"kind":"chest"}' --seed 3 --name chest --json
-pixel-builder generate-variations --generator environment --params '{"kind":"oak"}' --count 6 --json
+pixel-builder get-style-guide
+pixel-builder list-generators --category object
+pixel-builder generate-variations environment --params kind=oak --count 6
+pixel-builder generate-asset environment --params kind=oak --seed 42 --name "oak tree"
+pixel-builder paint-asset --name gem --category object --width 8 --height 8 --frames @gem.json
+pixel-builder export-asset "oak tree" --format spritesheet --scale 4 --out-dir ./game/art
 ```
-
-Flag spellings follow the tool inputs above (snake_case input `kit_id` becomes
-`--kit-id`); run `pixel-builder <command> --help` if unsure.
