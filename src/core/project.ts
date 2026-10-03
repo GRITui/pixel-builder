@@ -21,8 +21,15 @@ export function emptyProject(): ProjectFile {
   return { format: PROJECT_FORMAT, version: PROJECT_VERSION, activeKitId: DEFAULT_KIT.id, kits: KIT_PRESETS.map((k) => ({ ...k })), assets: [] };
 }
 
+/**
+ * Pretty enough to diff, compact enough to share: kits are indented, each
+ * asset is one line (sprite data arrays would otherwise put every number on
+ * its own line and make files ~7x larger). Output is plain JSON.
+ */
 export function serializeProject(p: ProjectFile): string {
-  return JSON.stringify(p, null, 2);
+  const kits = JSON.stringify(p.kits, null, 2).replace(/\n/g, "\n  ");
+  const assets = p.assets.map((a) => `    ${JSON.stringify(a)}`).join(",\n");
+  return `{\n  "format": ${JSON.stringify(p.format)},\n  "version": ${p.version},\n  "activeKitId": ${JSON.stringify(p.activeKitId)},\n  "kits": ${kits},\n  "assets": [${assets ? `\n${assets}\n  ` : ""}]\n}\n`;
 }
 
 const CATEGORY_IDS = new Set<Category>(CATEGORIES.map((c) => c.id));
