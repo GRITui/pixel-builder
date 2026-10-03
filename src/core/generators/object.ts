@@ -121,35 +121,42 @@ function chest({ d, m, a, v }: Ctx) {
   d.px(8, 7, "gold", 4);
 }
 
-function chestOpen({ d, m, a, v, f }: Ctx) {
-  d.box(2, 1, 12, 6, m, [0, 0.4, 1], -1);
-  d.box(3, 2, 10, 4, m, [0, 0.4, 1], -2);
-  d.bandV(4, 2, 1, 7, a, 2, 3);
-  d.bandV(10, 2, 1, 7, a, 2, 3);
-  d.ell(8, 8.5, 5.5, 2.6, "gold", 0.2);
-  d.px(6, 7, "gold", 4);
-  d.px(10, 8, "gold", 4);
-  d.px(8, 6, "gold", 3 + (v % 2));
+function chestOpen({ d, m, a, v }: Ctx) {
+  // lid swung up behind the body: we see its dark inner face
+  d.box(2, 1, 12, 7, m, [0, 0.4, 1], -1);
+  d.box(3, 2, 10, 5, m, [0, 0.4, 1], -3);
+  d.rect(2, 1, 12, 1, m, 3);
+  d.bandV(2, 1, 1, 8, a, 2, 3);
+  d.bandV(13, 1, 1, 8, a, 2, 3);
+  // treasure heap
+  d.ell(8, 8.6, 5.6, 3, "gold", 0.2);
+  d.px(6, 7, "gold", 4); d.px(10, 8, "gold", 4); d.px(8, 6, "gold", 4);
+  d.px(5, 8, "gold", 2); d.px(11, 9, "gold", 2);
+  if (v % 2 === 1) { d.px(9, 7, "cloth2", 4); d.px(7, 8, "water", 4); }
+  // body
   d.box(2, 9, 12, 5, m, [0, 0, 1], -1);
-  d.rect(2, 8, 12, 1, m, 3);
-  d.rect(2, 9, 12, 1, m, 0);
-  d.bandV(4, 2, 9, 14, a, 2, 3);
-  d.bandV(10, 2, 9, 14, a, 2, 3);
+  d.rect(2, 9, 12, 1, m, 4);
+  d.rect(2, 10, 12, 1, m, 0);
+  d.bandV(4, 2, 10, 14, a, 2, 3);
+  d.bandV(10, 2, 10, 14, a, 2, 3);
   d.bandH(2, 14, 13, a, 1, 2);
-  void f;
+  d.rect(7, 10, 2, 2, "gold", 3);
+  d.px(7, 11, "ink", 0);
 }
 
 function barrel({ d, m, a, v }: Ctx) {
-  const prof = [[5, 11], [3.5, 12.5], [3, 13], [3, 13], [3, 13], [3, 13], [3, 13], [3, 13], [3, 13], [3, 13], [3.5, 12.5], [5, 11]];
-  d.column(2, 12, (i) => prof[i] as [number, number], m);
-  d.ell(8, 3.5, 5, 2.2, m, 0.9, 1);
-  d.ell(8, 3.5, 3.4, 1.2, m, 0.9, -1);
-  d.bandH(2, 14, 5, a, 2, 3);
-  d.bandH(2, 14, 6, a, 1, 2);
-  d.bandH(2, 14, 11, a, 2, 3);
-  d.bandH(2, 14, 12, a, 1, 2);
-  if (v % 2 === 1) d.rect(7, 8, 2, 2, m, 0); // bung
-  d.erase(2, 4, 1, 1); d.erase(13, 4, 1, 1);
+  const prof: [number, number][] = [[5, 13], [4, 14], [4, 14], [4, 14], [4, 14], [4, 14], [4, 14], [4, 14], [4, 14], [4, 14], [4, 14], [5, 13]];
+  d.column(2, 12, (i) => prof[i], m);
+  // stave seams
+  for (const x of [5, 8, 11]) for (let y = 7; y < 14; y++) if (d.filled(x, y)) d.px(x, y, m, 0);
+  d.ell(8, 4, 5.6, 2.4, m, 0.9, 2);
+  d.ell(8, 4, 4.2, 1.5, m, 0.9, -2);
+  d.bandH(2, 14, 7, a, 2, 3);
+  d.bandH(2, 14, 8, a, 1, 2);
+  d.bandH(2, 14, 12, a, 2, 3);
+  d.bandH(2, 14, 13, a, 1, 2);
+  d.bandH(3, 13, 5, a, 2, 3);
+  if (v % 2 === 1) d.rect(7, 9, 2, 2, m, 0); // bung
 }
 
 function crate({ d, m, a, v }: Ctx) {
@@ -172,13 +179,13 @@ function potion({ d, m, a, v, nat }: Ctx) {
   const body = v % 3; // 0 round, 1 flask, 2 tall
   const glass: Material = nat ? m : m;
   if (body === 0) {
-    d.ell(8, 9.5, 5, 4.6, glass, 0.1);
-    d.box(6, 5, 4, 3, glass, [0, 0, 1], 1);
-    d.box(5, 4, 6, 1, glass, [0, -1, 0.6], 2);
-    d.rect(6, 2, 4, 2, a, 2);
-    d.rect(6, 2, 2, 1, a, 3);
-    d.px(5, 8, glass, 4); d.px(5, 9, glass, 4); d.px(6, 7, glass, 4);
-    d.rect(5, 12, 6, 1, glass, 1);
+    d.ell(8, 10, 5.2, 4.2, glass, 0.1);
+    d.box(6, 4, 4, 4, glass, [0, 0, 1], 1);
+    d.box(5, 3, 6, 1, glass, [0, -1, 0.6], 2);
+    d.rect(6, 1, 4, 2, a, 2);
+    d.rect(6, 1, 2, 1, a, 3);
+    d.px(5, 9, glass, 4); d.px(5, 10, glass, 4); d.px(6, 8, glass, 4);
+    d.px(6, 5, glass, 4);
   } else if (body === 1) {
     d.poly([[6, 5], [10, 5], [14, 13], [2, 13]], glass, [0, 0, 1]);
     d.ell(8, 12, 6, 1.8, glass, 0.1);
@@ -239,9 +246,6 @@ function axe({ d, m, a, v }: Ctx) {
 }
 
 function shield({ d, m, a, v }: Ctx) {
-  const outer = (x0: number, x1: number, n: [number, number, number], mm: Material, tone = 0) =>
-    d.poly([[x0, 1], [x1, 1], [x1, 8], [x1 === 8 ? 8 : 8, 14], [x0 === 2 ? 2 : 8, 8]].filter(Boolean) as [number, number][], mm, n, tone);
-  void outer;
   // left / right halves for a gently domed look
   d.poly([[2, 2], [8, 2], [8, 14], [2, 8]], a, [-0.35, 0, 1]);
   d.poly([[8, 2], [14, 2], [14, 8], [8, 14]], a, [0.35, 0, 1]);
@@ -318,14 +322,14 @@ function torch({ d, m, a, f }: Ctx) {
   d.column(7, 2, () => [8, 14], m);
   d.rect(6, 7, 4, 2, "leather", 2);
   d.rect(6, 7, 4, 1, "leather", 3);
-  // flame
-  const sway = [0, 1, 0, -1][f], grow = [0, 1, 0, 1][f];
-  const top = 1 - 0 + (f === 2 ? 1 : 0);
-  d.poly([[5, 7], [11, 7], [11 + sway * 0.5, 5], [8 + sway * 1.5, top - grow * 0], [5, 5]], a, [0, 0, 1]);
-  d.ell(8, 5.2, 3.4, 3, a, 0.4);
-  d.poly([[6, 5], [10, 5], [8 + sway, 1 + (f === 2 ? 1 : 0)]], a, [0, 0, 1], 1);
-  d.ell(8, 5.6, 2.1, 2.2, "gold", 0.5);
-  d.ell(8, 6, 1.1, 1.3, "gold", 0.9, 1);
+  // flame: dark rim, bright body, hot core (explicit core levels keep it readable on any palette)
+  const sway = [0, 1, 0, -1][f];
+  const tipY = [1, 0.5, 2, 0.5][f] + 0.5;
+  const bx = sway * 0.8;
+  d.poly([[8 + sway * 1.5, tipY], [9 + bx * 0.4, 2.8], [10.2 + bx * 0.2, 4.6], [10.6, 6.2], [9.6, 7.6], [6.4, 7.6], [5.4, 6.2], [5.8, 4.6], [7 + bx * 0.4, 3]], a, [0, 0, 1], -1);
+  d.poly([[8 + sway * 0.8, tipY + 2], [9.4, 4.6], [10, 6.2], [9.4, 7], [6.6, 7], [6, 6.2], [6.6, 4.6]], a, [0, 0, 1]);
+  d.rect(7, 5, 2, 2, "gold", 4);
+  d.px(8, 4, "gold", 4);
   if (f === 1) d.px(11, 2, "gold", 4);
   if (f === 3) d.px(4, 3, "gold", 4);
 }
@@ -349,7 +353,7 @@ function pot({ d, m, a, v }: Ctx) {
   d.box(5, 12, 6, 2, m, [0, 0.4, 1], -1);
   d.box(5, 3, 6, 2, m, [0, 0, 1], 1);
   d.ell(8, 4, 4.4, 1.5, m, 0.8, 1);
-  d.ell(8, 4.1, 3, 0.9, a, 0.9, -2);
+  d.ell(8, 4.1, 3.2, 1, a, 0.9, -2);
   d.bandH(2, 14, 8, a, 2, 3);
   if (v % 2 === 1) d.bandH(2, 14, 10, a, 1, 2);
   d.px(4, 7, m, 4);

@@ -106,7 +106,7 @@ function palm(c: Ctx) {
   const cx = S / 2;
   const lean = (c.v % 2 ? 1 : -1) * 2 * k;
   const x0 = cx - 2 * k, y0 = G - 1;
-  const x2 = cx + 2 * k + lean, y2 = R(15);
+  const x2 = cx + 2 * k + lean, y2 = R(14);
   const x1 = cx - 3 * k + lean * 0.3, y1 = R(23);
   const tw = R1(3);
   for (let t = 0; t <= 1.0001; t += 1 / 70) {
@@ -116,17 +116,20 @@ function palm(c: Ctx) {
   }
   P.box(Math.round(x0 - tw / 2) - 1, G - R1(2), tw + 2, R1(2), c.trunk, [0, 0, 1], { tone: -1 });
   const hx = x2, hy = y2;
-  // back fronds first (darker), then the front ones
-  const fronds: [number, number][] = [[-105, -1], [-70, -1], [-155, -1], [-25, -1], [-130, 0], [-50, 0], [178, 0], [2, 0]];
-  const L = 13 * k;
-  for (const [deg, tone] of fronds) {
+  // [angle, length, droop, tone]: back fronds first (darker), then the front ones
+  const fronds: [number, number, number, number][] = [
+    [-100, 9, 3, -1], [-68, 9, 4, -1], [-150, 12, 6, -1], [-30, 12, 6, -1],
+    [-125, 13, 6, 0], [-52, 13, 6, 0], [172, 11, 7, 0], [8, 11, 7, 0],
+  ];
+  for (const [deg, len, droop, tone] of fronds) {
     const a = (deg * Math.PI) / 180 + (r.next() - 0.5) * 0.12;
-    for (let s = 0; s <= L; s += Math.max(0.7, k * 0.8)) {
+    const L = len * k;
+    for (let s = 0; s <= L; s += Math.max(0.7, k * 0.7)) {
       const f = s / L;
       const px = hx + Math.cos(a) * s;
-      const py = hy + Math.sin(a) * s * 0.85 + f * f * 8 * k;
-      const w = (3 - 1.6 * f) * k;
-      P.ellipse(px, py, Math.max(1, w), Math.max(0.9, w * 0.55), c.foliage, { tone });
+      const py = hy + Math.sin(a) * s + f * f * droop * k;
+      const w = Math.max(0.9, (2.1 - 1.3 * f) * k);
+      P.ellipse(px, py, w, Math.max(0.8, w * 0.65), c.foliage, { tone: tone + (f > 0.75 ? 0 : 0) });
     }
   }
   P.ellipse(hx - 1.5 * k, hy + 2.5 * k, 1.8 * k, 1.8 * k, c.trunk, { tone: -1 });
@@ -235,7 +238,8 @@ function flowers(c: Ctx) {
       P.px(x, y, "gold", 4);
       P.px(x - 1, y - 2, m, 4);
     } else {
-      P.box(x, y - 1, 2, 2, m, [0, 0, 1]);
+      P.rect(x, y - 1, 2, 2, m, 4);
+      P.px(x, y, "gold", 4);
     }
   });
   void R1;
@@ -245,22 +249,26 @@ function mushroom(c: Ctx) {
   const { P, S, k, G, R1 } = c;
   const cx = S / 2;
   const one = (x: number, base: number, capR: number, stemH: number, tone: number) => {
-    const cy = base - stemH;
-    P.ellipse(x, cy, capR, capR * 0.8, c.accent, { tone });
-    const rim = Math.ceil(cy + capR * 0.28);
-    P.erase(Math.floor(x - capR - 1), rim, Math.ceil(capR * 2 + 2), Math.ceil(capR));
-    P.box(Math.round(x - capR * 0.85), rim - 1, Math.max(2, Math.round(capR * 1.7)), 1, c.accent, [0, 0.6, 1], { tone: tone - 1 });
+    const rim = Math.round(base - stemH);
     const sw = R1(capR * 0.55);
     P.cylinder(Math.round(x - sw / 2), rim, sw, Math.max(1, Math.round(base - rim)), "sand", { tone });
+    const capH = capR * 0.85;
+    for (let px = Math.floor(x - capR); px < Math.ceil(x + capR); px++) {
+      const u = (px + 0.5 - x) / capR;
+      if (Math.abs(u) > 1) continue;
+      const colH = Math.max(1, Math.round(capH * Math.sqrt(1 - u * u)));
+      P.box(px, rim - colH, 1, colH + 1, c.accent, [u * 0.9, -0.5, Math.sqrt(1 - u * u) + 0.25], { tone });
+    }
+    P.box(Math.round(x - capR + 1), rim, Math.max(2, Math.round(capR * 2 - 2)), 1, c.accent, [0, 0.6, 1], { tone: tone - 1 });
     if (capR >= 4) {
-      P.px(Math.round(x - capR * 0.4), Math.round(cy - capR * 0.4), "sand", 4);
-      P.px(Math.round(x + capR * 0.3), Math.round(cy - capR * 0.1), "sand", 4);
-      P.px(Math.round(x + capR * 0.55), Math.round(cy - capR * 0.5), "sand", 3);
+      P.px(Math.round(x - capR * 0.45), Math.round(rim - capH * 0.6), "sand", 4);
+      P.px(Math.round(x + capR * 0.3), Math.round(rim - capH * 0.35), "sand", 4);
+      P.px(Math.round(x + capR * 0.15), Math.round(rim - capH * 0.85), "sand", 3);
     }
   };
-  one(cx + 8 * k, G, 4.5 * k, 6 * k, -1);
-  one(cx - 8 * k, G, 4 * k, 5 * k, -1);
   one(cx - 1 * k, G, 8 * k, 11 * k, 0);
+  one(cx + 8.5 * k, G, 4.5 * k, 6 * k, -1);
+  one(cx - 8.5 * k, G, 4 * k, 4.5 * k, -1);
 }
 
 function tallGrass(c: Ctx) {
@@ -356,13 +364,13 @@ function painter(T: number) {
   return { s, put };
 }
 
-function grassTile(T: number, r: Rng, seed: number): Sprite {
+function grassTile(T: number, r: Rng, seed: number, flat: boolean): Sprite {
   const { s, put } = painter(T);
   const big = valueNoise(seed, 2), small = valueNoise(seed + 1, 4);
   for (let y = 0; y < T; y++)
     for (let x = 0; x < T; x++) {
-      const v = 0.6 * big((x * 2) / T, (y * 2) / T) + 0.4 * small((x * 4) / T, (y * 4) / T);
-      put(x, y, "grass", v > 0.62 ? 3 : v < 0.3 ? 1 : 2);
+      const v = 0.4 * big((x * 2) / T, (y * 2) / T) + 0.6 * small((x * 4) / T, (y * 4) / T);
+      put(x, y, "grass", flat ? 2 : v > 0.7 ? 3 : v < 0.22 ? 1 : 2);
     }
   const tufts = Math.round((T * T) / 24);
   for (let i = 0; i < tufts; i++) {
@@ -375,13 +383,13 @@ function grassTile(T: number, r: Rng, seed: number): Sprite {
   return s;
 }
 
-function dirtTile(T: number, r: Rng, seed: number): Sprite {
+function dirtTile(T: number, r: Rng, seed: number, flat: boolean): Sprite {
   const { s, put } = painter(T);
   const big = valueNoise(seed, 2), small = valueNoise(seed + 1, 4);
   for (let y = 0; y < T; y++)
     for (let x = 0; x < T; x++) {
-      const v = 0.55 * big((x * 2) / T, (y * 2) / T) + 0.45 * small((x * 4) / T, (y * 4) / T);
-      put(x, y, "dirt", v > 0.6 ? 3 : v < 0.32 ? 1 : 2);
+      const v = 0.35 * big((x * 2) / T, (y * 2) / T) + 0.65 * small((x * 4) / T, (y * 4) / T);
+      put(x, y, "dirt", flat ? 3 : v > 0.68 ? 3 : v < 0.26 ? 1 : 2);
     }
   for (let i = 0; i < Math.max(2, Math.round(T / 5)); i++) {
     const x = r.int(0, T - 1), y = r.int(0, T - 1);
@@ -408,19 +416,19 @@ function sandTile(T: number, r: Rng, seed: number): Sprite {
   return s;
 }
 
-function snowTile(T: number, r: Rng, seed: number): Sprite {
+function snowTile(T: number, r: Rng, seed: number, flat: boolean): Sprite {
   const { s, put } = painter(T);
   const big = valueNoise(seed, 2), small = valueNoise(seed + 1, 4);
   for (let y = 0; y < T; y++)
     for (let x = 0; x < T; x++) {
-      const v = 0.6 * big((x * 2) / T, (y * 2) / T) + 0.4 * small((x * 4) / T, (y * 4) / T);
-      if (v < 0.36) put(x, y, "stone", 4);
+      const v = 0.25 * big((x * 2) / T, (y * 2) / T) + 0.75 * small((x * 4) / T, (y * 4) / T);
+      if (v < 0.22) put(x, y, "stone", flat ? 3 : 4);
       else put(x, y, "ui", 4);
     }
   for (let i = 0; i < Math.max(2, Math.round(T / 5)); i++) {
     const x = r.int(0, T - 1), y = r.int(0, T - 1);
-    put(x, y, "stone", 4);
-    put(x + 1, y + 1, "stone", 4);
+    put(x, y, "stone", flat ? 3 : 4);
+    put(x + 1, y + 1, "stone", flat ? 3 : 4);
   }
   for (let i = 0; i < Math.round(T / 6); i++) put(r.int(0, T - 1), r.int(0, T - 1), "water", 4);
   if (T >= 12) put(r.int(0, T - 1), r.int(0, T - 1), "stone", 3);
@@ -452,9 +460,9 @@ function stonePathTile(T: number, r: Rng, kit: StyleKit): Sprite {
         else if (dist < d2) d2 = dist;
       }
       const gap = d2 - d1;
-      if (gap < 1.15) { put(x, y, "stone", 1); continue; }
+      if (gap < 0.9) { put(x, y, "stone", 1); continue; }
       let level = best.base;
-      if (gap < 2.4) {
+      if (gap < 2.1) {
         const lit = -(bdx * L[0] + bdy * L[1]) / (d1 || 1);
         if (lit > 0.2) level += 1;
         else if (lit < -0.2) level -= 1;
@@ -510,13 +518,14 @@ export const environmentGenerator: Generator = {
 
     if ((TILE_KINDS as readonly string[]).includes(kind)) {
       const T = kit.sizes.tile;
+      const flat = kit.shadeSteps <= 3; // few tones: skip patchy noise, keep the texture to tufts/pebbles
       if (kind === "water-tile") return { rows: [{ name: "idle", frames: waterTile(T, r, mixed) }], fps: 4 };
       const sprite =
-        kind === "dirt-tile" ? dirtTile(T, r, mixed) :
+        kind === "dirt-tile" ? dirtTile(T, r, mixed, flat) :
         kind === "sand-tile" ? sandTile(T, r, mixed) :
-        kind === "snow-tile" ? snowTile(T, r, mixed) :
+        kind === "snow-tile" ? snowTile(T, r, mixed, flat) :
         kind === "stone-path-tile" ? stonePathTile(T, r, kit) :
-        grassTile(T, r, mixed);
+        grassTile(T, r, mixed, flat);
       return { rows: [{ name: "idle", frames: [sprite] }], fps: 1 };
     }
 
