@@ -75,7 +75,7 @@ export function LivePreview({ rows, fps, pal, zoom, bg }: { rows: FrameSet[]; fp
   const maxW = Math.max(...rows.flatMap((r) => r.frames.map((f) => f.w)));
   const maxH = Math.max(...rows.flatMap((r) => r.frames.map((f) => f.h)));
   const multi = rows.length > 1;
-  const z = zoom > 0 ? zoom : multi ? fitScale(maxW, maxH, 176) : fitScale(maxW, maxH, 560, 380);
+  const z = zoom > 0 ? zoom : multi ? fitScale(maxW, maxH, rows.length <= 3 ? 240 : 176, 200) : fitScale(maxW, maxH, 560, 380);
   const animated = rows.some((r) => r.frames.length > 1);
 
   useEffect(() => {

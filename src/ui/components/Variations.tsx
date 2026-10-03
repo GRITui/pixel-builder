@@ -67,7 +67,7 @@ export function Variations({
         {items.map((v, i) =>
           v.result ? (
             <button key={`${nonce}-${i}`} className="var" title={`Seed ${v.seed} — click to adopt`} onClick={() => onAdopt(v.params, v.seed)}>
-              <AnimThumb rows={v.result.rows} fps={v.result.fps} pal={pal} size={96} />
+              <AnimThumb rows={v.result.rows} fps={v.result.fps} pal={pal} size={72} />
               <span className="dim">#{v.seed}</span>
             </button>
           ) : (

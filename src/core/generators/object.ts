@@ -100,11 +100,8 @@ interface Ctx {
   v: number; // variant 0-9
   f: number; // frame
   r: ReturnType<typeof rng>;
-  nat: boolean; // main left on natural
-  natA: boolean;
+  side: number; // painter light side: -1 light from left, +1 right, 0 top
 }
-
-const UP: [number, number, number] = [0, -1, 0.4];
 
 function chest({ d, m, a, v }: Ctx) {
   d.ell(8, 8.5, 6, 5.5, m, 0.45);
@@ -159,7 +156,7 @@ function barrel({ d, m, a, v }: Ctx) {
   if (v % 2 === 1) d.rect(7, 9, 2, 2, m, 0); // bung
 }
 
-function crate({ d, m, a, v }: Ctx) {
+function crate({ d, m, a, v, r }: Ctx) {
   d.box(2, 2, 12, 12, m, [0, 0, 1], -1);
   d.box(2, 2, 12, 2, m, [0, -0.5, 1]);
   d.box(2, 12, 12, 2, m, [0, 0.5, 1], -1);
@@ -168,16 +165,16 @@ function crate({ d, m, a, v }: Ctx) {
   const flip = v % 2 === 1;
   for (let i = 0; i < 8; i++) d.px(flip ? 11 - i : 4 + i, 4 + i, m, 3);
   for (let i = 0; i < 8; i++) d.px(flip ? 12 - i : 3 + i, 4 + i, m, 0);
-  for (const [x, y] of [[2, 2], [13, 2], [2, 13], [13, 13]]) d.px(x, y, a, 3);
+  for (const [x, y] of [[2, 2], [13, 2], [2, 13], [13, 13]]) if (v >= 1 || r.chance(0.75)) d.px(x, y, a, 3);
   if (v >= 2) {
     d.rect(2, 7, 12, 1, a, 2);
     d.rect(2, 8, 12, 1, a, 1);
   }
 }
 
-function potion({ d, m, a, v, nat }: Ctx) {
+function potion({ d, m, a, v }: Ctx) {
   const body = v % 3; // 0 round, 1 flask, 2 tall
-  const glass: Material = nat ? m : m;
+  const glass = m;
   if (body === 0) {
     d.ell(8, 10, 5.2, 4.2, glass, 0.1);
     d.box(6, 4, 4, 4, glass, [0, 0, 1], 1);
@@ -206,11 +203,11 @@ function potion({ d, m, a, v, nat }: Ctx) {
 }
 
 /** Diagonal blade helper: pixels along an anti-diagonal with a lit and shadow edge. */
-function sword({ d, m, a, v, P_side }: Ctx & { P_side: number }) {
+function sword({ d, m, a, v, side }: Ctx) {
   const long = v % 2 === 0;
-  const tipX = 13, tipY = 2;
+  const tipX = 13, tipY = 1;
   const len = long ? 8 : 6;
-  const lit = P_side <= 0 ? 4 : 2, shade = P_side <= 0 ? 2 : 4;
+  const lit = side <= 0 ? 4 : 2, shade = side <= 0 ? 2 : 4;
   for (let t = 0; t < len; t++) {
     const x = tipX - t, y = tipY + t;
     d.px(x, y, m, lit);
@@ -334,15 +331,15 @@ function torch({ d, m, a, f }: Ctx) {
   if (f === 3) d.px(4, 3, "gold", 4);
 }
 
-function sign({ d, m, a, v }: Ctx) {
+function sign({ d, m, a, v, r }: Ctx) {
   d.column(7, 2, () => [8, 14], a);
   d.box(2, 2, 12, 8, m, [0, 0, 1]);
   d.box(2, 2, 12, 1, m, [0, -1, 0.6], 1);
   d.box(2, 9, 12, 1, m, [0, 1, 0.6], -1);
   d.rect(2, 2, 1, 8, m, 3);
   d.rect(13, 2, 1, 8, m, 1);
-  d.rect(4, 4, 8, 1, m, 0);
-  d.rect(4, 6, v % 2 ? 4 : 6, 1, m, 0);
+  d.rect(4, 4, r.int(6, 8), 1, m, 0);
+  d.rect(4, 6, v % 2 ? 4 : r.int(5, 7), 1, m, 0);
   if (v % 2) d.px(10, 6, m, 0);
   d.px(3, 3, a, 3); d.px(12, 3, a, 3);
 }
@@ -360,17 +357,19 @@ function pot({ d, m, a, v }: Ctx) {
   d.px(3, 8, m, 4);
 }
 
-function gem({ d, m, a, v, f }: Ctx) {
+function gem({ d, m, a, v, f, r }: Ctx) {
   const wide = v % 2 === 0;
-  const l = wide ? 2 : 3, r = wide ? 14 : 13;
+  const l = wide ? 2 : 3, rr = wide ? 14 : 13;
   d.poly([[5, 3], [8, 3], [l + 1, 7], [l, 7]], m, [-0.5, -0.5, 0.9], 1);
-  d.poly([[8, 3], [11, 3], [r, 7], [r - 1, 7]], m, [0.5, -0.5, 0.9], 1);
-  d.poly([[5, 3], [11, 3], [r, 7], [l, 7]], m, [0, -0.3, 1], 2);
+  d.poly([[8, 3], [11, 3], [rr, 7], [rr - 1, 7]], m, [0.5, -0.5, 0.9], 1);
+  d.poly([[5, 3], [11, 3], [rr, 7], [l, 7]], m, [0, -0.3, 1], 2);
   d.poly([[l, 7], [8, 7], [8, 14]], m, [-0.6, 0.4, 0.7], -1);
-  d.poly([[8, 7], [r, 7], [8, 14]], m, [0.6, 0.4, 0.7], -2);
+  d.poly([[8, 7], [rr, 7], [8, 14]], m, [0.6, 0.4, 0.7], -2);
   d.rect(5, 4, 3, 1, m, 4);
   d.line(l + 1, 7, 8, 7, m, 4);
-  const sp = [[], [[4, 4]], [[4, 4], [11, 9]], [[11, 9]]][f] as [number, number][];
+  const spots: [number, number][] = [[4, 4], [11, 9], [3, 9], [12, 4]];
+  const s1 = spots[r.int(0, 1) * 2], s2 = spots[r.int(0, 1) * 2 + 1];
+  const sp = [[], [s1], [s1, s2], [s2]][f] as [number, number][];
   const sparkle = (x: number, y: number, big: boolean) => {
     d.px(x, y, a, 4);
     d.px(x - 1, y, a, 3); d.px(x + 1, y, a, 3); d.px(x, y - 1, a, 3); d.px(x, y + 1, a, 3);
@@ -379,7 +378,7 @@ function gem({ d, m, a, v, f }: Ctx) {
   sp.forEach(([x, y], i) => sparkle(x, y, f === 2 && i === 0));
 }
 
-function scroll({ d, m, a, v }: Ctx) {
+function scroll({ d, m, a, v, r }: Ctx) {
   d.box(3, 4, 10, 8, m, [0, 0, 1], 0);
   const roll = (y: number) => {
     d.box(2, y, 12, 1, m, [0, -0.8, 0.6], 1);
@@ -387,7 +386,7 @@ function scroll({ d, m, a, v }: Ctx) {
     d.box(2, y + 2, 12, 1, m, [0, 0.8, 0.6], -1);
   };
   roll(2); roll(11);
-  d.rect(4, 6, 8, 1, m, 0); d.rect(4, 8, 6, 1, m, 0);
+  d.rect(4, 6, r.int(6, 8), 1, m, 0); d.rect(4, 8, r.int(4, 6), 1, m, 0);
   if (v % 2 === 0) d.rect(4, 10, 4, 1, m, 0);
   d.ell(10.5, 9.5, 1.8, 1.8, a, 0.3);
   d.px(10, 9, a, 4);
@@ -455,7 +454,7 @@ function apple({ d, m, a, v }: Ctx) {
   if (v % 2 === 1) d.px(10, 11, m, 0);
 }
 
-type Draw = (c: Ctx & { P_side: number }) => void;
+type Draw = (c: Ctx) => void;
 const DRAW: Record<string, Draw> = {
   chest, "chest-open": chestOpen, barrel, crate, potion, sword, axe, shield, bow, coin, key,
   torch, sign, pot, gem, scroll, heart, bomb, book, "mushroom-item": mushroom, apple,
@@ -470,7 +469,7 @@ function drawObject(kind: string, p: Params, kit: StyleKit, seed: number, frame:
   const variant = Math.max(0, Math.min(9, Math.round(num(p, "variant"))));
   const ctx = {
     d, m: main === "ui" ? nm : main, a: acc === "ui" ? na : acc, v: variant, f: frame,
-    r: rng(seed * 31 + variant), nat: main === "ui", natA: acc === "ui", P_side: d.P.lightSide,
+    r: rng(seed * 31 + variant), side: d.P.lightSide,
   };
   (DRAW[kind] ?? chest)(ctx);
   return finalize(d.sprite(), kit);

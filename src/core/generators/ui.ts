@@ -2,7 +2,7 @@ import { Painter } from "../painter";
 import type { Material } from "../palette";
 import { rng } from "../rng";
 import type { FrameSet, Sprite, StyleKit } from "../types";
-import { mat, num, PAINT, str, type GenResult, type Generator } from "./types";
+import { mat, PAINT, str, type GenResult, type Generator } from "./types";
 
 export const UI_KINDS = ["button", "panel", "slot", "bar", "icon-frame", "cursor", "tab", "checkbox", "dialog-arrow"] as const;
 export const UI_STYLES = ["bevel", "flat", "inset", "ornate"] as const;
@@ -122,7 +122,7 @@ function drawButton(c: Ctx, w: number, h: number, state: "normal" | "hover" | "p
     surface(P, 0, 0, w, h, { border: [m, 0], fill: pressed ? [m, 1 + lvl] : fill, hi, lo, raised, round: true });
   }
   const inner = style === "ornate" ? ORNATE_INSET : 3;
-  label(P, Math.floor(w / 2) + dy * 0, Math.floor(h / 2) - 1 + dy, w - inner * 2 - 2, style === "ornate" ? a : m, c.seed, 4, true);
+  label(P, Math.floor(w / 2), Math.floor(h / 2) - 1 + dy, w - inner * 2 - 2, style === "ornate" ? a : m, c.seed, 4, true);
   if (style === "ornate" && w >= 28) {
     // small gem inset in the centre-left would crowd the label; put a tiny accent gem on each side instead
     P.px(inner + 2, Math.floor(h / 2) + dy, a, 4);
@@ -159,16 +159,20 @@ function drawFrame(c: Ctx, w: number, h: number, kind: "panel" | "slot" | "icon-
   return P.toSprite();
 }
 
-function nineSlice(kind: "panel" | "slot" | "icon-frame", style: Style, w: number, h: number) {
+function nineSlice(style: Style, w: number, h: number) {
   const want = style === "ornate" ? ORNATE_INSET : 3;
   const s = Math.max(1, Math.min(want, Math.floor((Math.min(w, h) - 1) / 2)));
   return { left: s, top: s, right: s, bottom: s };
 }
 
 // ---------------------------------------------------------------- bar
+/** Ornate bars need a taller channel: default their auto height to 10px. */
+function ornateBarP(p: Record<string, unknown>, style: Style): Record<string, unknown> {
+  return style === "ornate" && !(Number(p.height) > 0) ? { ...p, height: 10 } : p;
+}
 function drawBar(c: Ctx, w: number, h: number): { frame: Sprite; fill: Sprite; fillRect: { x: number; y: number; w: number; h: number } } {
   const { m, a, style } = c;
-  const pad = style === "ornate" && h >= 8 ? 3 : 2;
+  const pad = style === "ornate" && h >= 10 ? 3 : 2;
   const fx = pad, fy = pad, fw = w - pad * 2, fh = h - pad * 2;
   const F = new Painter(w, h, c.kit);
   if (style === "ornate") ornate(F, 0, 0, w, h, a, [m, 0], false, m);
@@ -222,7 +226,7 @@ function drawCursor(c: Ctx): Sprite {
       if (ch === "X") { P.px(x, y, m, 0); continue; }
       // fill: shadow on the side away from the light
       const away = row[flip ? x - 1 : x + 1];
-      P.px(x, y, c.style === "flat" ? m : m, away === "X" && x > 1 ? 3 : 4);
+      P.px(x, y, m, away === "X" && x > 1 ? 3 : 4);
     }
   });
   if (c.style === "ornate") P.px(1, 1, c.a, 3); // tiny coloured tip
@@ -243,7 +247,7 @@ function drawTab(c: Ctx, w: number, h: number, active: boolean): Sprite {
     P.rect(1, h - 2, w - 2, 1, ...fill);
     if (c.style === "ornate") P.rect(1, top + 1, w - 2, 1, a, 4);
   }
-  label(P, Math.floor(w / 2), top + Math.floor((h - top) / 2) - (active ? 1 : 1), w - 8, active ? m : m, c.seed, active ? 4 : 3, active);
+  label(P, Math.floor(w / 2), top + Math.floor((h - top) / 2) - 1, w - 8, m, c.seed, active ? 4 : 3, active);
   return P.toSprite();
 }
 
@@ -259,7 +263,7 @@ function drawCheckbox(c: Ctx, n: number, on: boolean): Sprite {
     const pt = (x: number, y: number): [number, number] => [Math.round(x * s), Math.round(y * s)];
     const [x0, y0] = pt(3, 6), [x1, y1] = pt(5, 8), [x2, y2] = pt(9, 3);
     for (const dy of [0, 1]) {
-      P.line(x0, y0 + dy, x1, y1 + dy - (dy ? 0 : 0), a, dy ? 3 : 4);
+      P.line(x0, y0 + dy, x1, y1 + dy, a, dy ? 3 : 4);
       P.line(x1, y1 + dy, x2, y2 + dy, a, dy ? 3 : 4);
     }
   }
@@ -307,7 +311,6 @@ export const uiGenerator: Generator = {
     const style = ((UI_STYLES as readonly string[]).includes(str(p, "style")) ? str(p, "style") : "bevel") as Style;
     const c: Ctx = { kit, m: mat(p, "material"), a: mat(p, "accent"), style, seed };
     const one = (name: string, s: Sprite): FrameSet => ({ name, frames: [s] });
-    void num;
 
     switch (kind) {
       case "button": {
@@ -318,10 +321,10 @@ export const uiGenerator: Generator = {
       case "slot":
       case "icon-frame": {
         const [w, h] = sizeFor(kind, p, kit);
-        return { rows: [one("normal", drawFrame(c, w, h, kind))], fps: 1, meta: { nineSlice: nineSlice(kind, style, w, h) } };
+        return { rows: [one("normal", drawFrame(c, w, h, kind))], fps: 1, meta: { nineSlice: nineSlice(style, w, h) } };
       }
       case "bar": {
-        const [w, h] = sizeFor(kind, p, kit);
+        const [w, h] = sizeFor(kind, ornateBarP(p, style), kit);
         const b = drawBar(c, w, h);
         return { rows: [one("frame", b.frame), one("fill", b.fill)], fps: 1, meta: { fillRect: b.fillRect } };
       }

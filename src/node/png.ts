@@ -206,7 +206,7 @@ export function drawSprite(img: RgbaImage, sprite: Sprite, colors: (RGB | null)[
 /** Render one sprite to an image (transparent background unless `background` is given). */
 export function spriteImage(sprite: Sprite, kit: StyleKit, scale = 1, background?: "checker"): RgbaImage {
   const img = blankImage(sprite.w * scale, sprite.h * scale);
-  if (background) paintChecker(img);
+  if (background) paintChecker(img, Math.max(4, scale * 2));
   drawSprite(img, sprite, kitColors(kit), 0, 0, scale);
   return img;
 }
@@ -223,11 +223,12 @@ export interface SheetLayout {
  * Lay animation rows out as a grid: one grid row per animation row, one cell per frame,
  * every cell as large as the biggest frame (sprites sit bottom-left in their cell).
  */
-export function sheetImage(grid: Sprite[][], kit: StyleKit, scale = 1): SheetLayout {
+export function sheetImage(grid: Sprite[][], kit: StyleKit, scale = 1, background?: "checker"): SheetLayout {
   const columns = Math.max(1, ...grid.map((r) => r.length));
   const cellW = Math.max(1, ...grid.flat().map((s) => s.w));
   const cellH = Math.max(1, ...grid.flat().map((s) => s.h));
   const image = blankImage(columns * cellW * scale, grid.length * cellH * scale);
+  if (background) paintChecker(image, Math.max(4, scale * 2));
   const colors = kitColors(kit);
   grid.forEach((row, ry) => row.forEach((s, cx) => drawSprite(image, s, colors, cx * cellW * scale, (ry * cellH + (cellH - s.h)) * scale, scale)));
   return { image, cellW, cellH, columns, rows: grid.length };

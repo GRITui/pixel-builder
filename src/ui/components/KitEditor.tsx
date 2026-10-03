@@ -19,8 +19,8 @@ const vibeKitFn = (): VibeKitFn | undefined => {
 
 const SAMPLES: { label: string; gen: string; params: Record<string, unknown> }[] = [
   { label: "Character", gen: "character", params: {} },
-  { label: "Grass tile", gen: "environment", params: { kind: "grass" } },
-  { label: "Tree", gen: "environment", params: { kind: "tree" } },
+  { label: "Grass tile", gen: "environment", params: { kind: "grass-tile" } },
+  { label: "Tree", gen: "environment", params: { kind: "oak" } },
   { label: "Chest", gen: "object", params: { kind: "chest" } },
   { label: "Button", gen: "ui", params: { kind: "button" } },
   { label: "Building", gen: "building", params: {} },
@@ -46,7 +46,7 @@ function SampleSheet({ kit }: { kit: StyleKit }) {
     <div className="sample-sheet" aria-label="Live sample sheet">
       {SAMPLES.map((s, i) => (
         <figure key={s.label}>
-          {results[i] ? <AnimThumb rows={results[i]!.rows} fps={results[i]!.fps} pal={pal} size={116} alwaysPlay /> : <div className="thumb" style={{ width: 116, height: 116 }} />}
+          {results[i] ? <AnimThumb rows={results[i]!.rows} fps={results[i]!.fps} pal={pal} size={104} alwaysPlay /> : <div className="thumb" style={{ width: 104, height: 104 }} />}
           <figcaption>{s.label}</figcaption>
         </figure>
       ))}

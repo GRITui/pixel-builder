@@ -51,22 +51,20 @@ const VARIANTS = 3;
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
-/** A winding 2-cell-wide path from the left edge to the right edge (4-connected). */
+/** A winding path (2+ cells wide, 4-connected, no pinholes) from the left edge to the right edge. */
 function carvePath(cols: number, rows: number, r: Rng, lo: number, hi: number): Set<number> {
-  const cells = new Set<number>();
+  const centre: number[] = [];
   let y = rows * (lo + (hi - lo) * r.next());
   let vy = 0;
-  let prev = Math.round(y);
   for (let x = 0; x < cols; x++) {
     vy = clamp(vy * 0.8 + (r.next() - 0.5) * 0.9, -0.8, 0.8);
     y = clamp(y + vy, Math.max(1, rows * lo - 2), Math.min(rows - 3, rows * hi + 2));
-    const cy = Math.round(y);
-    const [a, b] = cy >= prev ? [prev, cy] : [cy, prev];
-    for (let yy = a; yy <= b; yy++) {
-      cells.add(yy * cols + x);
-      cells.add((yy + 1) * cols + x);
-    }
-    prev = cy;
+    centre.push(Math.round(y));
+  }
+  const cells = new Set<number>();
+  for (let x = 0; x < cols; x++) {
+    const near = [centre[Math.max(0, x - 1)], centre[x], centre[Math.min(cols - 1, x + 1)]];
+    for (let yy = Math.min(...near); yy <= Math.max(...near) + 1; yy++) cells.add(yy * cols + x);
   }
   return cells;
 }
@@ -112,11 +110,10 @@ function buildGround(biome: Biome, cols: number, rows: number, seed: number, r: 
         else if (n2(x / 4, y / 4) > 0.8) ground[at(x, y)] = "dirt";
       }
   } else {
-    const threshold = biome === "forest" ? 0.8 : 0.74;
+    const threshold = biome === "forest" ? 0.84 : biome === "winter" ? 0.78 : 0.8;
     for (let y = 0; y < rows; y++)
       for (let x = 0; x < cols; x++) {
         if (n1(x / 4.5, y / 4.5) > threshold && !clear.has(at(x, y))) ground[at(x, y)] = "water";
-        else if (biome === "winter" && n2(x / 4, y / 4) > 0.82) ground[at(x, y)] = "grass";
       }
     if (biome !== "winter")
       for (let y = 0; y < rows; y++)
