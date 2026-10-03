@@ -1,0 +1,38 @@
+{
+  "name": "pixel-builder",
+  "version": "0.1.0",
+  "description": "Vibe-code consistent pixel art: characters, buildings, maps, environments, objects and UI from one style kit.",
+  "scripts": {
+    "dev": "concurrently -k -n web,api \"vite\" \"tsx watch server/index.ts\"",
+    "build": "tsc && vite build",
+    "start": "NODE_ENV=production tsx server/index.ts",
+    "test": "vitest run",
+    "typecheck": "tsc"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/GRITui/pixel-builder.git"
+  },
+  "bugs": {
+    "url": "https://github.com/GRITui/pixel-builder/issues"
+  },
+  "homepage": "https://github.com/GRITui/pixel-builder#readme",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^4.7.0",
+    "concurrently": "^10.0.5",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^6.4.3",
+    "vitest": "^3.2.7"
+  },
+  "private": true,
+  "type": "module"
+}

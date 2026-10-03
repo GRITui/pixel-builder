@@ -1,0 +1,208 @@
+# Pixel Builder — build plan
+
+A PixelLab-style tool for **vibe-coding pixel art that stays consistent**:
+characters, buildings, maps, environment, objects and UI all generated from one
+**Style Kit**.
+
+## The consistency model (read this first)
+
+1. **Palette ramps, not colours.** `src/core/palette.ts` defines 18 material
+   ramps (`skin`, `wood`, `water`, `ui`, ...) of 5 shades each (dark -> light).
+   A sprite pixel is an *index* into that table (`colorIndex(mat, level)`), 0 =
+   transparent. Change the kit's palette and every asset re-colours together.
+2. **One light, one shader.** Generators never pick shades by hand for volumes.
+   They describe shapes on a `Painter` (`ellipse`, `box`, `cylinder`, `poly`
+   with a surface normal); the painter lights everything with the kit's light
+   direction, quantises to the kit's `shadeSteps`, and optionally dithers.
+   `px`/`rect`/`line` with an explicit level are for details only (eyes,
+   sparkles, seams). `{ tone: ±n }` darkens/lightens a shape by n levels.
+3. **One finishing pass.** Every non-tile sprite goes through
+   `finalize(sprite, kit)` (`src/core/enforce.ts`) which applies the kit's
+   outline mode. Ground tiles are NOT outlined (they must tile seamlessly).
+   Leave a 1px transparent margin around props so the outline fits.
+4. **AI never bypasses the kit.** "Vibe" mode asks Claude for *generator
+   parameters* (so output is procedurally on-style). "Freeform" mode lets Claude
+   paint pixels, but only with kit palette indices, then runs `finalize`.
+   Imported images are downscaled + quantised to the kit palette.
+
+## Shared code (integrator-owned — import it, don't edit it)
+
+| File | What |
+|---|---|
+| `src/core/palette.ts` | ramps, `colorIndex`, `decodeIndex`, `flattenRamps`, quantizer |
+| `src/core/types.ts` | `Sprite`, `Asset`, `FrameSet`, `StyleKit`, `TileMap`, `Category` |
+| `src/core/kit.ts` | `DEFAULT_KIT`, `KIT_PRESETS`, `resolveRamps`, `lightVector`, `newId` |
+| `src/core/painter.ts` | lit shape rasteriser |
+| `src/core/enforce.ts` | `finalize`, `applyOutline`, `quantizeRGBA`, `downscaleRGBA`, `removeOrphans` |
+| `src/core/sprite.ts` | `createSprite`, `blit`, `flipX`, `getPx`/`setPx`, `bounds` ... |
+| `src/core/rng.ts` | seeded `rng(seed)`, tileable `valueNoise(seed, period)`, `hashString` |
+| `src/core/asset.ts` | `createAsset(...)` |
+| `src/core/tilemap.ts` | `renderTileMap`, `emptyTileMap`, `ensureTile` |
+| `src/core/generators/types.ts` | `Generator`, `ParamSpec`, `defaults`, `randomParams`, `coerceParams` |
+| `src/core/generators/index.ts` | `GENERATORS`, `generatorFor(category)`, `generatorById` |
+| `src/core/generators/character.ts`, `building.ts` | reference generators — copy their style |
+| `src/ui/render.ts` | `paletteFor`, `drawSprite`, `spriteToCanvas`, `buildSpritesheet`, `downloadBlob`, `fileToRGBA` |
+| `scripts/preview.ts` | render a generator to PNG: `npx tsx scripts/preview.ts <id> out.png '[{..params..}]' [kitId]` |
+
+If you need a change in a shared file, **don't edit it** — describe the change
+in your final report and work around it locally.
+
+## Lanes
+
+Each lane owns only the files listed. Stubs already exist for every owned file
+with the exact exported names/props other lanes rely on — keep those.
+
+### Lane A — Environment + Map generators
+Owns: `src/core/generators/environment.ts`, `src/core/generators/map.ts`,
+`src/core/generators/environment.test.ts`, `src/core/generators/map.test.ts`.
+
+- `environmentGenerator`: `kind` select (keep the exported `TILE_KINDS` and
+  `PROP_KINDS` strings — `map.ts` and the UI rely on them) plus material
+  overrides (e.g. `foliage`, `trunk`, `ground`) and a `variant` number (0-9) that
+  feeds the seed for variety.
+  - Props at `kit.sizes.environment` (trees may use 2x height if it looks better —
+    keep width = `kit.sizes.environment`), outlined via `finalize`.
+  - Tiles exactly `kit.sizes.tile` square, **seamless** (use `valueNoise` with a
+    period that divides the tile so it wraps), no outline. `water-tile` is
+    animated (3-4 frames, `fps` ~4); others single frame.
+- `mapGenerator`: params `biome` (meadow, forest, island, desert, winter),
+  `cols`/`rows` (12-48), `density` (0-1 props), `path` (bool: a dirt/stone path
+  winding across). Build tiles by calling `environmentGenerator.generate` for
+  each needed kind, assemble a `TileMap` with `ensureTile`, place props on the
+  `deco` layer (never on water), and return
+  `{ rows: [{ name: "map", frames: [renderTileMap(tm)] }], fps: 1, tilemap: tm }`.
+  Mark trees/rocks/water `solid: true`.
+- Tests: tiles wrap (left column vs right column neighbours look continuous —
+  at minimum: correct size, no transparent pixels, deterministic per seed); map
+  is deterministic per seed and has no deco on water.
+
+### Lane B — Object + UI generators
+Owns: `src/core/generators/object.ts`, `src/core/generators/ui.ts`,
+`src/core/generators/object.test.ts`, `src/core/generators/ui.test.ts`.
+
+- `objectGenerator` at `kit.sizes.object` (16 by default; keep it readable at
+  16): `kind` select: chest, chest-open, barrel, crate, potion, sword, axe,
+  shield, bow, coin, key, torch, sign, pot, gem, scroll, heart, bomb, book,
+  mushroom-item, apple. Params: `main` material, `accent` material, `variant`.
+  `coin` (spin) and `torch` (flame flicker) and `gem` (sparkle) are animated
+  (3-4 frames). Outlined via `finalize`.
+- `uiGenerator`: `kind`: button, panel, slot, bar, icon-frame, cursor, tab,
+  checkbox, dialog-arrow. Params: `material` (default `ui`), `accent`, `width`,
+  `height` (px, sensible clamps), `style` (bevel, flat, inset, ornate).
+  Buttons return rows `normal`, `hover`, `pressed` (pressed shifts content
+  1px and inverts bevel). Panels/slots/frames return
+  `meta: { nineSlice: { left, top, right, bottom } }`. Bars return rows
+  `frame` and `fill`. Bevels must respect the kit light direction (light edge
+  on the lit side — use `Painter.lightSide` or normals). Checkbox rows:
+  `off`, `on`.
+- Tests: sizes correct, deterministic, button has 3 rows, panel meta present.
+
+### Lane C — AI server + client
+Owns: `server/**`, `src/ai/**`, `src/ai/*.test.ts`.
+
+- `server/index.ts`: plain `node:http` server (no new deps) on `PORT` (8787).
+  Load `.env` if present (`process.loadEnvFile` in try/catch). Routes:
+  - `GET /api/health` -> `{ enabled, model, reason? }` (enabled iff `ANTHROPIC_API_KEY`).
+  - `POST /api/vibe` `{ prompt, generator: {id, label, description, params}, kit, current? }`
+    -> `{ name, params, notes }`. Build a JSON schema from the generator's
+    `ParamSpec`s (select/material -> enum, number -> number, bool -> boolean,
+    all required, `additionalProperties: false`) plus `name`, `notes`.
+  - `POST /api/pixels` `{ prompt, category, w, h, kit, references?: Sprite[] }`
+    -> `{ name, sprite }`. Encode the kit palette as a legend of single chars
+    (`.` = transparent), ask for `rows: string[]` of exactly `h` strings of
+    `w` chars, decode server-side to palette indices, pad/crop to size.
+    `references` (library sprites) are sent in the same encoding as style
+    examples. Explain the lighting direction, outline mode and vibe in the
+    prompt. The client runs `finalize` (cleanup + outline) on the result.
+  - `POST /api/kit` `{ prompt, kit }` -> `{ kit: Partial<StyleKit>, notes }`:
+    pick `paletteId`, `outline`, `lightDir`, `shadeSteps`, `dither`,
+    `ambient`, `vibe`, and optional hue-tweaked `rampOverrides` for up to 6
+    materials (5 hex colours each, dark->light).
+  - In production (`NODE_ENV=production`) also serve `dist/` statically with SPA fallback.
+- Claude usage (Anthropic TS SDK, already installed): model
+  `process.env.PIXEL_MODEL ?? "claude-opus-5-5"`; use
+  `client.beta.messages.create` with `betas: ["server-side-fallback-2026-07-01"]`,
+  `fallbacks: "default"`, structured output via
+  `output_config: { format: { type: "json_schema", schema }, effort }`
+  (`effort: "low"` for vibe/kit, `"high"` for pixels); do NOT send `thinking`,
+  `temperature` or `budget_tokens`. Check `stop_reason === "refusal"` and
+  `"max_tokens"` before parsing; return 4xx/5xx JSON `{ error }` with a useful
+  message. Use typed SDK errors (`Anthropic.APIError` etc.), not string matching.
+- `src/ai/client.ts`: implement the stubbed functions (`aiStatus`,
+  `vibeParams`, `aiPixels`, plus add `vibeKit({ prompt, kit })`). `vibeParams`
+  must run results through `coerceParams`. `aiPixels` accepts optional
+  `references?: Sprite[]` and runs `finalize(sprite, kit, { cleanup: true })`.
+- Put prompt/schema building and the char legend in `server/prompts.ts` /
+  `server/legend.ts` and unit-test them (schema shape, legend round-trip
+  encode/decode, row padding/cropping) — no network in tests.
+
+### Lane D — App shell
+Owns: `src/main.tsx`, `src/App.tsx`, `src/styles.css`, `src/ui/store.ts`,
+`src/ui/components/**` (create it), `src/ui/exportAsset.ts`.
+
+- Layout: top bar (app name, Style Kit picker + "Edit kit", AI status pill),
+  left nav of categories (Characters, Buildings, Environment, Objects, UI, Map,
+  Library), main workspace, right "Library" strip filtered to the category.
+  Dark, pixel-friendly theme; `image-rendering: pixelated` everywhere.
+- **Generate workspace** (per category): prompt box with two AI buttons —
+  "Vibe" (`vibeParams`, then generate procedurally) and "Freeform pixels"
+  (`aiPixels`, optional "style references" = up to 2 selected library assets);
+  both disabled with a tooltip when `aiStatus().enabled` is false. Below:
+  auto-built param form from `ParamSpec` (material params show a swatch of
+  the ramp), seed field + dice, "Randomize", live preview (all rows, animated
+  at `fps`, zoom control, checkerboard bg), **Variations** grid (6 seeds /
+  random params — click to adopt), buttons: Save to library, Open in editor,
+  Export. Regenerate live on every param change (it's fast).
+- **Kit editor** (modal): name, palette preset, per-material ramp colour
+  editing (5 colour inputs per ramp, reset), outline mode, light direction,
+  shade steps, dither, ambient, sizes, vibe text, "Describe a style" ->
+  `vibeKit`. Show a live sample sheet (a character, a tree tile, a chest, a
+  button) rendered with the edited kit. Multiple kits; duplicate/delete.
+- **Library**: grid of thumbnails (animated on hover), rename, delete,
+  duplicate, tags, filter by category/search, "Re-render with current kit"
+  for procedural assets (re-run generator with stored params+seed).
+- **Export** (`exportAsset.ts`): PNG (1x/2x/4x/8x), spritesheet PNG + JSON
+  (frame size, rows, fps, nineSlice meta), map -> PNG + Tiled-compatible JSON
+  (one tileset image + layers), "Export all as JSON" / "Import JSON" for the
+  whole library + kits.
+- `store.ts`: React hooks for kits + library persisted to `localStorage`
+  (`pixel-builder:v1:*`), wrapped in try/catch.
+- Wire the Lane E components (`PixelEditor`, `MapEditor`, `ImportDialog`) via
+  their existing props: "Open in editor" -> `PixelEditor` (or `MapEditor` for
+  maps); an "Import image" button -> `ImportDialog`.
+
+### Lane E — Editors
+Owns: `src/ui/PixelEditor.tsx`, `src/ui/MapEditor.tsx`,
+`src/ui/ImportDialog.tsx`, `src/ui/editor/**` (create it), and
+`src/ui/editor/*.test.ts`.
+
+- `PixelEditor` (full-screen modal): canvas with zoom + grid, tools pencil,
+  eraser, fill (4-way), line, rect, eyedropper, mirror-X toggle, "shade"
+  tool (click lightens / shift-click darkens along the pixel's ramp — the
+  consistency-friendly brush). Palette panel shows the kit ramps only (no
+  free colour picker). Frames strip per row: add/duplicate/delete/reorder
+  frames, onion skin, play preview. Undo/redo (Ctrl+Z / Ctrl+Shift+Z),
+  keyboard shortcuts (B, E, G, L, R, I, M). "Re-outline" button
+  (`stripOutline` + `applyOutline`). Canvas resize. Save -> `onSave`.
+  Keep pure logic (flood fill, line, history, shade) in
+  `src/ui/editor/ops.ts` with unit tests.
+- `MapEditor`: tile palette (the map's `tilemap.tiles` + "add from library"
+  for environment/object/building assets), layers ground/deco, paint/erase/
+  fill, show solid overlay toggle, resize map, zoom. Save re-renders
+  `rows[0].frames[0]` with `renderTileMap`.
+- `ImportDialog`: pick/drag an image, choose target size (presets from the
+  kit + custom), crop-to-content toggle, preview original vs result, options
+  "remove background" (treat the corner colour as transparent), "outline"
+  (finalize), then `onImport(createAsset({... source: { kind: "import" } }))`.
+
+## Rules for every lane
+
+- Only touch the files you own. Don't add npm dependencies. Don't commit or
+  push — the integrator does that.
+- Keep `npx tsc` passing for **your** files; `npm test` for your tests.
+- Generator lanes: look at your output (`scripts/preview.ts` -> Read the PNG)
+  and iterate until it reads well at 1x. Match `character.ts`/`building.ts`.
+- Code style: TypeScript strict, small pure functions, comments only where
+  they explain *why*.
+- Finish with a short report: what you built, anything unfinished, and any
+  change you need in a shared file.
