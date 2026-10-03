@@ -3,17 +3,17 @@ import { Painter } from "../painter";
 import type { Material } from "../palette";
 import { rng } from "../rng";
 import type { FrameSet, Sprite, StyleKit } from "../types";
-import { mat, num, PAINT, str, type Generator, type Params } from "./types";
+import { num, PAINT, str, type Generator, type Params } from "./types";
 
 export const OBJECT_KINDS = [
   "chest", "chest-open", "barrel", "crate", "potion", "sword", "axe", "shield", "bow", "coin", "key",
   "torch", "sign", "pot", "gem", "scroll", "heart", "bomb", "book", "mushroom-item", "apple",
 ] as const;
 
-/** Materials selectable for `main` / `accent`. "ui" means "the item's natural colour". */
-const OBJECT_MATS: Material[] = ["ui", ...PAINT];
+/** Choices for `main` / `accent`: "natural" keeps each kind's own colours, or re-skin with any paint material. */
+const OBJECT_MATS: string[] = ["natural", ...PAINT];
 
-/** Natural [main, accent] materials for each kind (used while the param is left on "ui"). */
+/** Natural [main, accent] materials for each kind (used while the param is left on "natural"). */
 const NATURAL: Record<string, [Material, Material]> = {
   chest: ["wood", "metal"],
   "chest-open": ["wood", "metal"],
@@ -465,10 +465,10 @@ const FPS: Record<string, number> = { coin: 8, torch: 8, gem: 6 };
 function drawObject(kind: string, p: Params, kit: StyleKit, seed: number, frame: number): Sprite {
   const d = new D(kit.sizes.object, kit);
   const [nm, na] = NATURAL[kind] ?? NATURAL.chest;
-  const main = mat(p, "main"), acc = mat(p, "accent");
+  const main = str(p, "main"), acc = str(p, "accent");
   const variant = Math.max(0, Math.min(9, Math.round(num(p, "variant"))));
   const ctx = {
-    d, m: main === "ui" ? nm : main, a: acc === "ui" ? na : acc, v: variant, f: frame,
+    d, m: main === "natural" ? nm : (main as Material), a: acc === "natural" ? na : (acc as Material), v: variant, f: frame,
     r: rng(seed * 31 + variant), side: d.P.lightSide,
   };
   (DRAW[kind] ?? chest)(ctx);
@@ -480,11 +480,11 @@ export const objectGenerator: Generator = {
   category: "object",
   label: "Object / Item",
   description:
-    "Props and items drawn at 16px: chest, chest-open, barrel, crate, potion, sword, axe, shield, bow, coin (spins), key, torch (flickers), sign, pot, gem (sparkles), scroll, heart, bomb, book, mushroom-item, apple. main/accent re-skin the item ('ui' keeps its natural colours); variant 0-9 changes details.",
+    "Props and items drawn at 16px: chest, chest-open, barrel, crate, potion, sword, axe, shield, bow, coin (spins), key, torch (flickers), sign, pot, gem (sparkles), scroll, heart, bomb, book, mushroom-item, apple. main/accent re-skin the item ('natural' keeps its own colours); variant 0-9 changes details.",
   params: [
     { key: "kind", label: "Kind", type: "select", options: [...OBJECT_KINDS], default: "chest" },
-    { key: "main", label: "Main material (ui = natural)", type: "material", options: OBJECT_MATS, default: "ui" },
-    { key: "accent", label: "Accent material (ui = natural)", type: "material", options: OBJECT_MATS, default: "ui" },
+    { key: "main", label: "Main material", type: "select", options: OBJECT_MATS, default: "natural" },
+    { key: "accent", label: "Accent material", type: "select", options: OBJECT_MATS, default: "natural" },
     { key: "variant", label: "Variant", type: "number", min: 0, max: 9, step: 1, default: 0 },
   ],
   generate(p, kit, seed) {
