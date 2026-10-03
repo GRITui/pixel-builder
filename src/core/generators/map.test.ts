@@ -154,6 +154,12 @@ describe("map generator", () => {
     }
   });
 
+  it("adds shore transition tiles where land meets water", () => {
+    const tm = tilemap({ biome: "island", cols: 24, rows: 24 }, 3);
+    expect(count(tm, (n) => /-shore-\d+/.test(n))).toBeGreaterThan(0);
+    for (const t of tm.tiles.filter((t) => t.name.includes("-shore-"))) expect([t.sprite.w, t.sprite.h]).toEqual([kit.sizes.tile, kit.sizes.tile]);
+  });
+
   it("generates a 32x32 map in under 200ms", () => {
     for (const biome of BIOMES) make({ biome, cols: 32, rows: 32, density: 1 }, 1); // warm up
     for (const biome of BIOMES) {

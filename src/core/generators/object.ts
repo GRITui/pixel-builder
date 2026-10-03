@@ -111,7 +111,7 @@ interface Ctx {
 function chest({ d, m, a, v }: Ctx) {
   d.ell(8, 8.5, 6, 5.5, m, 0.45);
   d.box(2, 8, 12, 6, m, [0, 0, 1], -1);
-  d.rect(2, 8, 12, 1, m, 0); // seam
+  d.rect(2, 8, 12, 1, "ink", 0); // lid seam (ink so it reads in 4 tones)
   d.rect(3, 9, 10, 1, m, 3 - (v % 2)); // base top light
   d.bandV(4, 2, 3, 14, a, 2, 3);
   d.bandV(10, 2, 3, 14, a, 2, 3);

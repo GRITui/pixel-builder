@@ -72,15 +72,18 @@ function oak(c: Ctx) {
   const cx = S / 2;
   const tw = R1(8) + (c.v % 3 === 0 ? 1 : 0);
   const tx = Math.round(cx - tw / 2);
-  const trunkTop = Math.round(Yu(c, 32));
+  const trunkTop = Math.round(Yu(c, 26));
   P.cylinder(tx, trunkTop, tw, G - trunkTop, c.trunk);
+  P.box(tx + tw - Math.max(2, Math.round(tw * 0.3)), trunkTop, Math.max(2, Math.round(tw * 0.3)), G - trunkTop, c.trunk, [0.9, 0, 0.4], { tone: -1 });
+  P.box(tx, trunkTop, tw, R1(3), c.trunk, [0, 0, 1], { tone: -1 }); // canopy shadow
   P.box(tx - 1, G - R1(3), 1, R1(3), c.trunk, [-0.6, 0, 0.8]);
   P.box(tx + tw, G - R1(3), 1, R1(3), c.trunk, [0.6, 0, 0.8], { tone: -1 });
   if (c.v % 4 === 1) P.px(tx + Math.floor(tw / 2), Math.round(Yu(c, 12)), c.trunk, 0); // knot
 
+  const Yc = (u: number) => Yu(c, (u - 26) * 1.1 + 21);
   const j = () => (r.next() - 0.5) * 2 * k;
-  const L = (dx: number, u: number, rx: number, ry: number, tone = 0) => P.ellipse(cx + dx * k + j(), Yu(c, u), rx * k, ry * k, c.foliage, { tone });
-  P.ellipse(cx, Yu(c, 38), 14 * k, 9 * k, c.foliage, { tone: -1 });
+  const L = (dx: number, u: number, rx: number, ry: number, tone = 0) => P.ellipse(cx + dx * k + j(), Yc(u), rx * k, ry * 1.2 * k, c.foliage, { tone });
+  P.ellipse(cx, Yc(38), 14.5 * k, 10.5 * k, c.foliage, { tone: -1 });
   L(-8, 41, 7.5, 8);
   L(8, 42, 7.5, 7.5);
   L(0, 50, 11, 9);
@@ -88,12 +91,12 @@ function oak(c: Ctx) {
   L(6, 54, 6, 4.5);
   L(-6, 35, 5, 3, -1);
   L(7, 34.5, 5, 3, -1);
-  P.ellipse(cx - 5 * k, Yu(c, 57.5), 4 * k, 2.4 * k, c.foliage, { tone: 1 });
-  P.ellipse(cx + 3 * k + j(), Yu(c, 45), 3.2 * k, 2.4 * k, c.foliage, { tone: 1 });
+  P.ellipse(cx - 5 * k, Yc(57.5), 4 * k, 2.8 * k, c.foliage, { tone: 1 });
+  P.ellipse(cx + 3 * k + j(), Yc(45), 3.2 * k, 2.8 * k, c.foliage, { tone: 1 });
   if (c.v >= 5) {
     const spots: [number, number][] = [[-9, 41], [2, 36], [9, 45], [-2, 52], [5, 56]];
     for (const [dx, u] of spots) {
-      const x = Math.round(cx + dx * k), y = Math.round(Yu(c, u));
+      const x = Math.round(cx + dx * k), y = Math.round(Yc(u));
       P.px(x, y, c.accent, 3);
       if (k >= 1) P.px(x + 1, y, c.accent, 2);
     }
@@ -141,7 +144,7 @@ function palm(c: Ctx) {
         ];
   for (const [deg, len, droop, tone] of fronds) {
     const a = (deg * Math.PI) / 180 + (r.next() - 0.5) * 0.12;
-    const Ln = len * k;
+    const Ln = len * 1.3 * k;
     for (let s = 0; s <= Ln; s += Math.max(0.7, k * 0.7)) {
       const f = s / Ln;
       const px = hx + Math.cos(a) * s;
@@ -383,22 +386,22 @@ function painter(T: number) {
   return { s, put };
 }
 
+/** Accent count: roughly one per 8x8 area. */
+const perArea = (T: number) => Math.max(1, Math.round((T * T) / 64));
+
 function grassTile(T: number, r: Rng, seed: number, flat: boolean): Sprite {
   const { s, put } = painter(T);
   const big = valueNoise(seed, 2), small = valueNoise(seed + 1, 4);
   for (let y = 0; y < T; y++)
     for (let x = 0; x < T; x++) {
-      const v = 0.4 * big((x * 2) / T, (y * 2) / T) + 0.6 * small((x * 4) / T, (y * 4) / T);
-      put(x, y, "grass", flat ? 2 : v > 0.7 ? 3 : v < 0.22 ? 1 : 2);
+      const v = 0.5 * big((x * 2) / T, (y * 2) / T) + 0.5 * small((x * 4) / T, (y * 4) / T);
+      put(x, y, "grass", flat ? 2 : v > 0.78 ? 3 : v < 0.16 ? 1 : 2);
     }
-  const tufts = Math.round((T * T) / 24);
-  for (let i = 0; i < tufts; i++) {
+  for (let i = 0; i < perArea(T); i++) {
     const x = r.int(0, T - 1), y = r.int(0, T - 1);
-    put(x, y, "grass", 4);
-    put(x, y + 1, "grass", 3);
-    put(x + 1, y + 1, "grass", 1);
+    put(x, y, "grass", 3);
+    put(x, y + 1, "grass", 1);
   }
-  for (let i = 0; i < Math.round(T / 4); i++) put(r.int(0, T - 1), r.int(0, T - 1), "grass", 1);
   return s;
 }
 
@@ -407,21 +410,18 @@ function dirtTile(T: number, r: Rng, seed: number, flat: boolean): Sprite {
   const big = valueNoise(seed, 2), small = valueNoise(seed + 1, 4);
   for (let y = 0; y < T; y++)
     for (let x = 0; x < T; x++) {
-      const v = 0.35 * big((x * 2) / T, (y * 2) / T) + 0.65 * small((x * 4) / T, (y * 4) / T);
-      put(x, y, "dirt", flat ? 3 : v > 0.68 ? 3 : v < 0.26 ? 1 : 2);
+      const v = 0.5 * big((x * 2) / T, (y * 2) / T) + 0.5 * small((x * 4) / T, (y * 4) / T);
+      put(x, y, "dirt", flat ? 2 : v > 0.78 ? 3 : v < 0.16 ? 1 : 2);
     }
-  for (let i = 0; i < Math.max(2, Math.round(T / 5)); i++) {
+  for (let i = 0; i < perArea(T); i++) {
     const x = r.int(0, T - 1), y = r.int(0, T - 1);
-    put(x, y, "dirt", 4);
-    put(x + 1, y, "dirt", 3);
-    put(x, y + 1, "dirt", 1);
-    put(x + 1, y + 1, "dirt", 1);
+    put(x, y, "dirt", 3);
+    put(x + 1, y, "dirt", 1);
   }
-  for (let i = 0; i < Math.round(T / 2); i++) put(r.int(0, T - 1), r.int(0, T - 1), "dirt", r.chance(0.5) ? 1 : 3);
   return s;
 }
 
-function sandTile(T: number, r: Rng, seed: number): Sprite {
+function sandTile(T: number, r: Rng, seed: number, flat: boolean): Sprite {
   const { s, put } = painter(T);
   const n = valueNoise(seed, 2);
   const cycles = Math.max(2, Math.round(T / 8));
@@ -429,9 +429,13 @@ function sandTile(T: number, r: Rng, seed: number): Sprite {
     for (let x = 0; x < T; x++) {
       const warp = 0.12 * Math.sin((2 * Math.PI * x) / T) + 0.18 * n((x * 2) / T, (y * 2) / T);
       const w = Math.sin(2 * Math.PI * ((y / T) * cycles + warp));
-      put(x, y, "sand", w > 0.88 ? 2 : w < -0.9 ? 4 : 3);
+      put(x, y, "sand", flat ? 3 : w > 0.93 ? 4 : w < -0.93 ? 2 : 3);
     }
-  for (let i = 0; i < Math.round(T / 2); i++) put(r.int(0, T - 1), r.int(0, T - 1), "sand", r.chance(0.5) ? 4 : 2);
+  for (let i = 0; i < perArea(T); i++) {
+    const x = r.int(0, T - 1), y = r.int(0, T - 1);
+    put(x, y, "sand", 2);
+    put(x + 1, y, "sand", 4);
+  }
   return s;
 }
 
@@ -440,17 +444,15 @@ function snowTile(T: number, r: Rng, seed: number, flat: boolean): Sprite {
   const big = valueNoise(seed, 2), small = valueNoise(seed + 1, 4);
   for (let y = 0; y < T; y++)
     for (let x = 0; x < T; x++) {
-      const v = 0.25 * big((x * 2) / T, (y * 2) / T) + 0.75 * small((x * 4) / T, (y * 4) / T);
-      if (v < 0.22) put(x, y, "stone", flat ? 3 : 4);
+      const v = 0.4 * big((x * 2) / T, (y * 2) / T) + 0.6 * small((x * 4) / T, (y * 4) / T);
+      if (v < 0.12 && !flat) put(x, y, "stone", 4);
       else put(x, y, "ui", 4);
     }
-  for (let i = 0; i < Math.max(2, Math.round(T / 5)); i++) {
+  for (let i = 0; i < perArea(T); i++) {
     const x = r.int(0, T - 1), y = r.int(0, T - 1);
     put(x, y, "stone", flat ? 3 : 4);
-    put(x + 1, y + 1, "stone", flat ? 3 : 4);
+    put(x + 1, y, "stone", flat ? 3 : 4);
   }
-  for (let i = 0; i < Math.round(T / 6); i++) put(r.int(0, T - 1), r.int(0, T - 1), "water", 4);
-  if (T >= 12) put(r.int(0, T - 1), r.int(0, T - 1), "stone", 3);
   return s;
 }
 
@@ -541,7 +543,7 @@ export const environmentGenerator: Generator = {
       if (kind === "water-tile") return { rows: [{ name: "idle", frames: waterTile(T, r, mixed) }], fps: 4 };
       const sprite =
         kind === "dirt-tile" ? dirtTile(T, r, mixed, flat) :
-        kind === "sand-tile" ? sandTile(T, r, mixed) :
+        kind === "sand-tile" ? sandTile(T, r, mixed, flat) :
         kind === "snow-tile" ? snowTile(T, r, mixed, flat) :
         kind === "stone-path-tile" ? stonePathTile(T, r, kit) :
         grassTile(T, r, mixed, flat);

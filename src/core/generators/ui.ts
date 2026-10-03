@@ -44,6 +44,8 @@ interface Surface {
   raised: boolean;
   /** knock the 4 outer corner pixels out for a rounded look. */
   round: boolean;
+  /** lighter colour for the lit upper half of the body (2-tone). */
+  top?: C;
 }
 
 /**
@@ -55,6 +57,7 @@ function surface(P: Painter, x: number, y: number, w: number, h: number, s: Surf
   const hi = s.raised ? s.hi : s.lo, lo = s.raised ? s.lo : s.hi;
   P.rect(x, y, w, h, ...s.border);
   P.rect(x + 1, y + 1, w - 2, h - 2, ...s.fill);
+  if (s.top && h >= 8) P.rect(x + 1, y + 1, w - 2, Math.floor((h - 2) / 2), ...s.top);
   if (side !== 0 && h > 4) {
     P.rect(x + 1, y + 2, 1, h - 4, ...(side < 0 ? hi : lo)); // left column
     P.rect(x + w - 2, y + 2, 1, h - 4, ...(side < 0 ? lo : hi)); // right column
@@ -73,26 +76,39 @@ function ornate(P: Painter, x: number, y: number, w: number, h: number, accent: 
   surface(P, x + 2, y + 2, w - 4, h - 4, { border: [ink, 0], fill: inner, hi: [inner[0], Math.min(4, inner[1] + 1)], lo: [inner[0], Math.max(0, inner[1] - 1)], raised: innerRaised, round: false });
   // corner studs
   for (const [cx, cy] of [[x + 1, y + 1], [x + w - 2, y + 1], [x + 1, y + h - 2], [x + w - 2, y + h - 2]]) P.px(cx, cy, accent, 4);
+  // brass gussets where the inner frame meets the rim (inside the 4px corner)
+  if (w >= 10 && h >= 10)
+    for (const [cx, cy] of [[x + 2, y + 2], [x + w - 3, y + 2], [x + 2, y + h - 3], [x + w - 3, y + h - 3]]) P.px(cx, cy, accent, 2);
 }
 
-/** Little "text" strip so buttons and tabs have content that can shift when pressed. */
-function label(P: Painter, cx: number, cy: number, maxLen: number, m: Material, seed: number, lvl = 4, shadow = true) {
+/** Inner border line + darker inset area inside a surface (uniform along each edge, so 9-slice safe). */
+function insetWell(P: Painter, x: number, y: number, w: number, h: number, m: Material, base: number) {
+  if (w < 10 || h < 10) return;
+  const side = P.lightSide;
+  const wx = x + 2, wy = y + 2, ww = w - 4, wh = h - 4;
+  const lit = Math.max(0, base - 2), edge = Math.min(4, base + 1);
+  P.rect(wx, wy, ww, wh, m, Math.max(0, base - 1));
+  P.rect(wx, wy, ww, 1, m, lit); // lip shadow on the lit (top) side
+  P.rect(wx, wy + wh - 1, ww, 1, m, edge); // catch-light at the bottom
+  P.rect(side > 0 ? wx + ww - 1 : wx, wy, 1, wh, m, lit);
+  P.rect(side > 0 ? wx : wx + ww - 1, wy + 1, 1, wh - 2, m, side === 0 ? lit : edge);
+}
+
+/** Centred "label bar": one or two short rounded strokes standing in for text; shifts when pressed. */
+function label(P: Painter, cx: number, cy: number, maxLen: number, m: Material, seed: number, lvl = 4, shadow: number | false = 0, twoLine = false) {
   const r = rng(seed);
-  const segs: number[] = [];
-  let len = 0;
-  const target = Math.max(5, Math.min(maxLen, Math.round(maxLen * 0.7)));
-  while (len < target) {
-    const s = r.pick([2, 3, 3, 4]);
-    segs.push(Math.min(s, target - len));
-    len += s + 1;
-  }
-  const total = segs.reduce((a, b) => a + b + 1, -1);
-  let x = Math.round(cx - total / 2);
-  for (const s of segs) {
-    if (shadow) P.rect(x, cy + 1, s, 1, m, 0);
-    P.rect(x, cy, s, 1, m, lvl);
-    x += s + 1;
-  }
+  const len1 = Math.max(4, Math.min(maxLen, Math.round(maxLen * (0.6 + r.next() * 0.15))));
+  const stroke = (len: number, y: number) => {
+    const x = Math.round(cx - len / 2);
+    if (shadow !== false) P.rect(x + 1, y + 1, len - 1, 1, m, shadow);
+    P.rect(x, y, len, 1, m, lvl);
+    P.px(x, y, m, lvl === 0 ? 1 : Math.max(1, lvl - 1)); // rounded ends
+    P.px(x + len - 1, y, m, lvl === 0 ? 1 : Math.max(1, lvl - 1));
+  };
+  if (twoLine) {
+    stroke(len1, cy - 1);
+    stroke(Math.max(3, Math.round(len1 * 0.55)), cy + 2);
+  } else stroke(len1, cy);
 }
 
 interface Ctx {
@@ -107,26 +123,35 @@ interface Ctx {
 function drawButton(c: Ctx, w: number, h: number, state: "normal" | "hover" | "pressed"): Sprite {
   const P = new Painter(w, h, c.kit);
   const { m, a, style } = c;
-  const lvl = state === "hover" ? 1 : 0; // hover lifts the whole ramp one step
-  const fill: C = [m, style === "inset" ? 1 + lvl : 2 + lvl];
-  const hi: C = [m, 3 + lvl], lo: C = [m, 1 + lvl];
+  const hover = state === "hover";
   const pressed = state === "pressed";
+  const l = hover ? 1 : 0; // hover lifts the whole ramp one step; label stays at the top of the ramp for contrast
+  const base: C = [m, (style === "inset" ? 1 : 2) + l];
+  const top: C = [m, Math.min(4, base[1] + 1)];
   const raised = !pressed && style !== "inset";
   const dy = pressed ? 1 : 0;
   if (style === "ornate") {
-    ornate(P, 0, 0, w, h, a, [m, 2 + lvl], raised, m);
+    ornate(P, 0, 0, w, h, a, [m, 2 + l], raised, m);
   } else if (style === "flat") {
-    surface(P, 0, 0, w, h, { border: [m, 0], fill: [m, 2 + lvl + (pressed ? -1 : 0)], hi: [m, 2 + lvl + (pressed ? -1 : 0)], lo: [m, 2 + lvl + (pressed ? -1 : 0)], raised: true, round: true });
-    P.rect(1, 1, w - 2, 1, m, (pressed ? 1 : 3) + lvl); // flat highlight line
+    const f = pressed ? base : top;
+    surface(P, 0, 0, w, h, { border: [m, 0], fill: pressed ? base : base, top: pressed ? undefined : top, hi: f, lo: base, raised: true, round: true });
   } else {
-    surface(P, 0, 0, w, h, { border: [m, 0], fill: pressed ? [m, 1 + lvl] : fill, hi, lo, raised, round: true });
+    surface(P, 0, 0, w, h, {
+      border: [m, 0], fill: base, top: pressed || !raised ? undefined : top,
+      hi: [m, Math.min(4, 3 + l)], lo: [m, 1 + l - (hover ? 1 : 0)], raised, round: true,
+    });
   }
   const inner = style === "ornate" ? ORNATE_INSET : 3;
-  label(P, Math.floor(w / 2), Math.floor(h / 2) - 1 + dy, w - inner * 2 - 2, style === "ornate" ? a : m, c.seed, 4, true);
-  if (style === "ornate" && w >= 28) {
-    // small gem inset in the centre-left would crowd the label; put a tiny accent gem on each side instead
-    P.px(inner + 2, Math.floor(h / 2) + dy, a, 4);
-    P.px(w - inner - 3, Math.floor(h / 2) + dy, a, 4);
+  const pips = w >= 24;
+  const maxLen = w - inner * 2 - 2 - (pips ? 8 : 0);
+  label(P, Math.floor(w / 2), Math.floor(h / 2) - 1 + dy, maxLen, style === "ornate" && !hover ? a : m, c.seed, hover ? 0 : 4, hover ? 4 : 0, h >= 14);
+  if (pips) {
+    // accent rivet at each end of the button (lights up on hover)
+    const my = Math.floor(h / 2) - 1 + dy + (h >= 14 ? 0 : 0);
+    for (const px of [inner + 1, w - inner - 3]) {
+      P.rect(px, my, 2, 1, a, 4);
+      P.rect(px, my + 1, 2, 1, a, hover ? 3 : 2);
+    }
   }
   return P.toSprite();
 }
@@ -152,10 +177,12 @@ function drawFrame(c: Ctx, w: number, h: number, kind: "panel" | "slot" | "icon-
     return P.toSprite();
   }
   // panel
-  if (style === "ornate") ornate(P, 0, 0, w, h, a, [m, 2], true, m);
-  else if (style === "flat") surface(P, 0, 0, w, h, { border: [m, 0], fill: [m, 2], hi: [m, 2], lo: [m, 2], raised: true, round: true });
-  else if (style === "inset") surface(P, 0, 0, w, h, { border: [m, 0], fill: [m, 1], hi: [m, 2], lo: [m, 0], raised: false, round: true });
-  else surface(P, 0, 0, w, h, { border: [m, 0], fill: [m, 2], hi: [m, 3], lo: [m, 1], raised: true, round: true });
+  if (style === "ornate") ornate(P, 0, 0, w, h, a, [m, 3], true, m);
+  else if (style === "flat") surface(P, 0, 0, w, h, { border: [m, 0], fill: [m, 3], hi: [m, 3], lo: [m, 3], raised: true, round: true });
+  else if (style === "inset") surface(P, 0, 0, w, h, { border: [m, 0], fill: [m, 2], hi: [m, 3], lo: [m, 0], raised: false, round: true });
+  else surface(P, 0, 0, w, h, { border: [m, 0], fill: [m, 3], hi: [m, 4], lo: [m, 1], raised: true, round: true });
+  if (style !== "ornate") insetWell(P, 0, 0, w, h, m, style === "inset" ? 2 : 3);
+  else insetWell(P, 2, 2, w - 4, h - 4, m, 3);
   return P.toSprite();
 }
 
@@ -247,7 +274,7 @@ function drawTab(c: Ctx, w: number, h: number, active: boolean): Sprite {
     P.rect(1, h - 2, w - 2, 1, ...fill);
     if (c.style === "ornate") P.rect(1, top + 1, w - 2, 1, a, 4);
   }
-  label(P, Math.floor(w / 2), top + Math.floor((h - top) / 2) - 1, w - 8, m, c.seed, active ? 4 : 3, active);
+  label(P, Math.floor(w / 2), top + Math.floor((h - top) / 2) - 1, w - 8, m, c.seed, active ? 4 : 3, active ? 0 : false);
   return P.toSprite();
 }
 

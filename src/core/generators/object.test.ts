@@ -103,3 +103,18 @@ describe("object generator", () => {
     expect(() => objectGenerator.generate(p, KIT_PRESETS[0], 1)).not.toThrow();
   });
 });
+
+describe("object light direction", () => {
+  it("renders differently for top-left vs top-right light and mirrors hand-placed highlights", () => {
+    const left = { ...KIT_PRESETS[0], lightDir: "top-left" as const };
+    const right = { ...KIT_PRESETS[0], lightDir: "top-right" as const };
+    for (const kind of ["bow", "sign", "gem", "apple", "pot", "heart"]) {
+      const a = gen(kind, left).rows[0].frames[0];
+      const b = gen(kind, right).rows[0].frames[0];
+      expect(b.data).not.toEqual(a.data);
+    }
+    // the shape (alpha) of a symmetric-ish prop is unchanged; only shading flips
+    const a = gen("sign", left).rows[0].frames[0], b = gen("sign", right).rows[0].frames[0];
+    expect(Array.from(a.data).map((v) => v !== 0)).toEqual(Array.from(b.data).map((v) => v !== 0));
+  });
+});

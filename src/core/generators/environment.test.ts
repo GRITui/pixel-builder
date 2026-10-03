@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { KIT_PRESETS } from "../kit";
+import { KIT_PRESETS, proportions } from "../kit";
 import { decodeIndex } from "../palette";
 import { bounds, getPx } from "../sprite";
 import type { Sprite } from "../types";
@@ -44,7 +44,7 @@ describe("environment generator", () => {
       expect(fps).toBeGreaterThan(0);
       const s = rows[0].frames[0];
       expect(s.w).toBe(kit.sizes.environment);
-      expect(s.h).toBe(kit.sizes.environment);
+      expect(s.h).toBe(["oak", "pine", "palm", "dead-tree"].includes(kind) ? proportions(kit).tree + 2 : kit.sizes.environment);
       const b = bounds(s)!;
       expect(b).not.toBeNull();
       expect(b.x1 - b.x0).toBeGreaterThan(kit.sizes.environment / 4);
@@ -74,6 +74,15 @@ describe("environment generator", () => {
         }
       }
     });
+  });
+
+  it("trees are about twice a character tall", () => {
+    for (let i = 0; i < KIT_PRESETS.length; i++)
+      for (const kind of ["oak", "pine", "palm", "dead-tree"]) {
+        const s = gen(kind, i).rows[0].frames[0];
+        const b = bounds(s)!;
+        expect(b.y1 - b.y0 + 1).toBeGreaterThanOrEqual(proportions(KIT_PRESETS[i]).tree * 0.85);
+      }
   });
 
   it("animates only the water tile", () => {

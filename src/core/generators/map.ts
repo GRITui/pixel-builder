@@ -1,7 +1,10 @@
 import { rng, valueNoise, type Rng } from "../rng";
 import { emptyTileMap, ensureTile, renderTileMap } from "../tilemap";
 import type { StyleKit, TileMap } from "../types";
-import { environmentGenerator } from "./environment";
+import { environmentGenerator, treeHeight } from "./environment";
+import { colorIndex, decodeIndex } from "../palette";
+import { createSprite } from "../sprite";
+import type { Sprite } from "../types";
 import { bool, defaults, num, str, type Generator } from "./types";
 
 export const BIOMES = ["meadow", "forest", "island", "desert", "winter"] as const;
@@ -47,7 +50,7 @@ const PROPS: Record<Biome, Weights> = {
 const BASE_CHANCE: Record<Biome, number> = { meadow: 0.22, forest: 0.55, island: 0.3, desert: 0.14, winter: 0.3 };
 const BASE_GROUND: Record<Biome, Ground> = { meadow: "grass", forest: "grass", island: "grass", desert: "sand", winter: "snow" };
 const PATH_GROUND: Record<Biome, Ground> = { meadow: "dirt", forest: "dirt", island: "dirt", desert: "dirt", winter: "stone-path" };
-const VARIANTS = 3;
+const VARIANTS = 6;
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
@@ -119,7 +122,12 @@ function buildGround(biome: Biome, cols: number, rows: number, seed: number, r: 
       for (let y = 0; y < rows; y++)
         for (let x = 0; x < cols; x++) {
           if (ground[at(x, y)] === "water") continue;
-          const wet = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => ground[at(x + dx, y + dy)] === "water" && x + dx >= 0 && x + dx < cols && y + dy >= 0 && y + dy < rows);
+          let wet = false;
+          for (let dy = -1; dy <= 1; dy++)
+            for (let dx = -1; dx <= 1; dx++) {
+              const xx = x + dx, yy = y + dy;
+              if ((dx || dy) && xx >= 0 && yy >= 0 && xx < cols && yy < rows && ground[at(xx, yy)] === "water") wet = true;
+            }
           if (wet) ground[at(x, y)] = "sand";
         }
   }
@@ -165,21 +173,49 @@ export const mapGenerator: Generator = {
 
     // --- ground layer: a few texture variants per kind so it doesn't read as a grid ---
     const tileCache = new Map<string, number>();
+    const spriteCache = new Map<string, Sprite>();
+    const baseSprite = (g: Ground, v: number): Sprite => {
+      const name = v === 0 || g === "water" ? g : `${g}-${v + 1}`;
+      let sp = spriteCache.get(name);
+      if (!sp) {
+        sp = environmentGenerator.generate({ ...envDefaults, kind: `${g}-tile`, variant: g === "water" ? 0 : v }, kit, seed).rows[0].frames[0];
+        spriteCache.set(name, sp);
+      }
+      return sp;
+    };
     const groundTile = (g: Ground, v: number): number => {
       const name = v === 0 || g === "water" ? g : `${g}-${v + 1}`;
       let idx = tileCache.get(name);
       if (idx === undefined) {
-        const kind = `${g}-tile`;
-        const sprite = environmentGenerator.generate({ ...envDefaults, kind, variant: g === "water" ? 0 : v }, kit, seed).rows[0].frames[0];
-        idx = ensureTile(tm, name, sprite, g === "water");
+        idx = ensureTile(tm, name, baseSprite(g, v), g === "water");
         tileCache.set(name, idx);
       }
       return idx;
     };
+    const isWater = (x: number, y: number) => x >= 0 && y >= 0 && x < cols && y < rows && ground[y * cols + x] === "water";
+    // Seeded value noise picks the texture variant so repeats form no visible lattice.
+    const vNoise = valueNoise((seed ^ 0x7f31) >>> 0, 16);
     for (let i = 0; i < ground.length; i++) {
       const g = ground[i];
-      const v = r.chance(0.7) ? 0 : r.int(1, VARIANTS - 1);
-      tm.ground[i] = groundTile(g, v);
+      const x = i % cols, y = Math.floor(i / cols);
+      const rr = r.next(), rv = r.int(1, VARIANTS - 1);
+      const v = rr < 0.4 ? 0 : (rv + Math.floor(vNoise(x / 2, y / 2) * VARIANTS)) % VARIANTS;
+      if (g === "water") { tm.ground[i] = groundTile(g, 0); continue; }
+      // 4-neighbour water mask (N,E,S,W) plus diagonal notches for corners not already covered
+      let mask = (isWater(x, y - 1) ? 1 : 0) | (isWater(x + 1, y) ? 2 : 0) | (isWater(x, y + 1) ? 4 : 0) | (isWater(x - 1, y) ? 8 : 0);
+      if (!(mask & 1) && !(mask & 8) && isWater(x - 1, y - 1)) mask |= 16;
+      if (!(mask & 1) && !(mask & 2) && isWater(x + 1, y - 1)) mask |= 32;
+      if (!(mask & 4) && !(mask & 2) && isWater(x + 1, y + 1)) mask |= 64;
+      if (!(mask & 4) && !(mask & 8) && isWater(x - 1, y + 1)) mask |= 128;
+      if (mask === 0) { tm.ground[i] = groundTile(g, v); continue; }
+      const sv = v % 2; // two shore texture variants per mask is plenty
+      const name = `${g}-shore-${mask}${sv ? "b" : ""}`;
+      let idx = tileCache.get(name);
+      if (idx === undefined) {
+        idx = ensureTile(tm, name, shoreTile(baseSprite(g, sv), baseSprite("water", 0), mask), false);
+        tileCache.set(name, idx);
+      }
+      tm.ground[i] = idx;
     }
 
     // --- deco layer ---
@@ -196,8 +232,8 @@ export const mapGenerator: Generator = {
     };
     const clump = valueNoise((seed ^ 0xabc1) >>> 0, 16);
     const chance0 = BASE_CHANCE[biome] * density;
-    const tall = kit.sizes.environment > T;
-    const bigRows = tall ? Math.ceil(kit.sizes.environment / T) - 1 : 0;
+    const wide = kit.sizes.environment > T;
+    const bigRowsOf = (kind: string) => Math.ceil(treeHeight(kit, kind) / T) - 1;
     for (let y = 0; y < rows; y++)
       for (let x = 0; x < cols; x++) {
         const i = y * cols + x;
@@ -210,7 +246,7 @@ export const mapGenerator: Generator = {
         if (roll >= chance0 * (0.35 + 1.3 * clump(x / 3, y / 3))) continue;
         const kind = pickWeighted(table, pickRoll);
         if (BIG_PROPS.has(kind)) {
-          if (y < bigRows || (tall && (x < 1 || x > cols - 2))) continue;
+          if (y < bigRowsOf(kind) || (wide && (x < 1 || x > cols - 2))) continue;
           if (biome !== "forest" && x > 0 && BIG_PROPS.has(tmKind(tm, tm.deco[i - 1]))) continue;
         }
         tm.deco[i] = propTile(kind, vRoll);
@@ -223,4 +259,60 @@ export const mapGenerator: Generator = {
 function tmKind(tm: TileMap, idx: number): string {
   const t = tm.tiles[idx];
   return t ? t.name.replace(/-\d+$/, "") : "";
+}
+
+/**
+ * Land tile touching water: a foam line on the water-facing edges, a darker wet line behind it,
+ * and rounded corners where two water sides meet (or a notch for a diagonal-only water cell).
+ * mask bits: 1=N 2=E 4=S 8=W water neighbours; 16=NW 32=NE 64=SE 128=SW diagonal-only.
+ */
+function shoreTile(land: Sprite, water: Sprite, mask: number): Sprite {
+  const T = land.w;
+  const out = createSprite(T, T);
+  for (let i = 0; i < land.data.length; i++) out.data[i] = land.data[i];
+  const dark = (v: number) => {
+    const d = decodeIndex(v);
+    return d ? colorIndex(d.mat, Math.max(0, d.level - 1)) : v;
+  };
+  const foam = colorIndex("water", 4);
+  const set = (x: number, y: number, v: number) => { if (x >= 0 && y >= 0 && x < T && y < T) out.data[y * T + x] = v; };
+  const N = mask & 1, E = mask & 2, S = mask & 4, W = mask & 8;
+  // wet line first, then foam on top
+  for (let i = 0; i < T; i++) {
+    if (N) set(i, 1, dark(land.data[T + i]));
+    if (S) set(i, T - 2, dark(land.data[(T - 2) * T + i]));
+    if (W) set(1, i, dark(land.data[i * T + 1]));
+    if (E) set(T - 2, i, dark(land.data[i * T + T - 2]));
+  }
+  for (let i = 0; i < T; i++) {
+    if (N) set(i, 0, foam);
+    if (S) set(i, T - 1, foam);
+    if (W) set(0, i, foam);
+    if (E) set(T - 1, i, foam);
+  }
+  const wv = (x: number, y: number) => water.data[y * T + x];
+  const corner = (cx: number, cy: number, sx: number, sy: number) => {
+    // water-filled rounded corner (cut radius 3), foam on its rim
+    for (let dy = 0; dy < 4; dy++)
+      for (let dx = 0; dx < 4; dx++) {
+        const d = dx + dy;
+        const x = cx + sx * dx, y = cy + sy * dy;
+        if (d <= 2) set(x, y, wv(x, y));
+        else if (d === 3 && dx < 3 && dy < 3) set(x, y, foam);
+      }
+  };
+  if (N && W) corner(0, 0, 1, 1);
+  if (N && E) corner(T - 1, 0, -1, 1);
+  if (S && E) corner(T - 1, T - 1, -1, -1);
+  if (S && W) corner(0, T - 1, 1, -1);
+  const notch = (cx: number, cy: number, sx: number, sy: number) => {
+    set(cx, cy, foam);
+    set(cx + sx, cy, foam);
+    set(cx, cy + sy, foam);
+  };
+  if (mask & 16) notch(0, 0, 1, 1);
+  if (mask & 32) notch(T - 1, 0, -1, 1);
+  if (mask & 64) notch(T - 1, T - 1, -1, -1);
+  if (mask & 128) notch(0, T - 1, 1, -1);
+  return out;
 }
