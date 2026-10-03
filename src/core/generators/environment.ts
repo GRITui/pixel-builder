@@ -117,10 +117,13 @@ function palm(c: Ctx) {
   P.box(Math.round(x0 - tw / 2) - 1, G - R1(2), tw + 2, R1(2), c.trunk, [0, 0, 1], { tone: -1 });
   const hx = x2, hy = y2;
   // [angle, length, droop, tone]: back fronds first (darker), then the front ones
-  const fronds: [number, number, number, number][] = [
-    [-100, 9, 3, -1], [-68, 9, 4, -1], [-150, 12, 6, -1], [-30, 12, 6, -1],
-    [-125, 13, 6, 0], [-52, 13, 6, 0], [172, 11, 7, 0], [8, 11, 7, 0],
-  ];
+  const fronds: [number, number, number, number][] =
+    k < 1
+      ? [[-90, 9, 2, -1], [-150, 10, 4, 0], [-30, 10, 4, 0], [176, 9, 5, 0], [4, 9, 5, 0]]
+      : [
+          [-100, 9, 3, -1], [-68, 9, 4, -1], [-150, 12, 6, -1], [-30, 12, 6, -1],
+          [-125, 13, 6, 0], [-52, 13, 6, 0], [172, 11, 7, 0], [8, 11, 7, 0],
+        ];
   for (const [deg, len, droop, tone] of fronds) {
     const a = (deg * Math.PI) / 180 + (r.next() - 0.5) * 0.12;
     const L = len * k;
@@ -152,14 +155,14 @@ function deadTree(c: Ctx) {
   const branch = (fromY: number, dx: number, dy: number, fork: boolean) => {
     const x0 = Math.round(xAt(fromY)), y0 = fromY;
     const x1 = Math.round(x0 + dx * k), y1 = Math.round(y0 + dy * k);
-    P.line(x0, y0 + 1, x1, y1 + 1, c.trunk, 1);
-    P.line(x0, y0, x1, y1, c.trunk, 2);
+    if (k >= 1) P.line(x0, y0 + 1, x1, y1 + 1, c.trunk, 1);
+    P.line(x0, y0, x1, y1, c.trunk, k >= 1 ? 2 : 1);
     if (fork) {
       const mx = Math.round((x0 + x1) / 2), my = Math.round((y0 + y1) / 2);
       const fx = Math.round(mx + Math.sign(dx) * 4 * k), fy = Math.round(my - 5 * k);
-      P.line(mx, my, fx, fy, c.trunk, 2);
+      P.line(mx, my, fx, fy, c.trunk, k >= 1 ? 2 : 1);
     }
-    P.px(x1, y1 - 1, c.trunk, 3);
+    if (k >= 1) P.px(x1, y1 - 1, c.trunk, 3);
   };
   branch(R(14), -9 + r.int(-1, 1), -10, true);
   branch(R(10), 8 + r.int(-1, 1), -8, c.v % 2 === 0);
@@ -225,7 +228,8 @@ function flowers(c: Ctx) {
   // grass tuft
   for (const [dx, h] of [[-6, 6], [-3, 8], [0, 5], [3, 8], [6, 6]] as [number, number][]) {
     const x = Math.round(cx + dx * k);
-    P.poly([[x - 1, G], [x + 1.5, G], [x + (dx > 0 ? 1.5 : -1.5), G - h * k]], "grass", [dx / 8, -0.2, 1], { tone: dx % 2 ? 0 : -1 });
+    const hw = k >= 1 ? 1 : 0.6;
+    P.poly([[x - hw, G], [x + hw + 0.5, G], [x + (dx > 0 ? 1.5 : -1.5), G - h * k]], "grass", [dx / 8, -0.2, 1], { tone: dx % 2 ? 0 : -1 });
   }
   const heads: [number, number][] = [[-6, 18], [1, 23], [7, 16]];
   heads.forEach(([dx, hy], i) => {
