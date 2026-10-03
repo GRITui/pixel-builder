@@ -39,7 +39,9 @@ describe("building generator", () => {
     const p = { ...defaults(buildingGenerator), style: "keep", floors: 3 };
     const a = buildingGenerator.generate(p, kit, 9).rows[0].frames[0];
     expect(buildingGenerator.generate(p, kit, 9).rows[0].frames[0]).toEqual(a);
-    expect([a.w, a.h]).toEqual([kit.sizes.building, kit.sizes.building]);
+    // width is the kit size; height grows with floors so the door stays at character scale
+    expect(a.w).toBe(kit.sizes.building);
+    expect(a.h).toBeGreaterThanOrEqual(kit.sizes.building);
     expect(validIndices(a.data)).toBe(true);
   });
 
@@ -48,6 +50,23 @@ describe("building generator", () => {
       for (const roof_style of ["gable", "hip", "flat", "dome", "spire"])
         for (const kit of KIT_PRESETS)
           expect(() => buildingGenerator.generate({ ...defaults(buildingGenerator), style, roof_style }, kit, 1)).not.toThrow();
+  });
+});
+
+describe("world scale contract", () => {
+  it("makes doors slightly taller than the character in every kit", async () => {
+    const { proportions } = await import("../kit");
+    for (const kit of KIT_PRESETS) {
+      const pr = proportions(kit);
+      expect(pr.door).toBeGreaterThan(pr.figure);
+      expect(pr.tree).toBeGreaterThan(pr.figure * 2 - 4);
+    }
+  });
+
+  it("gives characters seed-driven variety", () => {
+    const kit = KIT_PRESETS[0];
+    const frames = new Set([1, 2, 3, 4, 5, 6].map((s) => JSON.stringify(characterGenerator.generate(defaults(characterGenerator), kit, s).rows[0].frames[0].data)));
+    expect(frames.size).toBeGreaterThan(1);
   });
 });
 
