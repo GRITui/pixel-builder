@@ -131,9 +131,9 @@ function buildGround(biome: Biome, cols: number, rows: number, seed: number, r: 
   return { ground, path };
 }
 
-function pickWeighted(table: Record<string, number>, r: Rng): string {
+function pickWeighted(table: Record<string, number>, roll: number): string {
   const entries = Object.entries(table);
-  let t = r.next() * entries.reduce((a, [, w]) => a + w, 0);
+  let t = roll * entries.reduce((a, [, w]) => a + w, 0);
   for (const [k, w] of entries) {
     t -= w;
     if (t <= 0) return k;
@@ -211,20 +211,13 @@ export const mapGenerator: Generator = {
         const table = PROPS[biome][g];
         if (!table) continue;
         if (roll >= chance0 * (0.35 + 1.3 * clump(x / 3, y / 3))) continue;
-        const entries = Object.entries(table);
-        let t = pickRoll * entries.reduce((a, [, w]) => a + w, 0);
-        let kind = entries[entries.length - 1][0];
-        for (const [k, w] of entries) {
-          t -= w;
-          if (t <= 0) { kind = k; break; }
-        }
+        const kind = pickWeighted(table, pickRoll);
         if (BIG_PROPS.has(kind)) {
           if (y < bigRows || (tall && (x < 1 || x > cols - 2))) continue;
           if (biome !== "forest" && x > 0 && BIG_PROPS.has(tmKind(tm, tm.deco[i - 1]))) continue;
         }
         tm.deco[i] = propTile(kind, vRoll);
       }
-    void pickWeighted;
     return { rows: [{ name: "map", frames: [renderTileMap(tm)] }], fps: 1, tilemap: tm };
   },
 };
