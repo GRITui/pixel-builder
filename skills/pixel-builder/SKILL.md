@@ -61,8 +61,8 @@ look at it before moving on.
 6. **Check as a set.** `list_assets` / `get_asset`; assets of the same category
    should read as one family. Fix outliers (change materials or regenerate).
 7. **Ship.** `generate_asset` and `paint_asset` already export to
-   `<workspace>/<category>s/<slug>.png` (+ `.json` sheet meta for animated assets,
-   `.tiled.json` for maps). Use `export_asset` for another scale or format.
+   `<workspace>/<category folder>/<slug>.png` (animated assets export as a
+   spritesheet plus `<slug>.json` meta; maps also get `<slug>.tiled.json`). Use `export_asset` for another scale or format.
    Report the file paths to the user.
 
 ## Painting with the legend
@@ -132,8 +132,8 @@ Rules:
 
 Assets live in a workspace directory (`--workspace <dir>`, else env
 `PIXEL_BUILDER_WORKSPACE`, else `./pixel-assets`). The project is
-`<workspace>/pixel-builder.json`; exports are in `<workspace>/<category>s/`
-(`characters/`, `buildings/`, `environments/`, `objects/`, `uis/`, `maps/`).
+`<workspace>/pixel-builder.json`; exports are in `<workspace>/<category folder>/`
+(`characters/`, `buildings/`, `environments/`, `objects/`, `ui/`, `maps/`).
 Copy or point the game at those files. MCP also exposes the resources
 `pixel-builder://project` and `pixel-builder://style-guide`, and a prompt
 `asset_pack` (`game`, `count`) that walks through a starter pack.

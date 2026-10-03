@@ -76,12 +76,16 @@ icon) use `paint_asset`, and keep it in the same sizes and materials.
 - Asset = one or more animation rows of frames + `fps`. Static assets have one
   row, one frame. `category` is one of `character`, `building`, `environment`,
   `object`, `ui`, `map`.
-- Exports: `<workspace>/<category>s/<slug>.png` (animated assets also
-  `<slug>.json` with frame size, rows, fps, nineSlice meta; maps also
-  `<slug>.tiled.json`, a Tiled-compatible map with one tileset image).
-- `export_asset` `format`: `png` (first frame / preview), `spritesheet`
-  (PNG + JSON), `tiled` (maps). `scale` is an integer upscale (1, 2, 4, 8) with
-  nearest-neighbour; for engines, prefer 1x and scale in the engine.
+- Exports go to `<workspace>/<folder>/<slug>.png`, folder = `characters`,
+  `buildings`, `environments`, `objects`, `ui` or `maps`. Animated assets export
+  as a spritesheet PNG plus `<slug>.json` (image, frame size, columns/rows, fps,
+  animations by row, nineSlice meta); maps also get `<slug>.tiled.json` (a
+  Tiled-compatible map) with `<slug>.tileset.png` / `<slug>.deco.png`.
+- `export_asset` `format`: `png` (static image, or spritesheet if animated),
+  `spritesheet` (always PNG + JSON), `tiled` (maps only). `scale` is an integer
+  upscale (1-16, nearest-neighbour); for engines, prefer 1x and scale in the
+  engine. `out_dir` overrides the folder.
+- Tools that take an asset `id` also accept its exact name if unambiguous.
 - UI panels carry `meta.nineSlice {left, top, right, bottom}`: use it for
   9-slice scaling instead of stretching.
 
