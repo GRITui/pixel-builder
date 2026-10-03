@@ -47,6 +47,23 @@ characters, buildings, maps, environment, objects and UI all generated from one
 If you need a change in a shared file, **don't edit it** — describe the change
 in your final report and work around it locally.
 
+## Team
+
+Planning, contracts and integration: the lead session (Opus 5.5). Builders and
+reviewers are custom agents in `.claude/agents/` (Sonnet 5.5, low effort):
+
+| Agent | Role | Lanes / phase |
+|---|---|---|
+| `generator-artist` | procedural pixel-art generators, visual iteration | A (environment + map), B (objects + UI) |
+| `ai-engineer` | Claude API server, prompts, schemas, browser client | C |
+| `frontend-engineer` | React app shell, kit editor, library, export | D |
+| `editor-engineer` | pixel editor, map editor, image import | E |
+| `art-director` | read-only visual + consistency critique | after A/B |
+| `qa-verifier` | read-only end-to-end verification | after integration |
+
+Flow: build lanes A-E in parallel -> integrate -> `art-director` + `qa-verifier`
+review -> fix round -> ship.
+
 ## Lanes
 
 Each lane owns only the files listed. Stubs already exist for every owned file
