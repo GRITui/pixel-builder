@@ -350,6 +350,20 @@ function cloudShape(P: Painter, x: number, y: number, m: Material, tone = 0) {
   P.box(x + 3, y + 7, 9, 3, m, [0, 0.3, 1], { tone });
 }
 
+/** Compact cloud (rows 1-6) that leaves room for a gap row and falling pieces beneath it. */
+function smallCloud(P: Painter, m: Material, tone = 0) {
+  P.ellipse(5, 5, 2.8, 2.3, m, { tone });
+  P.ellipse(8.5, 3.9, 3.4, 2.9, m, { tone });
+  P.ellipse(11.5, 5.4, 2.6, 2.1, m, { tone });
+  P.box(4, 5, 9, 2, m, [0, 0.3, 1], { tone });
+}
+
+/** One falling piece: the outline makes it a 3px-wide blob, so pieces sit 4px apart to stay separate (also at 4 tones). */
+function drop(P: Painter, x: number, y: number, m: Material, tall: boolean) {
+  P.px(x, y, m, 4);
+  if (tall) P.px(x, y + 1, m, 3);
+}
+
 function drawWeather(c: Ctx, weather: string, f: number): Sprite {
   const P = new Painter(16, 16, c.kit);
   const cloud = c.m;
@@ -362,33 +376,28 @@ function drawWeather(c: Ctx, weather: string, f: number): Sprite {
       cloudShape(P, 1, 4, cloud, 1);
       break;
     case "rain":
-      cloudShape(P, 1, 0, cloud, 0);
-      for (let i = 0; i < 4; i++) {
-        const y = 11 + ((f + i) % 2);
-        P.px(3 + i * 3, y, "water", 4); P.px(3 + i * 3, y + 1, "water", 3);
-      }
+      smallCloud(P, cloud, 0);
+      for (let i = 0; i < 3; i++) drop(P, 3 + i * 4, 11 + ((f + i) % 2), "water", (f + i) % 2 === 0);
       break;
     case "storm":
-      cloudShape(P, 1, -1, cloud, -2);
-      P.line(9, 9, 7, 12, "gold", 4); P.line(7, 12, 10, 12, "gold", 4); P.line(10, 12, 7, 15, "gold", 3);
-      if (f % 2) { P.px(4, 12, "water", 4); P.px(13, 11, "water", 4); }
-      else { P.px(4, 11, "water", 4); P.px(13, 12, "water", 4); }
+      smallCloud(P, cloud, -1);
+      // bolt hangs from the cloud; a drop on each side
+      for (const [x, y] of [[9, 8], [10, 8], [8, 9], [9, 9], [8, 10], [9, 10], [10, 10], [9, 11], [10, 11], [9, 12]]) P.px(x, y, "gold", 4);
+      drop(P, 3, 11 + f, "water", true);
+      drop(P, 13, 12 - f, "water", true);
       break;
-    case "snow": {
-      cloudShape(P, 1, 0, cloud, 1);
-      const flakes: [number, number][] = [[3, 11], [7, 12], [11, 11], [5, 14], [9, 14], [13, 13]];
-      flakes.forEach(([x, y], i) => P.px(x, y - (i < 3 && (f + i) % 2 ? 1 : 0), "sand", 4));
+    case "snow":
+      smallCloud(P, cloud, 1);
+      [[3, 11], [7, 12], [11, 11]].forEach(([x, y]) => P.px(x, y + (f ? (y === 11 ? 1 : -1) : 0), "sand", 4));
       break;
-    }
     default: {
-      // windy: three gusts that curl at the end
+      // windy: three gusts four rows apart (outlines would merge at 3), each ending in a small hook
       const sh = f % 2;
       const gust = (x0: number, x1: number, y: number, up: boolean) => {
         P.line(x0 + sh, y, x1 + sh, y, "water", 4);
-        P.line(x1 + sh, y, x1 + 1 + sh, y + (up ? -1 : 1), "water", 4);
-        P.px(x1 + 1 + sh, y + (up ? -2 : 2), "water", 3);
+        P.px(x1 + 1 + sh, y + (up ? -1 : 1), "water", 3);
       };
-      gust(2, 10, 5, true); gust(1, 12, 8, false); gust(3, 8, 11, true);
+      gust(2, 9, 3, true); gust(1, 12, 7, true); gust(3, 8, 11, false);
     }
   }
   return icon(P, c.kit);
@@ -415,11 +424,9 @@ function drawSeason(c: Ctx, season: string): Sprite {
       P.line(8, 13, 8, 14, "leather", 2);
       break;
     default:
-      for (const [dx, dy] of [[0, 5], [4.5, 2.5], [4.5, -2.5]] as [number, number][]) {
-        P.line(8 - dx, 8 - dy, 8 + dx, 8 + dy, "water", 4);
-        P.line(8 - dx, 8 - dy + 1, 8 + dx, 8 + dy + 1, "water", 3);
-      }
-      P.px(8, 8, "water", 4);
+      // clean 9x9 flake: axes plus four isolated diagonal tips, symmetric about (8, 8)
+      for (let i = -4; i <= 4; i++) { P.px(8 + i, 8, "water", 4); P.px(8, 8 + i, "water", 4); }
+      for (const sx of [-1, 1]) for (const sy of [-1, 1]) P.px(8 + sx * 2, 8 + sy * 2, "water", 3);
   }
   return icon(P, c.kit);
 }

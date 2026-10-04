@@ -478,8 +478,8 @@ function largeBarn(p: Params, kit: StyleKit): Painter {
   const wall = mat(p, "wall"), roof = mat(p, "roof"), trim = mat(p, "trim");
   const lit = bool(p, "lit_windows");
   const W = Math.round(S * 1.5);
-  const ww = W - Math.round(10 * k);
-  const wx = Math.round((W - ww) / 2);
+  const wx = Math.round(5 * k); // equal margins either side keep the outline mirror-symmetric
+  const ww = W - 2 * wx;
   const wallH = Math.round(pr.story * 1.45);
   const k1 = Math.round(ww * 0.11), k2 = Math.round(ww * 0.13);
   const in1 = Math.round(ww * 0.12), in2 = Math.round(ww * 0.3);
@@ -515,13 +515,13 @@ function largeBarn(p: Params, kit: StyleKit): Painter {
   const th = Math.max(2, Math.round(2 * k));
   for (let i = 1; i < 4; i++) {
     const [ax, ay] = pts[i], [bx, by] = pts[i + 1];
-    const [cx, cy] = pts[8 - i], [ex, ey] = pts[7 - i];
+    const [cx, cy] = pts[7 - i], [ex, ey] = pts[6 - i];
     for (let t = 0; t < th; t++) {
       P.line(ax - 1, ay - 1 - t, bx, by - 1 - t, roof, i === 3 ? 2 : 1);
-      P.line(cx, cy - 1 - t, ex + 1, ey - 1 - t, roof, i === 3 ? 2 : 1);
+      P.line(cx, cy - 1 - t, ex - 1, ey - 1 - t, roof, i === 3 ? 2 : 1);
     }
     P.line(ax, ay, bx, by, trim, 3);
-    P.line(cx, cy, ex, ey, trim, 3);
+    P.line(cx - 1, cy, ex - 1, ey, trim, 3);
   }
 
   // big double doors with X braces
