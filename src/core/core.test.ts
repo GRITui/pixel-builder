@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { applyOutline, downscaleRGBA, finalize, quantizeRGBA, removeOrphans, stripOutline } from "./enforce";
 import { DEFAULT_KIT, KIT_PRESETS, lightVector, resolveRamps } from "./kit";
 import { Painter } from "./painter";
-import { colorIndex, decodeIndex, flattenRamps, MATERIALS, OUTLINE_INDEX, PALETTE_SIZE, RAMP_LEN } from "./palette";
+import { colorIndex, decodeIndex, flattenRamps, MATERIALS, OUTLINE_INDEX, PALETTE_SIZE, PALETTE_SIZE_CLASSIC, RAMP_LEN } from "./palette";
 import { rng, valueNoise } from "./rng";
 import { createSprite, getPx, setPx } from "./sprite";
 import { emptyTileMap, ensureTile, renderTileMap } from "./tilemap";
@@ -20,10 +20,10 @@ describe("palette indices", () => {
     expect(colorIndex("wood", -3)).toBe(colorIndex("wood", 0));
   });
 
-  it("flattens every kit palette to PALETTE_SIZE entries", () => {
+  it("flattens every kit palette to the classic (or, for deep kits, full) palette size", () => {
     for (const kit of KIT_PRESETS) {
       const flat = flattenRamps(resolveRamps(kit));
-      expect(flat).toHaveLength(PALETTE_SIZE);
+      expect(flat).toHaveLength(kit.rampDepth && kit.rampDepth > 5 ? PALETTE_SIZE : PALETTE_SIZE_CLASSIC);
       expect(flat[0]).toBeNull();
       expect(flat.slice(1).every((c) => /^#[0-9a-f]{6}$/i.test(c!))).toBe(true);
     }

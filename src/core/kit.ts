@@ -1,4 +1,4 @@
-import { hueShiftRamps, MATERIALS, PALETTES, type Ramps } from "./palette";
+import { deepenRamp, hueShiftRamps, MATERIALS, normalizeDepth, PALETTES, type Ramps } from "./palette";
 import type { LightDir, StyleKit } from "./types";
 
 export const DEFAULT_KIT: StyleKit = {
@@ -50,6 +50,15 @@ export const SIDE_KIT: StyleKit = {
   vibe: "Cozy side-view platformer, profile characters standing on a ground line, chunky readable silhouettes, warm lighting.",
 };
 
+/** HD kit with 9-shade hue-shifted ramps: the lit Painter uses the extra shades for smooth volumes. */
+export const HD_DEEP_KIT: StyleKit = {
+  ...HD_RICH_KIT,
+  id: "kit-hd-deep",
+  name: "Cozy RPG HD (deep)",
+  rampDepth: 9,
+  vibe: "Cozy top-down fantasy RPG at 1.5x resolution with deep 9-shade ramps: smooth hue-shifted volumes, selective outlines, fine detail.",
+};
+
 export const KIT_PRESETS: StyleKit[] = [
   DEFAULT_KIT,
   {
@@ -79,13 +88,19 @@ export const KIT_PRESETS: StyleKit[] = [
   HD_KIT,
   HD_RICH_KIT,
   SIDE_KIT,
+  HD_DEEP_KIT,
 ];
 
 export function resolveRamps(kit: StyleKit): Ramps {
   const base = (PALETTES.find((p) => p.id === kit.paletteId) ?? PALETTES[0]).ramps;
   const out = {} as Ramps;
   for (const m of MATERIALS) out[m] = kit.rampOverrides[m] ?? base[m];
-  return kit.detail === "rich" ? hueShiftRamps(out) : out;
+  const depth = normalizeDepth(kit.rampDepth);
+  const shifted = kit.detail === "rich" || depth > 5 ? hueShiftRamps(out) : out;
+  if (depth === 5) return shifted;
+  const deep = {} as Ramps;
+  for (const m of MATERIALS) deep[m] = deepenRamp(shifted[m], depth);
+  return deep;
 }
 
 /** Light vector in screen space (x right, y down, z toward viewer), normalised. */
