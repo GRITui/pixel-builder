@@ -4,7 +4,8 @@
 // encoder, so a byte-layout mistake in one shows up as a mismatch.
 import { inflateSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
-import { asepritePalette, encodeAseprite } from "./aseprite";
+import { asepritePalette, encodeAseprite, type AsepriteExportInput } from "./aseprite";
+import { deflateSync } from "node:zlib";
 import { ATTACHMENTS, CLIPS, RIGS } from "../core/rigs";
 import { flattenRamps, hexToRgb } from "../core/palette";
 import { resolveRamps } from "../core/kit";
@@ -41,7 +42,8 @@ interface Ase {
   durations: number[];
 }
 
-function readAseprite(buf: Buffer): Ase {
+function readAseprite(input: Uint8Array): Ase {
+  const buf = Buffer.from(input.buffer, input.byteOffset, input.byteLength);
   let p = 0;
   const u8 = () => buf[p++];
   const u16 = () => {
@@ -157,10 +159,12 @@ function readAseprite(buf: Buffer): Ase {
         u8();
         u8();
         u8();
-        if (celType !== 2) throw new Error(`unexpected cel type ${celType} (want compressed)`);
+        if (celType !== 0 && celType !== 2) throw new Error(`unexpected cel type ${celType} (want raw or compressed)`);
         cel.w = u16();
         cel.h = u16();
-        cel.pixels = new Uint8Array(inflateSync(buf.subarray(p, chunkEnd)));
+        const body = buf.subarray(p, chunkEnd);
+        // Type 0 is uncompressed w*h bytes; type 2 is one zlib stream.
+        cel.pixels = new Uint8Array(celType === 0 ? body : inflateSync(body));
         expect(cel.pixels.length).toBe(cel.w * cel.h);
         (frameCels[layer] ??= []).push(cel);
       } else if (type === 0x2018) {
@@ -243,7 +247,7 @@ const flatFrames = (rows: FrameSet[]): Sprite[] => rows.flatMap((r) => r.frames)
 describe("encodeAseprite", () => {
   it("writes a header Aseprite can read back", () => {
     const kit = kitById("kit-default");
-    const ase = readAseprite(encodeAseprite({ rows: STATIC_ROWS, fps: 8, kit }));
+    const ase = readAseprite(withZlib({ rows: STATIC_ROWS, fps: 8, kit }));
     expect(ase.depth).toBe(8);
     expect(ase.frames).toBe(2);
     expect(ase.width).toBe(4);
@@ -257,7 +261,7 @@ describe("encodeAseprite", () => {
 
   it("round-trips pixels exactly (static asset)", () => {
     const kit = kitById("kit-default");
-    const ase = readAseprite(encodeAseprite({ rows: STATIC_ROWS, fps: 8, kit }));
+    const ase = readAseprite(withZlib({ rows: STATIC_ROWS, fps: 8, kit }));
     expect(ase.layers).toEqual(["core"]); // no rig info => a single layer
     let f = 0;
     for (const row of STATIC_ROWS)
@@ -269,7 +273,7 @@ describe("encodeAseprite", () => {
 
   it("round-trips pixels exactly (rigged asset, one layer per part)", () => {
     const { kit, rows, fps, rig } = riggedFixture("kit-default");
-    const ase = readAseprite(encodeAseprite({ rows, fps, kit, rig }));
+    const ase = readAseprite(withZlib({ rows, fps, kit, rig }));
 
     // A layer per rig part that appears, plus "core" for unowned pixels.
     expect(ase.layers).toContain("core");
@@ -288,7 +292,7 @@ describe("encodeAseprite", () => {
 
   it("gives each pixel to exactly one layer, so paint order never decides the result", () => {
     const { kit, rows, fps, rig } = riggedFixture("kit-default");
-    const ase = readAseprite(encodeAseprite({ rows, fps, kit, rig }));
+    const ase = readAseprite(withZlib({ rows, fps, kit, rig }));
     for (let f = 0; f < ase.frames; f++) {
       const claimed = new Set<number>();
       for (let li = 0; li < ase.layers.length; li++)
@@ -305,7 +309,7 @@ describe("encodeAseprite", () => {
 
   it("puts core behind every attachment layer", () => {
     const { kit, rows, fps, rig } = riggedFixture("kit-default");
-    const ase = readAseprite(encodeAseprite({ rows, fps, kit, rig }));
+    const ase = readAseprite(withZlib({ rows, fps, kit, rig }));
     // File order is top-to-bottom, so "core" must be the last entry.
     expect(ase.layers[ase.layers.length - 1]).toBe("core");
     expect(ase.layers).toEqual([...rig.parts.filter((p) => p !== "core" && ase.layers.includes(p)), "core"]);
@@ -313,7 +317,7 @@ describe("encodeAseprite", () => {
 
   it("writes one tag per animation row, spanning that row's frames", () => {
     const { kit, rows, fps, rig } = riggedFixture("kit-default");
-    const ase = readAseprite(encodeAseprite({ rows, fps, kit, rig }));
+    const ase = readAseprite(withZlib({ rows, fps, kit, rig }));
     expect(ase.tags).toHaveLength(rows.length);
     let at = 0;
     rows.forEach((row, i) => {
@@ -324,7 +328,7 @@ describe("encodeAseprite", () => {
 
   it("scales cels by an integer factor with nearest-neighbour pixels", () => {
     const { kit, rows, fps, rig } = riggedFixture("kit-default");
-    const ase = readAseprite(encodeAseprite({ rows, fps, kit, rig, scale: 3 }));
+    const ase = readAseprite(withZlib({ rows, fps, kit, rig, scale: 3 }));
     expect(ase.width).toBe(Math.max(...flatFrames(rows).map((s) => s.w)) * 3);
     expect(ase.height).toBe(Math.max(...flatFrames(rows).map((s) => s.h)) * 3);
 
@@ -343,7 +347,7 @@ describe("encodeAseprite", () => {
   it("locks each kit's palette into the file", () => {
     for (const kitId of ["kit-default", "kit-gameboy", "kit-neon"]) {
       const kit = kitById(kitId);
-      const ase = readAseprite(encodeAseprite({ rows: STATIC_ROWS, fps: 8, kit }));
+      const ase = readAseprite(withZlib({ rows: STATIC_ROWS, fps: 8, kit }));
       expect(ase.palette).toEqual(asepritePalette(kit));
       // Index 0 is the transparent slot; entry 1 must be a real ramp colour.
       expect(ase.palette[1]).toEqual(hexToRgb(kitRamp(kit)[1]!));
@@ -353,11 +357,32 @@ describe("encodeAseprite", () => {
   });
 
   it("rejects an asset with no frames", () => {
-    expect(() => encodeAseprite({ rows: [], fps: 8, kit: kitById("kit-default") })).toThrow(/no frames/i);
+    expect(() => withZlib({ rows: [], fps: 8, kit: kitById("kit-default") })).toThrow(/no frames/i);
+  });
+
+  it("writes uncompressed cels when no deflate is supplied (browser path)", () => {
+    const kit = kitById("kit-default");
+    const raw = readAseprite(encodeAseprite({ rows: STATIC_ROWS, fps: 8, kit })); // no deflate
+    const zipped = readAseprite(withZlib({ rows: STATIC_ROWS, fps: 8, kit }));
+    // Both encode the same pixels; the raw one just needs no inflate to read.
+    for (const cel of raw.cels.flat(2) as Cel[]) expect(cel.pixels.length).toBe(cel.w * cel.h);
+    expect(composite(raw, 0)).toEqual(composite(zipped, 0));
+    expect(composite(raw, 1)).toEqual(composite(zipped, 1));
+    // Compression pays off on real art (a 4x3 fixture has too few pixels to
+    // compress below), which is why node wires deflate in.
+    const { kit: rigKit, rows, fps, rig } = riggedFixture("kit-default");
+    expect(withZlib({ rows, fps, kit: rigKit, rig }).length).toBeLessThan(
+      encodeAseprite({ rows, fps, kit: rigKit, rig }).length,
+    );
   });
 });
 
 /** A kit's flattened ramp (index 0 = the transparent slot). */
 function kitRamp(kit: StyleKit): (string | null)[] {
   return flattenRamps(resolveRamps(kit));
+}
+
+/** Encode with zlib-compressed cels, exactly as the node export path does. */
+function withZlib(input: Omit<AsepriteExportInput, "deflate">): Uint8Array {
+  return encodeAseprite({ ...input, deflate: (raw) => new Uint8Array(deflateSync(raw, { level: 9 })) });
 }

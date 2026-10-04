@@ -1,19 +1,17 @@
-// .aseprite (Aseprite binary) writer on node:zlib only, no dependencies.
+// .aseprite (Aseprite binary) writer. Zero dependencies and platform-neutral:
+// compression is injected, so node can pass `zlib.deflateSync` and the browser
+// can omit it and write uncompressed cels (which Aseprite also reads).
 //
 // Layout follows Aseprite's own encoder (src/dio/aseprite_encoder.cpp): a
 // 128-byte header, then one frame block per frame, each holding chunks. Pixels
 // are 8-bit indexed against the kit palette, which is what Aseprite calls
 // "indexed" mode; index 0 is transparent here exactly as it is in
 // `flattenRamps`, so Aseprite's palette index 0 is our transparent colour.
-//
-// Cels are written as ASE_FILE_COMPRESSED_CEL: the scanline bytes in one zlib
-// stream, which Aseprite inflates with its own zlib.
-import { deflateSync } from "node:zlib";
-import { hexToRgb, type RGB } from "../core/palette";
-import { resolveRamps } from "../core/kit";
-import { flattenRamps } from "../core/palette";
-import type { RigSvgInfo } from "../core/svg";
-import type { FrameSet, Sprite, StyleKit } from "../core/types";
+import { hexToRgb, type RGB } from "./palette";
+import { resolveRamps } from "./kit";
+import { flattenRamps } from "./palette";
+import type { RigSvgInfo } from "./svg";
+import type { FrameSet, Sprite, StyleKit } from "./types";
 
 // From src/dio/aseprite_common.h.
 const ASE_FILE_MAGIC = 0xa5e0;
@@ -25,6 +23,7 @@ const ASE_FILE_CHUNK_CEL = 0x2005;
 const ASE_FILE_CHUNK_TAGS = 0x2018;
 
 const ASE_FILE_LAYER_IMAGE = 0;
+const ASE_FILE_RAW_CEL = 0;
 const ASE_FILE_COMPRESSED_CEL = 2;
 
 // Header flags (aseprite_common.h).
@@ -43,6 +42,12 @@ export interface AsepriteExportInput {
   kit: StyleKit;
   /** Rig part ownership. Present => one layer per rig part; absent => a single layer. */
   rig?: RigSvgInfo;
+  /**
+   * Compresses a cel's scanline bytes into a zlib stream. Omit it to write
+   * uncompressed cels (ASE_FILE_RAW_CEL) -- bigger, but Aseprite reads both,
+   * and it lets the browser export without a zlib dependency.
+   */
+  deflate?: (raw: Uint8Array) => Uint8Array;
   /** Integer upscale of every cel's pixel data. 1 = native sprite resolution. */
   scale?: number;
 }
@@ -58,9 +63,10 @@ export function asepritePalette(kit: StyleKit): RGB[] {
 
 // ---------- little-endian writer ----------
 
-/** A growable little-endian buffer. `patch*` backfills size fields already reserved. */
+/** A growable little-endian buffer. `patchU32` backfills a size field reserved earlier. */
 class Writer {
-  private buf: Buffer = Buffer.alloc(256);
+  private buf = new Uint8Array(256);
+  private view = new DataView(this.buf.buffer);
   private size = 0;
 
   get length(): number {
@@ -71,59 +77,64 @@ class Writer {
     if (this.size + n <= this.buf.length) return;
     let cap = this.buf.length * 2;
     while (cap < this.size + n) cap *= 2;
-    const next = Buffer.alloc(cap);
-    this.buf.copy(next, 0, 0, this.size);
+    const next = new Uint8Array(cap);
+    next.set(this.buf.subarray(0, this.size));
     this.buf = next;
+    this.view = new DataView(this.buf.buffer);
   }
 
-  bytes(b: Buffer): void {
+  bytes(b: Uint8Array): void {
     this.need(b.length);
-    b.copy(this.buf, this.size);
+    this.buf.set(b, this.size);
     this.size += b.length;
   }
 
   u8(v: number): void {
-    const b = Buffer.allocUnsafe(1);
-    b.writeUInt8(v & 0xff, 0);
-    this.bytes(b);
+    this.need(1);
+    this.view.setUint8(this.size, v & 0xff);
+    this.size += 1;
   }
 
   u16(v: number): void {
-    const b = Buffer.allocUnsafe(2);
-    b.writeUInt16LE(v & 0xffff, 0);
-    this.bytes(b);
+    this.need(2);
+    this.view.setUint16(this.size, v & 0xffff, true);
+    this.size += 2;
   }
 
   i16(v: number): void {
-    const b = Buffer.allocUnsafe(2);
-    b.writeInt16LE(Math.max(-0x8000, Math.min(0x7fff, v)), 0);
-    this.bytes(b);
+    this.need(2);
+    this.view.setInt16(this.size, Math.max(-0x8000, Math.min(0x7fff, v)), true);
+    this.size += 2;
   }
 
   u32(v: number): void {
-    const b = Buffer.allocUnsafe(4);
-    b.writeUInt32LE(v >>> 0, 0);
-    this.bytes(b);
+    this.need(4);
+    this.view.setUint32(this.size, v >>> 0, true);
+    this.size += 4;
   }
 
   /** Aseprite strings are a u16 length followed by the raw bytes (UTF-8 names). */
   string(s: string): void {
-    const b = Buffer.from(s, "utf8");
+    const b = new TextEncoder().encode(s);
     this.u16(b.length);
     this.bytes(b);
   }
 
   padding(n: number): void {
-    if (n > 0) this.bytes(Buffer.alloc(n));
+    if (n > 0) {
+      this.need(n);
+      this.buf.fill(0, this.size, this.size + n);
+      this.size += n;
+    }
   }
 
-  concat(): Buffer {
+  concat(): Uint8Array {
     return this.buf.subarray(0, this.size);
   }
 
   /** Backfill a u32 size field written earlier at absolute offset `at`. */
   patchU32(at: number, value: number): void {
-    this.buf.writeUInt32LE(value >>> 0, at);
+    this.view.setUint32(at, value >>> 0, true);
   }
 }
 
@@ -190,7 +201,7 @@ function scaleIndexed(data: number[], w: number, h: number, scale: number): { w:
  * appears anywhere in the asset gets its own layer, and pixels owned by no
  * visible part fall to "core" -- the same split the SVG export uses.
  */
-export function encodeAseprite(input: AsepriteExportInput): Buffer {
+export function encodeAseprite(input: AsepriteExportInput): Uint8Array {
   const { rows, kit, fps } = input;
   const scale = Math.max(1, Math.min(16, Math.floor(input.scale ?? 1)));
   const palette = asepritePalette(kit);
@@ -255,6 +266,7 @@ export function encodeAseprite(input: AsepriteExportInput): Buffer {
   if (head.length !== 128) throw new Error(`Internal error: header is ${head.length} bytes, expected 128`);
 
   const duration = frameDuration(fps);
+  const celType = input.deflate ? ASE_FILE_COMPRESSED_CEL : ASE_FILE_RAW_CEL;
   const w = new Writer();
   const fileStart = w.length;
   w.bytes(head.concat());
@@ -302,8 +314,9 @@ export function encodeAseprite(input: AsepriteExportInput): Buffer {
       const b = celBounds(frames[f], (p) => ownerAt(f, p) === part);
       if (!b) return;
       const s = scaleIndexed(b.data, b.w, b.h, scale);
-      const raw = Buffer.alloc(s.w * s.h);
+      const raw = new Uint8Array(s.w * s.h);
       for (let i = 0; i < s.data.length; i++) raw[i] = s.data[i];
+      const pixels = input.deflate ? input.deflate(raw) : raw;
       // Layer index in the file counts from the top; our loop counts from the bottom.
       const fileLayer = layers.length - 1 - li;
       writeChunk(fw, ASE_FILE_CHUNK_CEL, (cw) => {
@@ -311,12 +324,12 @@ export function encodeAseprite(input: AsepriteExportInput): Buffer {
         cw.i16(b.x * scale);
         cw.i16(b.y * scale);
         cw.u8(255); // opacity
-        cw.u16(ASE_FILE_COMPRESSED_CEL);
+        cw.u16(celType);
         cw.u16(0); // z-index
         cw.padding(5);
         cw.u16(s.w);
         cw.u16(s.h);
-        cw.bytes(deflateSync(raw, { level: 9 }));
+        cw.bytes(pixels);
       });
       chunks++;
     });

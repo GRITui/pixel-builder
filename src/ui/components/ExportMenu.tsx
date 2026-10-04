@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Asset, StyleKit } from "../../core/types";
-import { EXPORT_SCALES, exportMap, exportPng, exportSpritesheet } from "../exportAsset";
+import { EXPORT_SCALES, exportAseprite, exportMap, exportPng, exportSpritesheet } from "../exportAsset";
 
 export function ExportMenu({ asset, kit, onError, align = "left", label = "Export" }: { asset: Asset; kit: StyleKit; onError: (m: string) => void; align?: "left" | "right"; label?: string }) {
   const [open, setOpen] = useState(false);
@@ -45,6 +45,9 @@ export function ExportMenu({ asset, kit, onError, align = "left", label = "Expor
           </div>
           <button role="menuitem" onClick={run(() => exportPng(asset, kit, scale))}>
             {isMap ? "Map PNG" : "PNG (first frame)"}
+          </button>
+          <button role="menuitem" onClick={run(() => exportAseprite(asset, kit, scale))}>
+            Aseprite (.aseprite)
           </button>
           {animated && (
             <button role="menuitem" onClick={run(() => exportSpritesheet(asset, kit, scale))}>

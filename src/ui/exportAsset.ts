@@ -1,6 +1,7 @@
-// Export helpers: PNG, spritesheet + JSON, Tiled map, and whole-library JSON.
+// Export helpers: PNG, spritesheet + JSON, Tiled map, .aseprite, and whole-library JSON.
 import { createSprite, blit } from "../core/sprite";
 import type { Asset, StyleKit } from "../core/types";
+import { encodeAseprite } from "../core/aseprite";
 import { buildSpritesheet, canvasToBlob, downloadBlob, paletteFor, slug, spriteToCanvas } from "./render";
 import { parseProject, serializeProject, type ProjectFile } from "../core/project";
 
@@ -127,6 +128,19 @@ export async function exportMap(asset: Asset, kit: StyleKit, scale: number): Pro
     { blob: await canvasToBlob(spriteToCanvas(asset.rows[0].frames[0], pal, scale)), name: `${base}@${scale}x.png` },
     { blob: await canvasToBlob(spriteToCanvas(atlas, pal, 1)), name: tilesetName },
     { blob: jsonBlob(buildTiled(asset, tilesetName, cell, columns, atlas.w, atlas.h)), name: `${base}.tmj` },
+  ]);
+}
+
+/**
+ * Native Aseprite (.aseprite) export: one frame per source frame, one layer per
+ * rig part, one tag per animation row, palette locked to the kit. Cels are
+ * written uncompressed here because the browser has no zlib; Aseprite reads raw
+ * cels natively (the node export path compresses them).
+ */
+export async function exportAseprite(asset: Asset, kit: StyleKit, scale: number): Promise<void> {
+  const bytes = encodeAseprite({ rows: asset.rows, fps: asset.fps, kit, scale });
+  await downloadAll([
+    { blob: new Blob([bytes as BlobPart], { type: "application/octet-stream" }), name: `${slug(asset.name)}@${scale}x.aseprite` },
   ]);
 }
 

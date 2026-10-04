@@ -13,6 +13,7 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import { emptyProject, parseProject, serializeProject, type ProjectFile } from "../core/project";
 import type { Asset, Category, Sprite, StyleKit, TileMap } from "../core/types";
 import { spriteSheetToSvg, type RigSvgInfo } from "../core/svg";
+import { encodeAseprite } from "./aseprite";
 import { ENGINE_FORMATS, engineFiles, tilesetMetaOf, type EngineFormat } from "./engine-export";
 import { blankImage, drawSprite, encodePng, kitColors, scaleImage, sheetImage, spriteImage, type RgbaImage } from "./png";
 
@@ -124,11 +125,11 @@ export function findAsset(project: ProjectFile, idOrName: string): Asset {
 
 // ---------- export ----------
 
-export type ExportFormat = "png" | "spritesheet" | "tiled" | "svg" | EngineFormat;
+export type ExportFormat = "png" | "spritesheet" | "tiled" | "svg" | "aseprite" | EngineFormat;
 
 export interface ExportedFile {
   path: string;
-  kind: "image" | "svg" | "spritesheet" | "sheet-json" | "tiled-json" | "tileset" | "engine";
+  kind: "image" | "svg" | "spritesheet" | "sheet-json" | "tiled-json" | "tileset" | "engine" | "aseprite";
   width?: number;
   height?: number;
 }
@@ -151,7 +152,7 @@ export function categoryDir(ws: Workspace, category: Category): string {
   return join(ws.dir, CATEGORY_DIR[category]);
 }
 
-const SIDE_FILES = (slug: string) => [`${slug}.png`, `${slug}.svg`, `${slug}.json`, `${slug}.tiled.json`, `${slug}.tileset.png`, `${slug}.deco.png`, `${slug}.tsj`, `${slug}.tres`, `${slug}.rules.json`, `${slug}.atlas.json`];
+const SIDE_FILES = (slug: string) => [`${slug}.png`, `${slug}.svg`, `${slug}.aseprite`, `${slug}.json`, `${slug}.tiled.json`, `${slug}.tileset.png`, `${slug}.deco.png`, `${slug}.tsj`, `${slug}.tres`, `${slug}.rules.json`, `${slug}.atlas.json`];
 
 /** Exported files that currently exist for an asset in its default folder (absolute paths). */
 export function assetFiles(ws: Workspace, project: ProjectFile, asset: Asset): string[] {
@@ -286,6 +287,11 @@ export function exportAsset(ws: Workspace, project: ProjectFile, asset: Asset, o
     const path = join(dir, `${slug}.svg`);
     atomicWrite(path, spriteSheetToSvg({ name: asset.name, category: asset.category, fps: asset.fps, rows: asset.rows, tilemap: asset.tilemap, rig: opts.rig, kit }));
     return [{ path, kind: "svg" }];
+  }
+  if (format === "aseprite") {
+    const path = join(dir, `${slug}.aseprite`);
+    atomicWrite(path, encodeAseprite({ rows: asset.rows, fps: asset.fps, kit, rig: opts.rig, scale }));
+    return [{ path, kind: "aseprite" }];
   }
   if (format === "tiled" && !asset.tilemap) throw new ToolError(`Asset '${asset.name}' is a ${asset.category}, not a map; 'tiled' export only works for map assets. Use format 'png' or 'spritesheet'.`);
 
