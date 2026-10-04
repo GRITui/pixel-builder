@@ -49,7 +49,6 @@ const PROPS: Record<Biome, Weights> = {
   // paddies stay clear of props; dry grass gets palms, bushes and tall grass
   "rice-village": {
     grass: { palm: 4, bush: 4, "tall-grass": 3, flowers: 0.8, rock: 0.12 },
-    dirt: {},
   },
 };
 
@@ -138,7 +137,7 @@ function buildGround(biome: Biome, cols: number, rows: number, seed: number, r: 
       let ok = true;
       for (const i of cells) {
         const x = i % cols, y = Math.floor(i / cols);
-        for (let dy = -2; ok && dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) if (taken.has(at(Math.max(0, Math.min(cols - 1, x + dx)), Math.max(0, Math.min(rows - 1, y + dy))))) { ok = false; break; }
+        for (let dy = -1; ok && dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (taken.has(at(Math.max(0, Math.min(cols - 1, x + dx)), Math.max(0, Math.min(rows - 1, y + dy))))) { ok = false; break; }
       }
       if (!ok) continue;
       made++;
@@ -304,7 +303,7 @@ export const mapGenerator: Generator = {
     const wide = kit.sizes.environment > T;
     // rice-village: stilt houses beside the path (own rng so prop placement stays stable) and a few animals
     const reserved = new Set<number>();
-    if (biome === "rice-village") {
+    if (biome === "rice-village" && chance0 > 0) {
       const hr = rng(((seed >>> 0) ^ 0x51a7) >>> 0);
       const spots: number[] = [];
       for (let y = 2; y < rows; y++) for (let x = 1; x < cols - 1; x++) {
@@ -321,7 +320,10 @@ export const mapGenerator: Generator = {
       for (const i of cand) {
         if (houses.length >= nHouse) break;
         const x = i % cols, y = Math.floor(i / cols);
-        if (houses.some((h) => Math.abs((h % cols) - x) < 5 && Math.abs(Math.floor(h / cols) - y) < 3)) continue;
+        if (houses.some((h) => Math.abs((h % cols) - x) < 7 && Math.abs(Math.floor(h / cols) - y) < 7)) continue;
+        let clearUp = y >= 5;
+        for (let d = 1; clearUp && d <= 5; d++) for (let dx = -2; dx <= 2; dx++) { const g = ground[(y - d) * cols + Math.max(0, Math.min(cols - 1, x + dx))]; if (g === "paddy" || (g === "dirt" && !path.has((y - d) * cols + x + dx))) clearUp = false; }
+        if (!clearUp) continue;
         houses.push(i);
       }
       houses.forEach((i, n) => {
@@ -355,6 +357,7 @@ export const mapGenerator: Generator = {
         if (BIG_PROPS.has(kind)) {
           if (y < bigRowsOf(kind) || (wide && (x < 1 || x > cols - 2))) continue;
           if (biome === "rice-village" && [1, 2].some((d) => y >= d && BIG_PROPS.has(tmKind(tm, tm.deco[i - d * cols])))) continue;
+          if (biome === "rice-village" && [0, 1, 2].some((d) => y >= d && [-1, 0, 1].some((dx) => ground[(y - d) * cols + Math.max(0, Math.min(cols - 1, x + dx))] === "paddy"))) continue;
           if (biome !== "forest" && x > 0 && BIG_PROPS.has(tmKind(tm, tm.deco[i - 1]))) continue;
         }
         tm.deco[i] = propTile(kind, vRoll);

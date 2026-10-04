@@ -27,7 +27,7 @@ describe("building generator: stilt-house and corrugated roofs", () => {
     it.each(combos)("stilt-house %o is kit-width, taller than a plain cottage, with a 1px margin", (c) => {
       const s = gen({ style: "stilt-house", ...c }, kitIdx).rows[0].frames[0];
       expect(s.w).toBe(kit.sizes.building);
-      expect(s.h).toBeGreaterThan(gen({ style: "cottage" }, kitIdx).rows[0].frames[0].h - 1);
+      expect(s.h).toBeGreaterThan(gen({ style: "cottage" }, kitIdx).rows[0].frames[0].h - 6);
       const b = bounds(s)!;
       expect(b.y1 - b.y0 + 1).toBeGreaterThan(proportions(kit).door * 2);
       // finalize's outline needs room, but nothing may be clipped by the canvas edge

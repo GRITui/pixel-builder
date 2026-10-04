@@ -19,8 +19,9 @@ interface Spec {
 
 const GROUND = 29;
 
-function build(s: Spec): RigDef {
-  const hipY = s.by + s.ry * 0.7;
+function build(s: Spec, variant = 0): RigDef {
+  void variant;
+  const hipY = s.by + s.ry * 0.4;
   const hx = 14 + s.head[0], hy = s.by + s.head[1];
   const J = (id: string, parent: string | null, side: V2, down: V2, up: V2) => ({ id, parent, rest: { down, side, up } });
   const joints = [
@@ -41,7 +42,7 @@ function build(s: Spec): RigDef {
   for (const L of ["L", "R"] as const) {
     const far = L === "R";
     add(
-      { id: `leg${L}`, kind: "limb", from: `leg${L}`, to: `foot${L}`, r: 0.9, slot: "legs", z: { down: 1, side: far ? 0 : 1, up: 1 }, tone: far ? -1 : 0 },
+      { id: `leg${L}`, kind: "limb", from: `leg${L}`, to: `foot${L}`, r: 1.05, slot: "legs", z: { down: 1, side: far ? 0 : 1, up: 1 }, tone: far ? -1 : 0 },
       { id: `toes${L}`, kind: "ellipse", joint: `foot${L}`, dx: 1, dy: -0.4, rx: 2, ry: 0.9, slot: "legs", z: { down: 1, side: far ? 0 : 1, up: 1 }, tone: far ? -1 : 0, flat: 0.5 },
     );
   }
@@ -63,16 +64,16 @@ function build(s: Spec): RigDef {
     { id: "wingFR", kind: "ellipse", joint: "wingR", rx: 1.8, ry: s.ry * 0.75, slot: "body", tone: -1, z: 3, views: ["down", "up"] },
     { id: "neck", kind: "limb", from: "body", to: "head", r: s.duck ? 2.1 : s.rx > 6 ? 2.3 : 2, slot: "body", z: 3, views: ["side"] },
     { id: "head", kind: "ellipse", joint: "head", rx: s.headR, ry: s.headR, slot: "body", z: { down: 5, side: 5, up: 1 } },
-    { id: "beakUp", kind: "ellipse", joint: "beak", dx: -s.beakLen * 0.4, rx: s.beakLen, ry: s.beakH, slot: "beak", z: 6, views: ["side"] },
-    { id: "beakF", kind: "ellipse", joint: "beak", dy: -0.5, rx: s.duck ? 2.2 : 1.3, ry: s.duck ? 1.2 : 1.3, slot: "beak", z: 6, views: ["down"] },
+    { id: "beakUp", kind: "ellipse", joint: "beak", dx: -s.beakLen * 0.4, rx: s.beakLen, ry: s.beakH, slot: "beak", tone: 1, z: 6, views: ["side"] },
+    { id: "beakF", kind: "ellipse", joint: "beak", dy: -0.5, rx: s.duck ? 2.2 : 1.3, ry: s.duck ? 1.2 : 1.3, slot: "beak", tone: 1, z: 6, views: ["down"] },
     { id: "eye", kind: "box", joint: "head", dx: s.headR * 0.3, dy: -s.headR * 0.35, w: 1, h: 1, slot: "ink", tone: -4, z: 9, views: ["side"] },
     { id: "eyeL", kind: "box", joint: "head", dx: -s.headR * 0.55, dy: -0.5, w: 1, h: 1, slot: "ink", tone: -4, z: 9, views: ["down"] },
     { id: "eyeR", kind: "box", joint: "head", dx: s.headR * 0.45, dy: -0.5, w: 1, h: 1, slot: "ink", tone: -4, z: 9, views: ["down"] },
   );
   if (s.comb) add(
-    { id: "comb", kind: "ellipse", joint: "head", dx: -0.5, dy: -s.headR - 0.5, rx: s.plume ? 1.8 : 1.4, ry: s.plume ? 2.2 : 1.6, slot: "accent", z: 7, views: ["side", "up"] },
-    { id: "combF", kind: "ellipse", joint: "head", dy: -s.headR - 0.5, rx: 1.1, ry: 2, slot: "accent", z: 7, views: ["down"] },
-    { id: "wattle", kind: "ellipse", joint: "beak", dx: -1.8, dy: 1.8, rx: 1, ry: 1.5, slot: "accent", z: 5, views: ["side"] },
+    { id: "comb", tone: 1, kind: "ellipse", joint: "head", dx: -0.5, dy: -s.headR - 0.5, rx: s.plume ? 1.8 : 1.4, ry: s.plume ? 2.2 : 1.6, slot: "accent", z: 7, views: ["side", "up"] },
+    { id: "combF", tone: 1, kind: "ellipse", joint: "head", dy: -s.headR - 0.5, rx: 1.1, ry: 2, slot: "accent", z: 7, views: ["down"] },
+    { id: "wattle", tone: 1, kind: "ellipse", joint: "beak", dx: -1.8, dy: 1.8, rx: 1, ry: 1.5, slot: "accent", z: 5, views: ["side"] },
   );
   return {
     id: s.id, name: s.name, grid: 32, joints, parts,
@@ -89,7 +90,13 @@ const SPECIES: Spec[] = [
     by: 23, rx: 7.5, ry: 4.5, head: [6.5, -5.5], headR: 3, beakLen: 2.6, beakH: 1, comb: false, plume: false, duck: true, legLen: 2 },
 ];
 
-export const BIRD_RIGS: RigDef[] = SPECIES.map(build);
+export const BIRD_RIGS: RigDef[] = SPECIES.map((s) => build(s));
+
+/** One species by short name ("duck") with a variant 0..3. */
+export function birdRig(species: string, variant = 0): RigDef {
+  const spec = SPECIES.find((s) => s.id.endsWith(`-${species}`)) ?? SPECIES[0];
+  return build(spec, Math.max(0, Math.min(3, Math.round(variant))));
+}
 
 export const BIRD_CLIPS: Clip[] = [
   { id: "idle", fps: 2, frames: [{}, { head: [0, 1], tail: [0, -1] }] },

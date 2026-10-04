@@ -589,8 +589,8 @@ function paddyTile(T: number, r: Rng, seed: number, flat: boolean): Sprite[] {
       for (let i = 0; i < per; i++) {
         const x = Math.round((i * T) / per) + rowOff[j] + wob[j * per + i];
         const sway = f === 1 ? 1 : f === 3 ? -1 : 0;
-        put(x, y + 1, "grass", 2); // stem
-        put(x + (sway > 0 ? 1 : 0), y, "grass", 3); // leaf leans with the breeze
+        put(x, y + 1, "grass", flat ? 3 : 2); // stem
+        put(x + (sway > 0 ? 1 : 0), y, "grass", flat ? 4 : 3); // leaf leans with the breeze
       }
     }
     frames.push(s);

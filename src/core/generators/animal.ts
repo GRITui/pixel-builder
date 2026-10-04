@@ -64,9 +64,9 @@ const fitClips = (clips: Clip[], size: number, rig: RigDef, a: Affine): Clip[] =
 interface Box { minx: number; maxx: number; maxy: number; miny: number }
 /** Bounding box of the idle side pose, measured on a roomy scratch canvas so nothing clips. */
 function measure(rig: RigDef, kit: StyleKit, slots: Record<string, Material>, size: number, k: number): Box {
-  const M = size * 3;
-  const fitted = fitRig(rig, size, { k, ox: size, oy: size * 2 });
-  const s = renderRigFrame({ rig: { ...fitted, grid: size }, kit, slots, size: M }, "right", {});
+  const M = size * 6;
+  const fitted = fitRig(rig, size, { k, ox: size * 2, oy: size * 4 });
+  const s = renderRigFrame({ rig: { ...fitted, grid: M }, kit, slots, size: M }, "right", {});
   const b: Box = { minx: M, maxx: -1, maxy: -1, miny: M };
   for (let y = 0; y < M; y++) for (let x = 0; x < M; x++) if (s.data[y * M + x]) {
     b.minx = Math.min(b.minx, x); b.maxx = Math.max(b.maxx, x); b.miny = Math.min(b.miny, y); b.maxy = Math.max(b.maxy, y);
@@ -92,8 +92,8 @@ function fit(rig: RigDef, kit: StyleKit, slots: Record<string, Material>, size: 
   const b = measure(rig, kit, slots, size, best);
   const out = {
     k: best,
-    ox: size + Math.round(size / 2 - (b.minx + b.maxx + 1) / 2),
-    oy: size * 2 + (size - 2 - b.maxy),
+    ox: size * 2 + Math.round(size / 2 - (b.minx + b.maxx + 1) / 2),
+    oy: size * 4 + (size - 2 - b.maxy),
   };
   cache.set(key, out);
   return out;
