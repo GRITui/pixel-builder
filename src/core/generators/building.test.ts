@@ -84,3 +84,62 @@ describe("building generator: half-brick house", () => {
     });
   });
 });
+
+describe("building generator: farm buildings", () => {
+  const SIZES = ["small", "medium", "large"];
+  const variants: Record<string, string>[] = [
+    ...SIZES.map((size) => ({ style: "farmhouse", size })),
+    ...SIZES.map((size) => ({ style: "coop", size })),
+    { style: "barn", size: "large" },
+    { style: "barn", size: "large", wall: "cloth2", trim: "sand", roof: "roof" },
+  ];
+
+  it("adds size, farmhouse, coop, cloth2 walls and sand trim without removing options", () => {
+    const opt = (key: string) => {
+      const s = buildingGenerator.params.find((p) => p.key === key);
+      return s && "options" in s ? s.options : undefined;
+    };
+    expect(opt("size")).toEqual(["small", "medium", "large"]);
+    expect(buildingGenerator.params.find((p) => p.key === "size")?.default).toBe("medium");
+    expect(opt("style")).toEqual(expect.arrayContaining(["cottage", "barn", "stilt-house", "half-brick", "farmhouse", "coop"]));
+    expect(opt("wall")).toContain("cloth2");
+    expect(opt("trim")).toContain("sand");
+  });
+
+  it("size does not change older styles; barn small equals medium", () => {
+    for (const style of ["cottage", "shop", "tower", "keep", "barn", "stilt-house", "half-brick"])
+      for (const size of ["small", "medium"])
+        expect(gen({ style, size }).rows[0].frames[0].data).toEqual(gen({ style }).rows[0].frames[0].data);
+  });
+
+  describe.each(KIT_PRESETS.map((k, i) => [k.id, i] as const))("%s", (_id, kitIdx) => {
+    const kit = KIT_PRESETS[kitIdx];
+    const pr = proportions(kit);
+    const frame = (c: Record<string, string>, seed = 1) => gen(c, kitIdx, seed).rows[0].frames[0];
+
+    it.each(variants)("%o has a 1px transparent margin, sits on the bottom, within 1.5x width", (c) => {
+      const s = frame(c);
+      expect(s.w).toBeLessThanOrEqual(Math.round(kit.sizes.building * 1.5));
+      const b = bounds(s)!;
+      expect(b.x0).toBeGreaterThanOrEqual(1);
+      expect(b.y0).toBeGreaterThanOrEqual(1);
+      expect(b.x1).toBeLessThanOrEqual(s.w - 2);
+      expect(s.h - 1 - b.y1).toBeLessThanOrEqual(3); // sits on the bottom (the outline row is the last, as for every building)
+      expect(frame(c, 4).data).toEqual(frame(c, 4).data);
+    });
+
+    it("large is wider than small, houses are taller than a door", () => {
+      for (const style of ["farmhouse", "coop"]) {
+        expect(frame({ style, size: "large" }).w).toBeGreaterThan(frame({ style, size: "small" }).w);
+        expect(frame({ style, size: "large" }).h).toBeGreaterThan(pr.door);
+      }
+      expect(frame({ style: "barn", size: "large" }).w).toBeGreaterThan(frame({ style: "barn" }).w);
+      expect(frame({ style: "farmhouse", size: "large" }).h).toBeGreaterThan(pr.door + pr.story);
+    });
+
+    it("a small coop is lower than a human door frame plus roof; large is bigger", () => {
+      expect(frame({ style: "coop", size: "small" }).h).toBeLessThan(pr.door * 1.7);
+      expect(frame({ style: "coop", size: "large" }).h).toBeGreaterThan(frame({ style: "coop", size: "small" }).h);
+    });
+  });
+});

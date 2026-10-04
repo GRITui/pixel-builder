@@ -6,7 +6,7 @@ import { rng, type Rng } from "../rng";
 import type { StyleKit } from "../types";
 import { bool, mat, num, str, type GenResult, type Generator, type Params } from "./types";
 
-const WALLS: Material[] = ["wood", "stone", "sand", "dirt", "leather", "metal", "ui"];
+const WALLS: Material[] = ["wood", "stone", "sand", "dirt", "leather", "metal", "ui", "cloth2"];
 const ROOFS: Material[] = ["roof", "wood", "foliage", "stone", "cloth", "cloth2", "accent", "gold", "metal", "sand"];
 
 /** Shade a cone/spire column by column so it reads round like the painter's cylinders. */
@@ -350,13 +350,282 @@ function halfBrickHouse(p: Params, kit: StyleKit, r: Rng): GenResult {
   return { rows: [{ name: "idle", frames: [finalize(P.toSprite(), kit)] }], fps: 1 };
 }
 
+// ---------------------------------------------------------------------------
+// Farm buildings: farmhouse (small/medium/large), large gambrel barn, coop.
+// ---------------------------------------------------------------------------
+
+function plainDoor(P: Painter, x: number, baseY: number, w: number, h: number, trim: Material) {
+  P.box(x - 1, baseY - h - 1, w + 2, h + 1, trim, [0, 0, 1], { tone: -1 });
+  P.box(x, baseY - h, w, h, trim, [0, 0, 1]);
+  for (let xx = x + 2; xx < x + w - 1; xx += 3) P.box(xx, baseY - h, 1, h, trim, [0, 0, 1], { tone: -1 });
+  P.px(x + w - 2, baseY - Math.round(h / 2), "gold", 3);
+}
+
+function farmWindow(P: Painter, x: number, y: number, w: number, h: number, trim: Material, lit: boolean) {
+  P.box(x - 1, y - 1, w + 2, h + 2, trim, [0, -0.3, 1]);
+  P.rect(x, y, w, h, lit ? "gold" : "water", lit ? 3 : 1);
+  if (lit) P.rect(x, y, Math.ceil(w / 2), Math.ceil(h / 2), "gold", 4);
+  else P.px(x, y, "water", 4);
+  if (w >= 4) P.rect(x + Math.floor(w / 2), y, 1, h, trim, 1), P.rect(x, y + Math.floor(h / 2), w, 1, trim, 1);
+  P.box(x - 1, y + h + 1, w + 2, 1, trim, [0, -0.6, 0.8], { tone: 1 });
+}
+
+function flowerBox(P: Painter, x: number, y: number, w: number) {
+  P.box(x - 1, y, w + 2, 2, "wood", [0, -0.5, 0.8], { tone: -1 });
+  for (let xx = x; xx < x + w; xx += 2) P.px(xx, y - 1, xx % 4 === 0 ? "cloth2" : "foliage", 3);
+}
+
+/**
+ * Farmhouse. small: one-storey cottage with a porch over the door; medium: loft
+ * under a taller roof with a dormer; large: two storeys (1.5x canvas) with a
+ * wraparound porch that reaches past the walls.
+ */
+function farmhouse(p: Params, kit: StyleKit, seed: number, size: string): Painter {
+  const r = rng(seed);
+  const S = kit.sizes.building;
+  const k = S / 64;
+  const pr = proportions(kit);
+  const wall = mat(p, "wall"), roof = mat(p, "roof"), trim = mat(p, "trim");
+  const lit = bool(p, "lit_windows");
+  const large = size === "large", med = size === "medium";
+  const W = large ? Math.round(S * 1.5) : S;
+  const ext = large ? Math.round(W * 0.09) : 0;
+  const ww = large ? Math.round(W * 0.6) : Math.round((S - 8) * (med ? 0.8 : 0.7));
+  const wx = Math.round((W - ww) / 2);
+  const wh = pr.story * (large ? 2 : 1);
+  const over = Math.max(1, Math.round(3 * k));
+  const rh = Math.round(Math.min(ww * (med ? 0.42 : 0.34), pr.story * (med ? 1.25 : 0.9)));
+  const H = wh + rh + Math.round(10 * k) + 6;
+  const P = new Painter(W, H, kit);
+  const baseY = H - 2;
+  const wy = baseY - wh;
+  const rx0 = wx - over, rx1 = wx + ww + over;
+  const dw = pr.doorW, dh = pr.door;
+  const dx = Math.round(W / 2 - dw / 2);
+  const winW = pr.window, winH = Math.round(pr.window * 1.15);
+
+  P.box(wx, wy, ww, wh, wall, [0, 0.1, 1]);
+  wallTexture(P, wx, wy, ww, wh, wall, r);
+  const fh = Math.max(2, Math.round(3 * k));
+  P.box(wx - 1, baseY - fh, ww + 2, fh + 1, "stone", [0, 0, 1], { tone: -1 });
+  const cp = Math.max(1, Math.round(2 * k));
+  P.box(wx, wy, cp, wh, trim, [-0.4, 0, 1]);
+  P.box(wx + ww - cp, wy, cp, wh, trim, [0.4, 0, 1]);
+  if (large) P.box(wx, baseY - pr.story - 1, ww, 1, trim, [0, -0.4, 1], { tone: -1 });
+
+  // gable end facing us, then the eave shadow
+  gableRoof(P, roof, rx0, rx1, wy, rh, k, false);
+  P.box(wx, wy + 1, ww, Math.max(1, Math.round(2 * k)), wall, [0, 1, 0.3], { tone: -1 });
+  if (bool(p, "chimney")) {
+    const cw = Math.max(3, Math.round(5 * k));
+    const cx = Math.round(wx + ww * 0.82);
+    const top = wy - Math.round(rh * 0.55);
+    P.box(cx, top, cw, Math.round(9 * k), "stone", [0.2, 0, 1]);
+    P.box(cx - 1, top - 1, cw + 2, Math.max(1, Math.round(2 * k)), "stone", [0, -1, 0.5]);
+  }
+  if (med) {
+    const dwid = winW + 6, dhgt = winH + 4;
+    const ddx = Math.round(W / 2 - dwid / 2), dby = wy - Math.max(2, Math.round(rh * 0.1));
+    const top = dby - dhgt;
+    P.box(ddx, top, dwid, dhgt, wall, [0, 0, 1]);
+    P.poly([[ddx - 1, top + 1], [ddx + dwid + 1, top + 1], [ddx + dwid / 2, top - Math.max(3, Math.round(5 * k))]], roof, [0, -0.5, 0.9]);
+    farmWindow(P, ddx + 3, top + 2, winW, winH, trim, lit);
+  }
+
+  plainDoor(P, dx, baseY - fh + 1, dw, dh, trim);
+  const gy = baseY - Math.round(dh * 0.78);
+  for (const [a, b] of [[wx + 2, dx - 2], [dx + dw + 2, wx + ww - 2]] as [number, number][]) {
+    if (b - a < winW + 4) continue;
+    const x = Math.round((a + b - winW) / 2);
+    farmWindow(P, x, gy, winW, winH, trim, lit);
+    if (bool(p, "flower_box")) flowerBox(P, x, gy + winH + 2, winW);
+  }
+  if (large) {
+    const n = Math.max(2, Math.floor(ww / (13 * k)));
+    for (let i = 0; i < n; i++) farmWindow(P, Math.round(wx + ((i + 0.5) * ww) / n - winW / 2), wy + Math.round(8 * k), winW, winH, trim, lit);
+  }
+
+  // porch: deck, shed roof band, posts, rail
+  const px0 = large ? wx - ext : Math.max(wx + 1, dx - Math.round((med ? 9 : 6) * k));
+  const px1 = large ? wx + ww + ext : Math.min(wx + ww - 1, dx + dw + Math.round((med ? 9 : 6) * k));
+  const bandH = Math.max(3, Math.round(4 * k));
+  const bandY = baseY - dh - Math.round(5 * k) - bandH;
+  const deckH = Math.max(2, Math.round(2 * k));
+  const under = baseY - deckH - bandY - bandH + 1;
+  if (large) for (const x of [px0, wx + ww]) P.box(x, bandY + bandH, ext, under, wall, [0, 0, 0.8], { tone: -1 });
+  P.box(px0 - 1, baseY - deckH + 1, px1 - px0 + 2, deckH, trim, [0, -0.6, 0.9]);
+  const railH = Math.max(3, Math.round(dh * 0.2));
+  const postW = Math.max(1, Math.round(1.5 * k));
+  if (large) {
+    P.box(px0, baseY - deckH - railH + 1, px1 - px0, 1, trim, [0, -0.5, 1]);
+    for (let xx = px0 + 2; xx < px1 - 1; xx += 3) if (xx < dx - 1 || xx > dx + dw) P.box(xx, baseY - deckH - railH + 2, 1, railH - 2, trim, [0, 0, 1], { tone: -1 });
+  }
+  const nPosts = Math.max(2, Math.round((px1 - px0) / Math.round(24 * k)) + 1);
+  for (let i = 0; i < nPosts; i++) {
+    const xx = Math.round(px0 + ((px1 - px0 - postW) * i) / (nPosts - 1));
+    P.box(xx, bandY + bandH, postW + 1, under, trim, [xx < W / 2 ? -0.4 : 0.4, 0, 1]);
+  }
+  P.poly([[px0 - 1, bandY], [px1 + 1, bandY], [px1 + 2, bandY + bandH], [px0 - 2, bandY + bandH]], roof, [0, -0.45, 0.9]);
+  P.box(px0 - 2, bandY + bandH - 1, px1 - px0 + 4, 1, roof, [0, 0.2, 1], { tone: -1 });
+  return P;
+}
+
+/** Large gambrel barn: the end wall follows the two-pitch outline, with big double doors and a hayloft door. */
+function largeBarn(p: Params, kit: StyleKit): Painter {
+  const S = kit.sizes.building;
+  const k = S / 64;
+  const pr = proportions(kit);
+  const wall = mat(p, "wall"), roof = mat(p, "roof"), trim = mat(p, "trim");
+  const lit = bool(p, "lit_windows");
+  const W = Math.round(S * 1.5);
+  const ww = W - Math.round(10 * k);
+  const wx = Math.round((W - ww) / 2);
+  const wallH = Math.round(pr.story * 1.45);
+  const k1 = Math.round(ww * 0.11), k2 = Math.round(ww * 0.13);
+  const in1 = Math.round(ww * 0.12), in2 = Math.round(ww * 0.3);
+  const H = wallH + k1 + k2 + Math.round(8 * k);
+  const P = new Painter(W, H, kit);
+  const baseY = H - 2;
+  const wy = baseY - wallH;
+  const pts: [number, number][] = [
+    [wx, baseY], [wx, wy], [wx + in1, wy - k1], [wx + in2, wy - k1 - k2],
+    [wx + ww - in2, wy - k1 - k2], [wx + ww - in1, wy - k1], [wx + ww, wy], [wx + ww, baseY],
+  ];
+  const topY = (x: number) => {
+    for (let i = 1; i < 6; i++) {
+      const [ax, ay] = pts[i], [bx, by] = pts[i + 1];
+      if (x >= ax && x <= bx && bx > ax) return ay + ((by - ay) * (x - ax)) / (bx - ax);
+    }
+    return wy;
+  };
+  P.poly(pts, wall, [0, 0.1, 1]);
+  // vertical siding boards that follow the outline
+  for (let xx = wx + 3; xx < wx + ww - 1; xx += 4) {
+    const t = Math.ceil(topY(xx + 0.5)) + 2;
+    P.box(xx, t, 1, baseY - t, wall, [0, 0, 1], { tone: -1 });
+  }
+  const fh = Math.max(2, Math.round(3 * k));
+  P.box(wx - 1, baseY - fh, ww + 2, fh + 1, "stone", [0, 0, 1], { tone: -1 });
+  P.box(wx, wy, ww, 1, trim, [0, -0.4, 1], { tone: -1 });
+  const cp = Math.max(1, Math.round(2 * k));
+  P.box(wx, wy, cp, wallH, trim, [-0.4, 0, 1]);
+  P.box(wx + ww - cp, wy, cp, wallH, trim, [0.4, 0, 1]);
+
+  // roof edge boards along both pitches, with a trim line beneath
+  const th = Math.max(2, Math.round(2 * k));
+  for (let i = 1; i < 4; i++) {
+    const [ax, ay] = pts[i], [bx, by] = pts[i + 1];
+    const [cx, cy] = pts[8 - i], [ex, ey] = pts[7 - i];
+    for (let t = 0; t < th; t++) {
+      P.line(ax - 1, ay - 1 - t, bx, by - 1 - t, roof, i === 3 ? 2 : 1);
+      P.line(cx, cy - 1 - t, ex + 1, ey - 1 - t, roof, i === 3 ? 2 : 1);
+    }
+    P.line(ax, ay, bx, by, trim, 3);
+    P.line(cx, cy, ex, ey, trim, 3);
+  }
+
+  // big double doors with X braces
+  const dw = Math.round(pr.doorW * 3), dh = Math.round(pr.door * 1.25);
+  const dx = Math.round(W / 2 - dw / 2);
+  P.box(dx - 2, baseY - dh - 2, dw + 4, dh + 2, trim, [0, 0, 1], { tone: -1 });
+  P.box(dx, baseY - dh, dw, dh, wall, [0, 0, 1], { tone: -1 });
+  const half = Math.floor(dw / 2);
+  for (const lx of [dx, dx + half + 1]) {
+    const lw = half - 1;
+    P.box(lx, baseY - dh, lw, 1, trim, [0, -0.4, 1]);
+    P.box(lx, baseY - 1, lw, 1, trim, [0, 0.4, 1]);
+    P.box(lx, baseY - dh, 1, dh, trim, [-0.4, 0, 1]);
+    P.box(lx + lw - 1, baseY - dh, 1, dh, trim, [0.4, 0, 1]);
+    P.line(lx, baseY - dh, lx + lw - 1, baseY - 1, trim, 1);
+    P.line(lx + lw - 1, baseY - dh, lx, baseY - 1, trim, 1);
+  }
+  P.rect(dx + half, baseY - dh, 1 + (dw % 2), dh, trim, 0);
+  P.px(dx + half - 2, baseY - Math.round(dh / 2), "gold", 3);
+  P.px(dx + half + 2, baseY - Math.round(dh / 2), "gold", 3);
+  // hayloft door
+  const hw = Math.max(4, Math.round(pr.doorW * 1.05)), hh = Math.max(5, Math.round(pr.door * 0.5));
+  const hx = Math.round(W / 2 - hw / 2), hy = wy - k1 + Math.round(hh * 0.2) - Math.round(hh * 0.8);
+  P.box(hx - 1, hy - 1, hw + 2, hh + 2, trim, [0, 0, 1]);
+  P.rect(hx, hy, hw, hh, lit ? "gold" : "wood", lit ? 2 : 0);
+  P.line(hx, hy, hx + hw - 1, hy + hh - 1, trim, 1);
+  P.line(hx + hw - 1, hy, hx, hy + hh - 1, trim, 1);
+  P.px(Math.round(W / 2), hy - 3, "metal", 3); // hay hook
+  const winW = pr.window, winH = Math.round(pr.window * 1.15);
+  const wyy = baseY - Math.round(dh * 0.8);
+  for (const x of [Math.round((wx + dx) / 2 - winW / 2 + 1), Math.round((dx + dw + wx + ww) / 2 - winW / 2)]) farmWindow(P, x, wyy, winW, winH, trim, lit);
+  return P;
+}
+
+/** Chicken coop. small: raised box with ramp, pop door and nesting box; large: walk-in coop (human door) with a fenced run. */
+function coop(p: Params, kit: StyleKit, size: string): Painter {
+  const S = kit.sizes.building;
+  const k = S / 64;
+  const pr = proportions(kit);
+  const wall = mat(p, "wall"), roof = mat(p, "roof"), trim = mat(p, "trim");
+  const large = size === "large";
+  const W = large ? S : Math.round(S * 0.6);
+  const bh = Math.round(pr.door * (large ? 1.12 : 0.5));
+  const legH = large ? 2 : Math.max(2, Math.round(pr.door * 0.22));
+  const ww = Math.round(W * (large ? 0.44 : 0.56));
+  const rh = Math.max(3, Math.round(bh * (large ? 0.42 : 0.5)));
+  const nestW = Math.max(3, Math.round(W * (large ? 0.1 : 0.16)));
+  const H = bh + legH + rh + 6 + Math.round(2 * k);
+  const P = new Painter(W, H, kit);
+  const baseY = H - 2;
+  const bx = W - 4 - nestW - ww;
+  const floorY = baseY - legH;
+  const by = floorY - bh;
+  const over = Math.max(1, Math.round(2 * k));
+
+  if (large) {
+    const fx0 = 2, fx1 = bx - 1;
+    const fh = Math.round(pr.door * 0.5);
+    P.box(fx0, baseY - 1, fx1 - fx0, 2, "dirt", [0, -0.5, 0.8], { tone: -1 });
+    for (let xx = fx0 + 1; xx < fx1; xx += 2) P.box(xx, baseY - fh, 1, fh - 1, trim, [0, 0, 1], { tone: -1 });
+    P.box(fx0, baseY - fh, fx1 - fx0, 1, trim, [0, -0.5, 1]);
+    P.box(fx0, baseY - Math.round(fh * 0.4), fx1 - fx0, 1, trim, [0, -0.5, 1], { tone: -1 });
+    for (let xx = fx0; xx <= fx1 - 1; xx += Math.max(8, Math.round(12 * k))) P.box(xx, baseY - fh - 1, 2, fh + 1, trim, [xx < 3 ? -0.4 : 0.1, 0, 1]);
+    P.box(fx1 - 2, baseY - fh - 1, 2, fh + 1, trim, [0.4, 0, 1]);
+  }
+  if (!large) {
+    P.box(bx + 1, floorY, 2, legH + 1, trim, [-0.4, 0, 1]);
+    P.box(bx + ww - 3, floorY, 2, legH + 1, trim, [0.4, 0, 1]);
+  } else P.box(bx - 1, floorY, ww + 2, legH + 1, "stone", [0, 0, 1], { tone: -1 });
+  P.box(bx, by, ww, bh, wall, [0, 0.1, 1]);
+  for (let yy = by + 2; yy < floorY; yy += 3) P.box(bx, yy, ww, 1, wall, [0, 0, 1], { tone: -1 });
+  P.box(bx, by, 1, bh, trim, [-0.4, 0, 1]);
+  P.box(bx + ww - 1, by, 1, bh, trim, [0.4, 0, 1]);
+  // nesting box on the right with its own lid
+  const nh = Math.max(3, Math.round(bh * (large ? 0.45 : 0.62)));
+  const ny = floorY - nh - (large ? 3 : 0);
+  P.box(bx + ww, ny, nestW, nh, wall, [0.3, 0, 1], { tone: -1 });
+  P.box(bx + ww - 1, ny - 2, nestW + 3, 2, roof, [0.3, -0.7, 0.8]);
+  P.box(bx + ww + 1, ny + 1, Math.max(1, nestW - 2), Math.max(1, Math.floor(nh / 2)), trim, [0, 0, 1], { tone: -1 });
+  gableRoof(P, roof, bx - over, bx + ww + over, by, rh, k, false);
+  // pop door + ramp
+  const cdw = Math.max(2, Math.round(pr.doorW * 0.4)), cdh = Math.max(3, Math.round(pr.door * 0.32));
+  const cdx = bx + Math.max(2, Math.round(ww * 0.14));
+  P.box(cdx - 1, floorY - cdh - 1, cdw + 2, cdh + 1, trim, [0, 0, 1]);
+  P.rect(cdx, floorY - cdh, cdw, cdh, "wood", 0);
+  const rl = Math.max(4, Math.min(legH * 3 + (large ? 8 : 2), cdx - 2));
+  for (let t = 0; t < 2; t++) P.line(cdx - rl, baseY - 1 - t, cdx, floorY - 1 - t, trim, 2 + t);
+  for (let i = 2; i < rl - 1; i += 3) P.px(cdx - rl + i, baseY - 2 - Math.round((i / rl) * (legH - 1)), trim, 0);
+  if (large) {
+    const dw = pr.doorW, dh = pr.door;
+    plainDoor(P, bx + ww - dw - Math.max(3, Math.round(ww * 0.12)), baseY - legH + 1, dw, dh, trim);
+  }
+  return P;
+}
+
 export const buildingGenerator: Generator = {
   id: "building",
   category: "building",
   label: "Building",
   description: "Front-facing 3/4 view building: cottage, shop, tower, keep, barn raised stilt-house (open ground floor, stairs/ladder, veranda) or two-storey half-brick house (masonry ground floor, wooden upper floor, gabled balcony wing) with wall/roof materials, floors, windows, chimney.",
   params: [
-    { key: "style", label: "Style", type: "select", options: ["cottage", "shop", "tower", "keep", "barn", "stilt-house", "half-brick"], default: "cottage" },
+    { key: "style", label: "Style", type: "select", options: ["cottage", "shop", "tower", "keep", "barn", "stilt-house", "half-brick", "farmhouse", "coop"], default: "cottage" },
+    // medium is today's output for every older style; barn small and medium are the same classic barn, large is the gambrel barn.
+    { key: "size", label: "Size", type: "select", options: ["small", "medium", "large"], default: "medium" },
     { key: "wall", label: "Walls", type: "material", options: WALLS, default: "wood" },
     { key: "roof", label: "Roof", type: "material", options: ROOFS, default: "roof" },
     { key: "roof_style", label: "Roof style", type: "select", options: ["auto", "gable", "hip", "flat", "dome", "spire", "corrugated"], default: "auto" },
@@ -365,7 +634,8 @@ export const buildingGenerator: Generator = {
     { key: "lit_windows", label: "Lit windows", type: "bool", default: true },
     { key: "chimney", label: "Chimney", type: "bool", default: true },
     { key: "access", label: "Stilt-house access", type: "select", options: ["stairs", "ladder"], default: "stairs" },
-    { key: "trim", label: "Trim / door", type: "material", options: ["wood", "stone", "metal", "gold", "leather", "dirt"], default: "wood" },
+    { key: "trim", label: "Trim / door", type: "material", options: ["wood", "stone", "metal", "gold", "leather", "dirt", "sand"], default: "wood" },
+    { key: "flower_box", label: "Flower boxes (farmhouse)", type: "bool", default: true },
   ],
   generate(p, kit, seed) {
     const r = rng(seed);
@@ -375,6 +645,11 @@ export const buildingGenerator: Generator = {
     const style = str(p, "style");
     if (style === "stilt-house") return stiltHouse(p, kit, r);
     if (style === "half-brick") return halfBrickHouse(p, kit, r);
+    const size = str(p, "size");
+    if (style === "farmhouse" || style === "coop" || (style === "barn" && size === "large")) {
+      const P = style === "coop" ? coop(p, kit, size) : style === "barn" ? largeBarn(p, kit) : farmhouse(p, kit, seed, size);
+      return { rows: [{ name: "idle", frames: [finalize(P.toSprite(), kit)] }], fps: 1 };
+    }
     const wall = mat(p, "wall"), roof = mat(p, "roof"), trim = mat(p, "trim");
     let roofStyle = str(p, "roof_style");
     if (roofStyle === "auto") roofStyle = "gable";
