@@ -280,22 +280,28 @@ function ridge(W: number, r: Rng, base: number, a1: number, a2: number, k1: numb
 function paintRidge(P: Painter, top: number[], H: number, m: Material, tone: number) {
   const W = top.length;
   for (let x = 0; x < W; x++) {
-    const slope = (top[(x + 5) % W] - top[(x + W - 5) % W]) / 10; // wide window: avoids one-column light streaks
-    P.box(x, top[x], 1, H - top[x], m, [slope * 0.6, -0.75, 0.75], { tone });
+    const slope = (top[(x + 3) % W] - top[(x + W - 3) % W]) / 6;
+    P.box(x, top[x], 1, H - top[x], m, [0, -0.75, 0.75], { tone });
+    // lit crest (2px), and a darker flank under it where the ridge falls away from the light
+    P.box(x, top[x], 1, 2, m, [0, -1, 0.3], { tone: tone + 1 });
+    if (slope > 0.45) P.box(x, top[x] + 2, 1, Math.min(H - top[x] - 2, 3 + Math.round(slope * 2)), m, [0.4, -0.2, 0.9], { tone: tone - 1 });
   }
 }
 
 function hills(W: number, H: number, kit: StyleKit, r: Rng, far: Material, near: Material): Sprite {
   const P = new Painter(W, H, kit);
   const k = Math.max(1, Math.round(W / (kit.sizes.tile * 10)));
-  paintRidge(P, ridge(W, r, H * 0.62, H * 0.12, H * 0.04, k + 1, 3 * k + 1), H, far, 0);
-  paintRidge(P, ridge(W, r, H * 0.8, H * 0.07, H * 0.025, 2 * k, 5 * k), H, near, -1);
+  // few-tone kits keep backdrops one step darker so the foreground (hero, ground) is the lightest thing
+  const dim = kit.shadeSteps <= 3 ? -1 : 0;
+  paintRidge(P, ridge(W, r, H * 0.62, H * 0.12, H * 0.04, k + 1, 3 * k + 1), H, far, dim);
+  paintRidge(P, ridge(W, r, H * 0.8, H * 0.07, H * 0.025, 2 * k, 5 * k), H, near, -1 + dim);
   return finalize(P.toSprite(), kit, { outline: false });
 }
 
 function treeLine(W: number, H: number, kit: StyleKit, r: Rng, leaf: Material, trunk: Material): Sprite {
   const P = new Painter(W, H, kit);
   const T = kit.sizes.tile;
+  const dim = kit.shadeSteps <= 3 ? -1 : 0; // backdrop stays darker than the foreground in few-tone kits
   const G = H - Math.max(3, Math.round(T * 0.4)); // ground line of the layer
   const n = Math.max(3, Math.round(W / (T * 2.6)));
   const kinds: ("pine" | "oak")[] = [];
@@ -305,23 +311,23 @@ function treeLine(W: number, H: number, kit: StyleKit, r: Rng, leaf: Material, t
     for (const off of [-W, 0, W]) {
       const x = cx + off;
       if (kinds[i] === "pine") {
-        P.cylinder(Math.round(x - 2), Math.round(G - h * 0.16), 4, Math.round(h * 0.16) + 2, trunk, { tone: -1 });
+        P.cylinder(Math.round(x - 2), Math.round(G - h * 0.16), 4, Math.round(h * 0.16) + 2, trunk, { tone: -1 + dim });
         const layers = 4;
         for (let l = 0; l < layers; l++) {
           const top = G - h + (l * h * 0.72) / layers, bot = top + (h * 0.5) / layers * 1.9, half = w * (0.35 + (0.65 * (l + 1)) / layers) / 1.6;
-          P.poly([[x, top], [x + half, bot], [x - half, bot]], leaf, [0, -0.35, 0.9], { tone: -1 });
-          P.poly([[x, top], [x, bot], [x - half, bot]], leaf, [-0.6, -0.4, 0.7], { tone: 0 });
+          P.poly([[x, top], [x + half, bot], [x - half, bot]], leaf, [0, -0.35, 0.9], { tone: -1 + dim });
+          P.poly([[x, top], [x, bot], [x - half, bot]], leaf, [-0.6, -0.4, 0.7], { tone: dim });
         }
       } else {
-        P.cylinder(Math.round(x - 2), Math.round(G - h * 0.5), 4, Math.round(h * 0.5) + 2, trunk, { tone: -1 });
-        P.ellipse(x, G - h * 0.62, w * 0.62, h * 0.34, leaf, { tone: 0 });
-        P.ellipse(x - w * 0.32, G - h * 0.5, w * 0.4, h * 0.22, leaf, { tone: 0 });
-        P.ellipse(x + w * 0.34, G - h * 0.52, w * 0.38, h * 0.2, leaf, { tone: -1 });
+        P.cylinder(Math.round(x - 2), Math.round(G - h * 0.5), 4, Math.round(h * 0.5) + 2, trunk, { tone: -1 + dim });
+        P.ellipse(x, G - h * 0.62, w * 0.62, h * 0.34, leaf, { tone: dim });
+        P.ellipse(x - w * 0.32, G - h * 0.5, w * 0.4, h * 0.22, leaf, { tone: dim });
+        P.ellipse(x + w * 0.34, G - h * 0.52, w * 0.38, h * 0.2, leaf, { tone: -1 + dim });
       }
     }
   }
-  P.box(0, G, W, H - G, leaf, [0, -0.8, 0.55], { tone: -1 }); // hedge / ground strip under the trunks
-  P.box(0, G, W, 1, leaf, [0, -1, 0.3], { tone: 0 });
+  P.box(0, G, W, H - G, leaf, [0, -0.8, 0.55], { tone: -1 + dim }); // hedge / ground strip under the trunks
+  P.box(0, G, W, 1, leaf, [0, -1, 0.3], { tone: dim });
   return finalize(P.toSprite(), kit, { outline: false });
 }
 

@@ -9,6 +9,44 @@ import { defaults, generatorById } from "./index";
 
 const gen = (kind: string, kit = KIT_PRESETS[0], extra = {}, seed = 1) => sideviewGenerator.generate({ ...defaults(sideviewGenerator), kind, ...extra }, kit, seed).rows[0].frames[0];
 
+describe("sidelevel placement invariants", () => {
+  it("houses sit on solid ground; platforms and ladders never overlap them, each other, or float", () => {
+    let houses = 0;
+    for (let seed = 1; seed <= 150; seed++) {
+      for (const difficulty of [1, 3, 5]) {
+        const cols = 40, rows = 14;
+        const plan = planSideLevel(cols, rows, seed, difficulty, true, true, 7);
+        const at = (x: number, y: number) => plan.cells[y * cols + x];
+        const lot = plan.house;
+        if (lot) {
+          houses++;
+          for (let c = lot.x - 1; c <= lot.x + lot.w; c++) {
+            expect(at(c, lot.row)).toBe("solid");
+            for (let y = 0; y < lot.row; y++) expect(at(c, y)).toBe("air");
+          }
+        }
+        const lotCols = (c: number) => !!lot && c >= lot.x && c < lot.x + lot.w;
+        const seen = new Set<string>();
+        for (const [x, y] of plan.ladders) {
+          expect(lotCols(x)).toBe(false);
+          expect(at(x, y)).toBe("air");
+          expect(seen.has(`${x},${y}`)).toBe(false);
+          seen.add(`${x},${y}`);
+        }
+        const byCol = new Map<number, number[]>();
+        for (const [x, y] of plan.ladders) byCol.set(x, [...(byCol.get(x) ?? []), y]);
+        for (const [x, ys] of byCol) {
+          expect(at(x, Math.max(...ys) + 1)).toBe("solid");
+          const top = Math.min(...ys);
+          expect(at(x + 1, top) === "platform" || at(x - 1, top) === "platform").toBe(true);
+        }
+        for (let i = 0; i < plan.cells.length; i++) if (plan.cells[i] === "platform") expect(lotCols(i % cols)).toBe(false);
+      }
+    }
+    expect(houses).toBeGreaterThan(20);
+  });
+});
+
 describe("side camera kit", () => {
   it("kit-side is a preset with camera side and taller storeys", () => {
     expect(KIT_PRESETS.some((k) => k.id === "kit-side" && k.camera === "side")).toBe(true);
