@@ -5,7 +5,7 @@ import type { TileMap } from "../types";
 import { mapGenerator } from "./map";
 import { defaults } from "./types";
 
-const BIOMES = ["meadow", "forest", "island", "desert", "winter", "rice-village"];
+const BIOMES = ["meadow", "forest", "island", "desert", "winter", "rice-village", "farm"];
 const kit = KIT_PRESETS[0];
 
 const make = (extra: Record<string, string | number | boolean> = {}, seed = 1, k = kit) =>
@@ -193,5 +193,67 @@ describe("map generator", () => {
     const houses = tm.tiles.filter((t) => t.name.startsWith("stilt-house"));
     expect(houses.length).toBeGreaterThan(0);
     for (const h of houses) expect(h.solid).toBe(true);
+  });
+
+  describe.each(["normal", "sea"])("farm biome (%s set)", (set) => {
+    const sizes: [number, number][] = [[24, 20], [32, 24], [40, 32]];
+    it("lays out buildings, fenced fields, animals and solids", () => {
+      for (const [cols, rows] of sizes)
+        for (let seed = 1; seed <= 4; seed++) {
+          const tm = tilemap({ biome: "farm", set, cols, rows, density: 1 }, seed);
+          const at = (i: number) => [i % cols, Math.floor(i / cols)];
+          const T = tm.tile;
+          const fenceAt = (i: number) => tm.deco[i] >= 0 && tm.tiles[tm.deco[i]].name.startsWith("fence-");
+          // buildings fully on the map, not overlapping, solid
+          const boxes: number[][] = [];
+          tm.deco.forEach((t, i) => {
+            if (t < 0) return;
+            const { name, sprite, solid } = tm.tiles[t];
+            const [x, y] = at(i);
+            if (/^(farmhouse|half-brick|stilt-house|barn|coop)-/.test(name)) {
+              const x0 = x * T + Math.floor((T - sprite.w) / 2), y0 = (y + 1) * T - sprite.h;
+              expect(x0).toBeGreaterThanOrEqual(0);
+              expect(x0 + sprite.w).toBeLessThanOrEqual(cols * T);
+              expect(y0).toBeGreaterThanOrEqual(0);
+              expect(solid).toBe(true);
+              for (const b of boxes) expect(x0 + sprite.w <= b[0] || b[0] + b[2] <= x0 || y0 + sprite.h <= b[1] || b[1] + b[3] <= y0).toBe(true);
+              boxes.push([x0, y0, sprite.w, sprite.h]);
+            }
+            if (name.startsWith("fence-")) expect(!!solid).toBe(!name.includes("gate"));
+            if (/^(cow|sheep|pig|water-buffalo|dog|cat|chicken)/.test(name)) {
+              expect(x).toBeGreaterThanOrEqual(1); expect(x).toBeLessThanOrEqual(cols - 2);
+              expect(y).toBeGreaterThanOrEqual(1); expect(y).toBeLessThanOrEqual(rows - 2);
+            }
+            expect(tm.ground[i] >= 0 && nameAt(tm, "ground", i) !== "water").toBe(true);
+          });
+          expect(boxes.length).toBeGreaterThanOrEqual(2);
+          // every soil region is enclosed by fence (flood fill never escapes) and the ring has a gate
+          const soil = (i: number) => /soil/.test(nameAt(tm, "ground", i));
+          const seen = new Set<number>();
+          let fields = 0;
+          for (let s = 0; s < cols * rows; s++) {
+            if (!soil(s) || seen.has(s)) continue;
+            fields++;
+            const stack = [s]; seen.add(s);
+            const ring = new Set<number>();
+            while (stack.length) {
+              const i = stack.pop()!; const [x, y] = at(i);
+              for (const [dx, dy] of [[0, -1], [1, 0], [0, 1], [-1, 0]]) {
+                const xx = x + dx, yy = y + dy;
+                expect(xx >= 0 && yy >= 0 && xx < cols && yy < rows).toBe(true);
+                const j = yy * cols + xx;
+                if (soil(j)) { if (!seen.has(j)) { seen.add(j); stack.push(j); } } else { expect(fenceAt(j)).toBe(true); ring.add(j); }
+              }
+            }
+            expect([...ring].some((j) => tm.tiles[tm.deco[j]].name === "fence-gate-closed")).toBe(true);
+          }
+          expect(fields).toBeGreaterThanOrEqual(1);
+        }
+    });
+    it("is varied by seed and has a pond", () => {
+      const tm = tilemap({ biome: "farm", set, cols: 32, rows: 24 }, 2);
+      expect(count(tm, (n) => n === "water")).toBeGreaterThan(0);
+      expect(tilemap({ biome: "farm", set }, 1).ground).not.toEqual(tilemap({ biome: "farm", set }, 2).ground);
+    });
   });
 });

@@ -1,7 +1,7 @@
 import { rng, valueNoise, type Rng } from "../rng";
 import { emptyTileMap, ensureTile, renderTileMap } from "../tilemap";
 import type { StyleKit, TileMap } from "../types";
-import { animalGenerator } from "./animal";
+import { animalGenerator, FARM_SETS } from "./animal";
 import { buildingGenerator } from "./building";
 import { environmentGenerator, environmentIdle, treeHeight } from "./environment";
 import { colorIndex, decodeIndex } from "../palette";
@@ -21,13 +21,13 @@ function cachedSprite(kit: StyleKit, key: string, make: () => Sprite): Sprite {
   return { ...sp, data: sp.data.slice() };
 }
 
-export const BIOMES = ["meadow", "forest", "island", "desert", "winter", "rice-village"] as const;
+export const BIOMES = ["meadow", "forest", "island", "desert", "winter", "rice-village", "farm"] as const;
 type Biome = (typeof BIOMES)[number];
-export type Ground = "grass" | "dirt" | "sand" | "water" | "stone-path" | "snow" | "paddy";
+export type Ground = "grass" | "dirt" | "sand" | "water" | "stone-path" | "snow" | "paddy" | "tilled-soil" | "watered-soil";
 
-const SOLID_PROPS = new Set(["oak", "pine", "palm", "dead-tree", "rock", "boulder", "crystal", "stump"]);
+const SOLID_PROPS = new Set(["oak", "pine", "palm", "dead-tree", "rock", "boulder", "crystal", "stump", "old-oak"]);
 /** Props taller/wider than a tile that shouldn't be clipped by the map edge or stacked side by side. */
-const BIG_PROPS = new Set(["oak", "pine", "palm", "dead-tree", "boulder"]);
+const BIG_PROPS = new Set(["oak", "pine", "palm", "dead-tree", "boulder", "old-oak"]);
 
 type Weights = Partial<Record<Ground, Record<string, number>>>;
 
@@ -62,15 +62,24 @@ const PROPS: Record<Biome, Weights> = {
   "rice-village": {
     grass: { palm: 4, bush: 4, "tall-grass": 3, flowers: 0.8, rock: 0.12 },
   },
+  // fields, pen and yard are reserved, so these only grow in the margins
+  farm: {
+    grass: { oak: 3, pine: 1.5, bush: 3, flowers: 4, "tall-grass": 3, rock: 1, mushroom: 0.3 },
+    sand: { rock: 1 },
+  },
+};
+const FARM_SEA_PROPS: Weights = {
+  grass: { palm: 4, bush: 3, flowers: 3, "tall-grass": 4, rock: 1 },
+  sand: { palm: 2, rock: 1 },
 };
 
 /** Chance (before density and clumping) that a free cell gets a prop. */
-const BASE_CHANCE: Record<Biome, number> = { meadow: 0.22, forest: 0.55, island: 0.3, desert: 0.14, winter: 0.3, "rice-village": 0.2 };
-const BASE_GROUND: Record<Biome, Ground> = { meadow: "grass", forest: "grass", island: "grass", desert: "sand", winter: "snow", "rice-village": "grass" };
-const PATH_GROUND: Record<Biome, Ground> = { meadow: "dirt", forest: "dirt", island: "dirt", desert: "dirt", winter: "stone-path", "rice-village": "dirt" };
+const BASE_CHANCE: Record<Biome, number> = { meadow: 0.22, forest: 0.55, island: 0.3, desert: 0.14, winter: 0.3, "rice-village": 0.2, farm: 0.22 };
+const BASE_GROUND: Record<Biome, Ground> = { meadow: "grass", forest: "grass", island: "grass", desert: "sand", winter: "snow", "rice-village": "grass", farm: "grass" };
+const PATH_GROUND: Record<Biome, Ground> = { meadow: "dirt", forest: "dirt", island: "dirt", desert: "dirt", winter: "stone-path", "rice-village": "dirt", farm: "dirt" };
 const VARIANTS = 6;
 /** Which ground spreads over which at a seam (higher wins); water uses shoreTile instead. */
-const BLEND_PRIORITY: Record<Ground, number> = { water: -1, paddy: 0, dirt: 1, "stone-path": 1, sand: 2, grass: 3, snow: 4 };
+const BLEND_PRIORITY: Record<Ground, number> = { water: -1, paddy: 0, "tilled-soil": 0.5, "watered-soil": 0.5, dirt: 1, "stone-path": 1, sand: 2, grass: 3, snow: 4 };
 const BLEND_ORDER = (Object.keys(BLEND_PRIORITY) as Ground[]).filter((g) => g !== "water").sort((a, b) => BLEND_PRIORITY[a] - BLEND_PRIORITY[b]);
 /** 8-neighbour offsets; bit k of a blend mask = NEIGHBOURS[k]. */
 const NEIGHBOURS: [number, number][] = [[0, -1], [1, 0], [0, 1], [-1, 0], [-1, -1], [1, -1], [1, 1], [-1, 1]];
@@ -190,6 +199,221 @@ function buildGround(biome: Biome, cols: number, rows: number, seed: number, r: 
   return { ground, path };
 }
 
+// ---------------------------------------------------------------- farm biome
+
+type FarmAnimal = { i: number; species: string; age: "adult" | "baby"; dir: string };
+type FarmPlan = {
+  ground: Ground[];
+  path: Set<number>;
+  /** Cells nothing random may grow on: buildings, yards, fields, pen, pond. */
+  reserved: Set<number>;
+  buildings: { i: number; style: string; sp: Sprite }[];
+  /** Fence cells; value true = gate (walkable). */
+  fences: Map<number, boolean>;
+  animals: FarmAnimal[];
+  oak: number;
+};
+
+function animalSprite(kit: StyleKit, species: string, age: string, dir: string): Sprite {
+  return cachedSprite(kit, `animal:${species}:${age}:${dir}`, () => {
+    const ar = animalGenerator.generate({ ...defaults(animalGenerator), species, age }, kit, 0).rows;
+    return (ar.find((x) => x.name === `idle-${dir}`) ?? ar[0]).frames[0];
+  });
+}
+
+/** Fence piece for a cell from which of its four neighbours are fence. */
+function fencePiece(has: (dx: number, dy: number) => boolean): string {
+  const n = has(0, -1), e = has(1, 0), s = has(0, 1), w = has(-1, 0);
+  const c = +n + +e + +s + +w;
+  if (c === 4) return "cross";
+  if (c === 3) return !s ? "t-n" : !w ? "t-e" : !n ? "t-s" : "t-w";
+  if (c === 2) return n && s ? "v" : e && w ? "h" : `corner-${n ? "n" : "s"}${e ? "e" : "w"}`;
+  if (c === 1) return n || s ? "v" : "h";
+  return "post";
+}
+
+/**
+ * Farmstead layout: buildings in a row along the top (placed by real sprite footprint), a dirt
+ * yard below them, then lots side by side: fenced crop fields, a fenced animal pen and a pond.
+ * Uses its own rng so prop scatter stays independent of layout edits.
+ */
+function farmPlan(cols: number, rows: number, seed: number, sea: boolean, wantPath: boolean, kit: StyleKit): FarmPlan {
+  const T = kit.sizes.tile;
+  const fr = rng((seed ^ 0xfa12) >>> 0);
+  const at = (x: number, y: number) => y * cols + x;
+  const ground: Ground[] = new Array(cols * rows).fill("grass");
+  const path = new Set<number>(), reserved = new Set<number>(), fences = new Map<number, boolean>();
+  const buildings: FarmPlan["buildings"] = [];
+  const animals: FarmAnimal[] = [];
+  const area = cols * rows;
+  const variant = (seed >>> 0) % HOUSE_VARIANTS;
+  const sprite = (style: string, extra: Record<string, string | number | boolean>) =>
+    cachedSprite(kit, `farm:${style}:${JSON.stringify(extra)}:${variant}`, () => buildingGenerator.generate({ ...defaults(buildingGenerator), style, ...extra }, kit, variant).rows[0].frames[0]);
+  const ext = (sp: Sprite) => ({ e: Math.ceil((sp.w / 2 - T / 2) / T), up: Math.ceil(sp.h / T) - 1 });
+
+  // --- buildings ---
+  const houseSize = area < 500 ? "small" : area < 1000 ? "medium" : "large";
+  const big = area >= 600;
+  const barnExtra = { ...(sea ? { wall: "wood", trim: "wood", roof: "metal", roof_style: "corrugated" } : { wall: "cloth2", trim: "sand" }), size: big ? "large" : "small" };
+  const houseStyle = sea ? (cols >= 30 ? "half-brick" : "stilt-house") : "farmhouse";
+  const houseExtra: Record<string, string> = sea ? (houseStyle === "stilt-house" ? { access: "stairs" } : {}) : { size: houseSize };
+  let items = [
+    { style: houseStyle, sp: sprite(houseStyle, houseExtra) },
+    { style: "barn", sp: sprite("barn", barnExtra) },
+    { style: "coop", sp: sprite("coop", { size: big ? "large" : "small" }) },
+  ];
+  const span = (l: typeof items) => l.reduce((a, b) => a + 2 * ext(b.sp).e + 1, 0) + 2 * (l.length - 1);
+  while (items.length > 1 && span(items) > cols - 2) items = items.slice(0, -1);
+  if (span(items) > cols - 2) items = [{ style: "stilt-house", sp: sprite("stilt-house", { access: "stairs" }) }];
+  for (let k = items.length - 1; k > 0; k--) { const j = fr.int(0, k); [items[k], items[j]] = [items[j], items[k]]; }
+  const yb0 = Math.max(...items.map((b) => ext(b.sp).up)) + 1;
+  let cx = 1 + Math.floor(fr.next() * (cols - 2 - span(items) + 1));
+  const doors: { x: number; y: number }[] = [];
+  let maxYb = 0;
+  for (const b of items) {
+    const { e, up } = ext(b.sp);
+    cx += e;
+    const yb = Math.min(rows - 4, b.style === "coop" ? yb0 + 1 : yb0);
+    buildings.push({ i: at(cx, yb), style: b.style, sp: b.sp });
+    for (let y = yb - up; y <= yb; y++) for (let x = cx - e; x <= cx + e; x++) if (y >= 0) reserved.add(at(x, y));
+    doors.push({ x: cx, y: yb });
+    maxYb = Math.max(maxYb, yb);
+    cx += e + 3;
+  }
+
+  // --- lots: fields, pen, pond ---
+  const sy = Math.min(rows - 3, maxYb + 2);
+  const lots: { kind: string; x0: number; x1: number; y0: number; y1: number; gx: number }[] = [];
+  const dirt = (x: number, y: number) => { if (x < 0 || y < 0 || x >= cols || y >= rows) return; ground[at(x, y)] = "dirt"; path.add(at(x, y)); };
+  const ytMin = sy + 2, H = rows - 1 - ytMin;
+  const KINDS = ["field", "pen", "pond", "field", "field"];
+  const MIN: Record<string, number> = { field: 6, pen: 7, pond: 4 }, CAP: Record<string, number> = { field: 11, pen: 10, pond: 9 };
+  let n = 0, need = 0;
+  while (H >= 5 && n < KINDS.length) {
+    const w = MIN[KINDS[n]] + (n ? 2 : 0);
+    if (need + w > cols - 2) break;
+    need += w; n++;
+  }
+  const order = KINDS.slice(0, n);
+  for (let k = order.length - 1; k > 0; k--) { const j = fr.int(0, k); [order[k], order[j]] = [order[j], order[k]]; }
+  const widths = order.map((k) => MIN[k]);
+  let spare = cols - 2 - need;
+  for (let grew = true; grew && spare > 0; ) {
+    grew = false;
+    for (let k = 0; k < widths.length && spare > 0; k++) if (widths[k] < CAP[order[k]]) { widths[k]++; spare--; grew = true; }
+  }
+  let lx = 1 + Math.floor(fr.next() * (spare + 1));
+  order.forEach((kind, k) => {
+    const w = widths[k];
+    const yt = ytMin + (kind !== "pond" && H >= 6 ? fr.int(0, 1) * 2 : 0);
+    const h = Math.min(rows - 1 - yt, fr.int(5, 9));
+    lots.push({ kind, x0: lx, x1: lx + w - 1, y0: yt, y1: yt + h - 1, gx: lx + 1 + fr.int(0, w - 3) });
+    lx += w + 2;
+  });
+
+  // --- yard strip and connectors ---
+  const xs = [...doors.map((d) => d.x), ...lots.filter((l) => l.kind !== "pond").map((l) => l.gx)];
+  const sx0 = wantPath ? 0 : Math.min(...xs), sx1 = wantPath ? cols - 1 : Math.max(...xs);
+  for (let x = sx0; x <= sx1; x++) { dirt(x, sy); dirt(x, sy + 1); }
+  for (const d of doors) for (let y = d.y + 1; y < sy; y++) dirt(d.x, y);
+  // the fronts of the buildings stay clear so props never hide the doors
+  for (const d of doors) for (let y = d.y + 1; y <= sy + 1; y++) for (let x = d.x - 2; x <= d.x + 2; x++) if (x >= 1 && x < cols - 1) reserved.add(at(x, y));
+
+  const pondNoise = valueNoise((seed ^ 0x70d1) >>> 0, 16);
+  const soilOff = fr.int(0, 1);
+  lots.forEach((l, k) => {
+    const inner: number[] = [];
+    for (let y = l.y0; y <= l.y1; y++) for (let x = l.x0; x <= l.x1; x++) { reserved.add(at(x, y)); if (x > l.x0 && x < l.x1 && y > l.y0 && y < l.y1) inner.push(at(x, y)); }
+    if (l.kind === "pond") {
+      const w = l.x1 - l.x0 + 1, h = l.y1 - l.y0 + 1;
+      const px = (l.x0 + l.x1) / 2 + 0.5, py = (l.y0 + l.y1) / 2 + 0.5;
+      const rx = (w - 2) / 2, ry = Math.min((h - 2) / 2, rx * 0.8);
+      for (let y = l.y0; y <= l.y1; y++) for (let x = l.x0; x <= l.x1; x++) {
+        const d = Math.hypot((x + 0.5 - px) / rx, (y + 0.5 - py) / ry) + (pondNoise(x / 2.5, y / 2.5) - 0.5) * 0.5;
+        if (d < 1) ground[at(x, y)] = "water";
+      }
+      for (let y = l.y0; y <= l.y1; y++) for (let x = l.x0; x <= l.x1; x++) {
+        if (ground[at(x, y)] !== "grass") continue;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (ground[at(x + dx, y + dy)] === "water") ground[at(x, y)] = "sand";
+      }
+      return;
+    }
+    for (let y = l.y0; y <= l.y1; y++) for (let x = l.x0; x <= l.x1; x++)
+      if (x === l.x0 || x === l.x1 || y === l.y0 || y === l.y1) fences.set(at(x, y), false);
+    fences.set(at(l.gx, l.y0), true);
+    for (let y = sy + 2; y < l.y0; y++) dirt(l.gx, y);
+    if (l.kind === "field") {
+      const watered = k % 2 === 0;
+      for (const i of inner) {
+        const y = Math.floor(i / cols);
+        ground[i] = watered && (((y - l.y0 + soilOff) >> 1) & 1) ? "watered-soil" : "tilled-soil";
+      }
+      return;
+    }
+    // pen: animals from the setting's list (never the pets, hens or fish), a baby or two among them
+    const set = FARM_SETS[sea ? "sea" : "normal"] as readonly string[];
+    const stock = set.filter((s) => !["dog", "cat", "chicken", "fish"].includes(s));
+    const seq: [string, "adult" | "baby"][] = [[stock[0], "adult"], [stock[1], "adult"], [stock[0], "baby"], [stock[0], "adult"], [stock[1], "baby"], [stock[1], "adult"]];
+    const cand = inner.filter((i) => Math.floor(i / cols) >= l.y0 + 2 || l.y1 - l.y0 < 4);
+    for (const [species, age] of seq) {
+      if (!cand.length) break;
+      for (let tries = 0; tries < 12; tries++) {
+        const i = cand[fr.int(0, cand.length - 1)];
+        const x = i % cols, y = Math.floor(i / cols);
+        const dist = species === "cow" || species === "water-buffalo" ? 3 : 2;
+        if (animals.some((a) => Math.abs((a.i % cols) - x) < dist && Math.abs(Math.floor(a.i / cols) - y) < 2)) continue;
+        animals.push({ i, species, age, dir: ["down", "left", "right"][fr.int(0, 2)] });
+        break;
+      }
+    }
+  });
+
+  // --- yard animals: hens and a chick by the coop, the dog and cat by the house ---
+  const putYard = (b: { i: number; sp: Sprite } | undefined, species: string, age: "adult" | "baby") => {
+    if (!b) return;
+    const { e } = ext(b.sp), bx = b.i % cols, by = Math.floor(b.i / cols);
+    const free: number[] = [];
+    for (let y = by + 1; y <= sy + 1; y++) for (let x = bx - e; x <= bx + e; x++) {
+      const i = at(x, y);
+      if (x >= 1 && x < cols - 1 && x !== bx && !animals.some((a) => Math.abs((a.i % cols) - x) < 2 && Math.floor(a.i / cols) === y)) free.push(i);
+    }
+    if (free.length) animals.push({ i: free[fr.int(0, free.length - 1)], species, age, dir: ["down", "left", "right"][fr.int(0, 2)] });
+  };
+  const coopB = buildings.find((b) => b.style === "coop"), houseB = buildings.find((b) => b.style !== "barn" && b.style !== "coop");
+  putYard(coopB, "chicken", "adult"); putYard(coopB, "chicken", "adult"); putYard(coopB, "chicken", "baby");
+  putYard(houseB, "dog", "adult"); putYard(houseB, "cat", "adult");
+
+  // keep every animal's whole sprite on the map (>= 1 tile from the edge)
+  const inland = animals.filter((a) => {
+    const sp = animalSprite(kit, a.species, a.age, a.dir);
+    const m = Math.max(1, Math.ceil((sp.w / 2 - T / 2) / T));
+    const x = a.i % cols, y = Math.floor(a.i / cols);
+    return x >= m && x < cols - m && y >= 1 && y < rows - 1;
+  });
+
+  // --- landmark old oak: first free spot, away from everything planned ---
+  const oakSp = cachedSprite(kit, "farm:old-oak", () => environmentIdle({ ...defaults(environmentGenerator), kind: "old-oak" }, kit, 0));
+  const { e: oe, up: ou } = ext(oakSp);
+  let oak = -1;
+  const spots: number[] = [];
+  for (let y = ou; y < rows - 1; y++) for (let x = oe + 1; x < cols - oe - 1; x++) spots.push(at(x, y));
+  for (let k = spots.length - 1; k > 0; k--) { const j = fr.int(0, k); [spots[k], spots[j]] = [spots[j], spots[k]]; }
+  for (const i of spots) {
+    const x = i % cols, y = Math.floor(i / cols);
+    let ok = ground[i] === "grass";
+    for (let dy = -ou; ok && dy <= 1; dy++) for (let dx = -oe - 1; dx <= oe + 1; dx++) {
+      const j = at(x + dx, y + dy);
+      if (y + dy >= rows || reserved.has(j) || path.has(j) || ground[j] === "water" || (dy >= 0 && ground[j] !== "grass")) { ok = false; break; }
+    }
+    if (!ok) continue;
+    oak = i;
+    for (let dy = -ou; dy <= 0; dy++) for (let dx = -oe; dx <= oe; dx++) reserved.add(at(x + dx, y + dy));
+    break;
+  }
+  for (const a of inland) reserved.add(a.i);
+  return { ground, path, reserved, buildings, fences, animals: inland, oak };
+}
+
 function pickWeighted(table: Record<string, number>, roll: number): string {
   const entries = Object.entries(table);
   let t = roll * entries.reduce((a, [, w]) => a + w, 0);
@@ -204,13 +428,14 @@ export const mapGenerator: Generator = {
   id: "map",
   category: "map",
   label: "Map",
-  description: "Procedural top-down tile map (meadow, forest, island, desert, winter, rice-village with flooded paddies) built from the kit's ground tiles and props.",
+  description: "Procedural top-down tile map (meadow, forest, island, desert, winter, rice-village with flooded paddies, farm with fenced fields, barn, pen and pond in a normal or sea set) built from the kit's ground tiles and props.",
   params: [
     { key: "biome", label: "Biome", type: "select", options: [...BIOMES], default: "meadow" },
     { key: "cols", label: "Columns", type: "number", min: 12, max: 48, step: 1, default: 24 },
     { key: "rows", label: "Rows", type: "number", min: 12, max: 48, step: 1, default: 20 },
     { key: "density", label: "Prop density", type: "number", min: 0, max: 1, step: 0.05, default: 0.5 },
     { key: "path", label: "Winding path", type: "bool", default: true },
+    { key: "set", label: "Farm set (farm biome only)", type: "select", options: ["normal", "sea"], default: "normal" },
   ],
   generate(p, kit: StyleKit, seed) {
     const biome = ((BIOMES as readonly string[]).includes(str(p, "biome")) ? str(p, "biome") : "meadow") as Biome;
@@ -218,12 +443,14 @@ export const mapGenerator: Generator = {
     const rows = clamp(Math.round(num(p, "rows")) || 20, 12, 48);
     const density = clamp(Number.isFinite(num(p, "density")) ? num(p, "density") : 0.5, 0, 1);
     const wantPath = bool(p, "path");
+    const sea = str(p, "set") === "sea";
     const T = kit.sizes.tile;
     const r = rng(seed >>> 0);
     const envDefaults = defaults(environmentGenerator);
 
     const tm: TileMap = emptyTileMap(cols, rows, T);
-    const { ground, path } = buildGround(biome, cols, rows, seed >>> 0, r, wantPath);
+    const farm = biome === "farm" ? farmPlan(cols, rows, seed >>> 0, sea, wantPath, kit) : null;
+    const { ground, path } = farm ?? buildGround(biome, cols, rows, seed >>> 0, r, wantPath);
 
     paintGround(tm, ground, kit, seed, r);
 
@@ -243,7 +470,20 @@ export const mapGenerator: Generator = {
     const chance0 = BASE_CHANCE[biome] * density;
     const wide = kit.sizes.environment > T;
     // rice-village: stilt houses beside the path (own rng so prop placement stays stable) and a few animals
-    const reserved = new Set<number>();
+    const reserved = farm ? farm.reserved : new Set<number>();
+    if (farm && chance0 > 0) {
+      farm.buildings.forEach((b, n) => { tm.deco[b.i] = ensureTile(tm, `${b.style}-${n}`, b.sp, true); });
+      const fenceSprites = new Map<string, Sprite>();
+      for (const [i, gate] of farm.fences) {
+        const x = i % cols, y = Math.floor(i / cols);
+        const piece = gate ? "gate-closed" : fencePiece((dx, dy) => farm.fences.has((y + dy) * cols + x + dx) && x + dx >= 0 && x + dx < cols);
+        let sp = fenceSprites.get(piece);
+        if (!sp) fenceSprites.set(piece, (sp = environmentIdle({ ...envDefaults, kind: "fence", piece }, kit, seed)));
+        tm.deco[i] = ensureTile(tm, `fence-${piece}`, sp, !gate);
+      }
+      for (const a of farm.animals) tm.deco[a.i] = ensureTile(tm, `${a.species}${a.age === "baby" ? "-baby" : ""}-${a.dir}`, animalSprite(kit, a.species, a.age, a.dir), false);
+      if (farm.oak >= 0) tm.deco[farm.oak] = propTile("old-oak", 0);
+    }
     if (biome === "rice-village" && chance0 > 0) {
       const hr = rng(((seed >>> 0) ^ 0x51a7) >>> 0);
       const spots: number[] = [];
@@ -288,7 +528,14 @@ export const mapGenerator: Generator = {
       const animals = ["water-buffalo", "chicken", "chicken"];
       const free = [...Array(cols * rows).keys()].filter((i) => ground[i] === "grass" && !reserved.has(i) && !path.has(i));
       for (let n = 0; n < animals.length && free.length; n++) {
-        const i = free.splice(hr.int(0, free.length - 1), 1)[0];
+        let i = free.splice(hr.int(0, free.length - 1), 1)[0];
+        // never on the map border: swap for a random inland cell (only draws when it was on the edge)
+        if (i % cols < 1 || i % cols > cols - 2 || i < cols || i >= cols * (rows - 1)) {
+          const inland = free.filter((j) => j % cols >= 1 && j % cols <= cols - 2 && j >= cols && j < cols * (rows - 1));
+          if (!inland.length) continue;
+          i = inland[hr.int(0, inland.length - 1)];
+          free.splice(free.indexOf(i), 1);
+        }
         const sp = cachedSprite(kit, `animal:${animals[n]}`, () => {
           const ar = animalGenerator.generate({ ...defaults(animalGenerator), species: animals[n] }, kit, 0).rows;
           return (ar.find((x) => x.name === "idle-down") ?? ar[0]).frames[0];
@@ -305,11 +552,23 @@ export const mapGenerator: Generator = {
         // Always consume the same randomness per cell so edits to one rule don't reshuffle the whole map.
         const roll = r.next(), pickRoll = r.next(), vRoll = r.int(0, VARIANTS - 1);
         if (g === "water" || path.has(i) || reserved.has(i) || chance0 <= 0) continue;
-        const table = PROPS[biome][g];
+        const table = (biome === "farm" && sea ? FARM_SEA_PROPS : PROPS[biome])[g];
         if (!table) continue;
         if (roll >= chance0 * (0.35 + 1.3 * clump(x / 3, y / 3))) continue;
         const kind = pickWeighted(table, pickRoll);
         if (BIG_PROPS.has(kind)) {
+          if (biome === "farm") {
+            // trees frame the farm: mostly near the border, never in front of or over anything planned
+            const edge = Math.min(x, y, cols - 1 - x, rows - 1 - y);
+            if (edge > 4 && (pickRoll * 53) % 1 > 0.2) continue;
+            const up = bigRowsOf(kind);
+            let blocked = false;
+            for (let d = 0; d <= up + 1 && !blocked; d++) for (let dx = -1; dx <= 1; dx++) {
+              const j = (y - d) * cols + x + dx;
+              if (y - d >= 0 && x + dx >= 0 && x + dx < cols && (reserved.has(j) || path.has(j))) { blocked = true; break; }
+            }
+            if (blocked) continue;
+          }
           if (y < bigRowsOf(kind) || (wide && (x < 1 || x > cols - 2))) continue;
           if (biome === "rice-village" && [1, 2].some((d) => y >= d && BIG_PROPS.has(tmKind(tm, tm.deco[i - d * cols])))) continue;
           if (biome === "rice-village" && [0, 1, 2].some((d) => y >= d && [-1, 0, 1].some((dx) => ground[(y - d) * cols + Math.max(0, Math.min(cols - 1, x + dx))] === "paddy"))) continue;
