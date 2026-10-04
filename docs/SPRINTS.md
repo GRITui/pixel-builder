@@ -66,3 +66,18 @@ Make it an internal tool the whole team shares, add side-view, and measure again
 **Benchmark (#23):** `npm run bench` runs 34 briefs offline across the kits and writes `bench/out/report.html`; rubric in `bench/RUBRIC.md`, baseline in `bench/RESULTS.md`. PixelLab outputs are collected by hand (`bench/pixellab/README.md`).
 
 **Exit:** two browsers and one Claude Code session share one library, a side-view starter pack exists, and `bench/RESULTS.md` has a baseline. This closes epic #14.
+
+## Sprint 5: MMO-quality environment (epic #40)
+Reach the look of a polished top-down 2D MMO: lush trees, deep water, cute monsters, a glossy HUD. Everything still comes from one kit. `bench/RESULTS.md` (#23) is the baseline.
+
+| Wave | Lane | Issue | Owns | Notes |
+|---|---|---|---|---|
+| 1 | P | #41 Deep palette ramps (7–9 shades), preset `kit-hd-deep` | `palette.ts`, `kit.ts` `rampDepth`, `legend.ts`, `painter.ts`, `enforce.ts` | Goes first; other lanes use it. Default 5 shades stays byte-identical. |
+| 1 | M | #44 Monster pack (mushroom, slime, plant, bat, wolf, skeleton) with attack, hurt and die | new `rigs/monsters.ts`, clip additions, `monsters-v1` pack | Independent of #41. |
+| 1 | U | #46 MMO UI skin (unit frame, glossy bars, minimap, skill bar, chat, damage numbers) | `generators/ui.ts`, `core/font.ts` | Independent of #41. |
+| 1 | A | #47 Polish: snappier animation, tool-icon outlines, side-view knight | `rigs/clips.ts` variants, `generators/object.ts`, `rigs/side.ts` | Fixes bench gaps. |
+| 2 | T | #42 HD tree generator (leaf clusters; willow, autumn maple, birch, sakura and more) | new `generators/foliage.ts` | Starts after #41. |
+| 2 | W | #43 Water depth gradients, shorelines, lily pads, reeds, bridge | water kinds in `environment.ts`, opt-in water in `map.ts`, `tileset.ts` | Starts after #41. |
+| 3 | B | #45 `forest-mmo` biome, ground detail, y-sorting, `docs/img/mmo-scene.png` | `generators/map.ts` (opt-in), `scripts/mmo-scene.ts` | Builds on #42, #43, #44 and #46. |
+
+**Exit:** `docs/img/mmo-scene.png` in `kit-hd-rich` and `kit-hd-deep` (river, trees, path, hero, 3 monsters, HUD), and `bench/RESULTS.md` re-scored with readability and animation up and nothing down.
