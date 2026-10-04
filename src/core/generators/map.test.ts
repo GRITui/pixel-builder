@@ -187,4 +187,11 @@ describe("map generator", () => {
     expect(decoCount(tm)).toBeGreaterThan(0);
     expect(tilemap({ biome: "rice-village" }, 9).ground).toEqual(tilemap({ biome: "rice-village" }, 9).ground);
   });
+
+  it("rice-village places solid stilt houses and 2+ paddy fields", () => {
+    const tm = tilemap({ biome: "rice-village", cols: 32, rows: 32 }, 4);
+    const houses = tm.tiles.filter((t) => t.name.startsWith("stilt-house"));
+    expect(houses.length).toBeGreaterThan(0);
+    for (const h of houses) expect(h.solid).toBe(true);
+  });
 });

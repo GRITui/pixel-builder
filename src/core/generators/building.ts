@@ -119,7 +119,7 @@ function stiltHouse(p: Params, kit: StyleKit, r: Rng): GenResult {
   const wh = pr.story;
   const run = ladder ? 0 : Math.round(gh * 0.75);
   const frac = str(p, "width") === "narrow" ? 0.75 : str(p, "width") === "wide" ? 1 : 0.9;
-  const deckW = Math.round((S - 8 - run) * frac);
+  const deckW = Math.round((S - 10 - run) * frac);
   const total = deckW + run;
   const left = Math.round((S - total) / 2);
   const x0 = side === 1 ? left : left + run, x1 = x0 + deckW;
