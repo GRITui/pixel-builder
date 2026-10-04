@@ -9,6 +9,18 @@ import { createSprite } from "../sprite";
 import type { Sprite } from "../types";
 import { bool, defaults, num, str, type Generator } from "./types";
 
+// Rendering a building or a full animal sheet costs far more than the rest of a map,
+// so village deco sprites are memoised per kit object (kits are replaced, not mutated).
+const HOUSE_VARIANTS = 4;
+const spriteCache = new WeakMap<StyleKit, Map<string, Sprite>>();
+function cachedSprite(kit: StyleKit, key: string, make: () => Sprite): Sprite {
+  let m = spriteCache.get(kit);
+  if (!m) spriteCache.set(kit, (m = new Map()));
+  let sp = m.get(key);
+  if (!sp) m.set(key, (sp = make()));
+  return { ...sp, data: sp.data.slice() };
+}
+
 export const BIOMES = ["meadow", "forest", "island", "desert", "winter", "rice-village"] as const;
 type Biome = (typeof BIOMES)[number];
 type Ground = "grass" | "dirt" | "sand" | "water" | "stone-path" | "snow" | "paddy";
@@ -327,7 +339,9 @@ export const mapGenerator: Generator = {
         houses.push(i);
       }
       houses.forEach((i, n) => {
-        const sp = buildingGenerator.generate({ ...defaults(buildingGenerator), style: "stilt-house", access: n % 2 ? "ladder" : "stairs" }, kit, (seed + n * 7) >>> 0).rows[0].frames[0];
+        const access = n % 2 ? "ladder" : "stairs";
+        const variant = ((seed + n * 7) >>> 0) % HOUSE_VARIANTS;
+        const sp = cachedSprite(kit, `house:${access}:${variant}`, () => buildingGenerator.generate({ ...defaults(buildingGenerator), style: "stilt-house", access }, kit, variant).rows[0].frames[0]);
         tm.deco[i] = ensureTile(tm, `stilt-house-${n}${hv[n % 2]}`, sp, true);
         for (let dx = -1; dx <= 1; dx++) reserved.add(i + dx);
         reserved.add(i - cols);
@@ -336,8 +350,10 @@ export const mapGenerator: Generator = {
       const free = [...Array(cols * rows).keys()].filter((i) => ground[i] === "grass" && !reserved.has(i) && !path.has(i));
       for (let n = 0; n < animals.length && free.length; n++) {
         const i = free.splice(hr.int(0, free.length - 1), 1)[0];
-        const ar = animalGenerator.generate({ ...defaults(animalGenerator), species: animals[n] }, kit, (seed + n) >>> 0).rows;
-        const sp = (ar.find((x) => x.name === "idle-down") ?? ar[0]).frames[0];
+        const sp = cachedSprite(kit, `animal:${animals[n]}`, () => {
+          const ar = animalGenerator.generate({ ...defaults(animalGenerator), species: animals[n] }, kit, 0).rows;
+          return (ar.find((x) => x.name === "idle-down") ?? ar[0]).frames[0];
+        });
         tm.deco[i] = ensureTile(tm, `${animals[n]}-${n}`, sp, false);
         reserved.add(i);
       }

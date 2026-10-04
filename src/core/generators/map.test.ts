@@ -78,7 +78,7 @@ describe("map generator", () => {
           }
         }
     expect(waterSeen).toBeGreaterThan(0);
-  });
+  }, 20_000); // 144 full maps: ~2s locally, slower on shared CI runners
 
   it("marks water, trees and rocks solid, and soft props walkable", () => {
     let seen = new Set<string>();
