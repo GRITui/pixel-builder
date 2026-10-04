@@ -219,4 +219,30 @@ describe("environment generator", () => {
       expect(piece("h", { trunk: "stone" }).data).not.toEqual(piece("h").data);
     });
   });
+
+  it("never clips animation frames against the canvas border", () => {
+    const kinds = [...PROP_KINDS, ...EXTRA_PROP_KINDS];
+    const touches = (s: Sprite) => {
+      const b = bounds(s);
+      return { l: !!b && b.x0 === 0, r: !!b && b.x1 === s.w - 1, t: !!b && b.y0 === 0 };
+    };
+    for (let ki = 0; ki < KIT_PRESETS.length; ki++)
+      for (const kind of kinds) {
+        const res = gen(kind, ki);
+        const idle = touches(res.rows[0].frames[0]);
+        for (const row of res.rows)
+          for (const f of row.frames) {
+            const t = touches(f);
+            expect(f.w).toBe(res.rows[0].frames[0].w);
+            if (!idle.l) expect(t.l, `${kind} ${row.name} left`).toBe(false);
+            if (!idle.r) expect(t.r, `${kind} ${row.name} right`).toBe(false);
+            if (!idle.t) expect(t.t, `${kind} ${row.name} top`).toBe(false);
+          }
+      }
+  });
+
+  it("watered soil differs from tilled soil in every kit", () => {
+    for (let ki = 0; ki < KIT_PRESETS.length; ki++)
+      expect(gen("watered-soil-tile", ki).rows[0].frames[0].data).not.toEqual(gen("tilled-soil-tile", ki).rows[0].frames[0].data);
+  });
 });
