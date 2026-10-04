@@ -33,6 +33,15 @@ function wallTexture(P: Painter, x: number, y: number, w: number, h: number, m: 
   }
 }
 
+/** One column of corrugated sheet: 2px-wide ribs alternate ramp levels 2/3, a dark eave-shadow row closes the bottom. */
+function corrColumn(P: Painter, roof: Material, x: number, i: number, top: number, wy: number) {
+  const h = wy + 1 - top;
+  if (h <= 0) return;
+  P.rect(x, top, 1, h, roof, (i >> 1) % 2 ? 3 : 2);
+  P.px(x, wy, roof, 1);
+  if (h > 3) P.px(x, wy - 1, roof, (i >> 1) % 2 ? 2 : 1);
+}
+
 /**
  * Pitched roof face (gable or hip): front slope, lit upper strip, then either
  * staggered shingle courses or, for `corr`, vertical zinc corrugation: columns
@@ -40,16 +49,12 @@ function wallTexture(P: Painter, x: number, y: number, w: number, h: number, m: 
  */
 function pitchedRoof(P: Painter, roof: Material, rx0: number, rx1: number, wy: number, rh: number, inset: number, k: number, corr: boolean) {
   if (corr) {
-    const period = Math.max(2, Math.round(2 * k));
     for (let x = rx0; x < rx1; x++) {
       const e = Math.min(x - rx0 + 0.5, rx1 - x - 0.5);
       const top = Math.round(wy - rh + (inset > 0 && e < inset ? rh * (1 - e / inset) : 0));
-      const ph = (((x - rx0) % period) + period) % period / period;
-      P.box(x, top, 1, wy + 1 - top, roof, [Math.cos(ph * Math.PI * 2) * 0.9, -0.35, 0.8]);
+      corrColumn(P, roof, x, x - rx0, top, wy);
     }
-    // ridge cap and a dark drip edge along the eave
-    P.box(rx0 + inset, wy - rh, Math.max(1, rx1 - rx0 - 2 * inset), 2, roof, [0, -1, 0.3], { tone: 1 });
-    P.box(rx0, wy, rx1 - rx0, 1, roof, [0, 1, 0.3], { tone: -1 });
+    P.box(rx0 + inset, wy - rh, Math.max(1, rx1 - rx0 - 2 * inset), 1, roof, [0, -1, 0.3], { tone: 1 }); // ridge cap
     return;
   }
     // lower slope faces viewer, upper slope faces sky (lighter)
@@ -68,15 +73,13 @@ function pitchedRoof(P: Painter, roof: Material, rx0: number, rx1: number, wy: n
 /** Steep triangular gable seen end-on: each column is lit by its slope, so the two pitches split light and shade. */
 function gableRoof(P: Painter, roof: Material, rx0: number, rx1: number, wy: number, rh: number, k: number, corr: boolean) {
   const cx = (rx0 + rx1) / 2, half = (rx1 - rx0) / 2;
-  const period = Math.max(2, Math.round(2 * k));
   const tops: number[] = [];
   for (let x = rx0; x < rx1; x++) {
     const u = (x + 0.5 - cx) / half;
     const top = Math.round(wy + 1 - rh * (1 - Math.abs(u)));
     tops.push(top);
-    let nx = u * 0.9;
-    if (corr) nx += Math.cos((((x - rx0) % period) / period) * Math.PI * 2) * 0.7;
-    P.box(x, top, 1, wy + 1 - top, roof, [nx, -0.35, 0.8]);
+    if (corr) corrColumn(P, roof, x, x - rx0, top, wy);
+    else P.box(x, top, 1, wy + 1 - top, roof, [u * 0.9, -0.35, 0.8]);
   }
   if (!corr) {
     const tileW = Math.max(3, Math.round(5 * k));
@@ -89,7 +92,7 @@ function gableRoof(P: Painter, roof: Material, rx0: number, rx1: number, wy: num
   }
   // bargeboards along both rake edges
   for (let x = rx0; x < rx1; x++) P.box(x, tops[x - rx0], 1, 1, roof, [0, -1, 0.4], { tone: 1 });
-  P.box(rx0, wy, rx1 - rx0, 1, roof, [0, 1, 0.3], { tone: -1 });
+  if (!corr) P.box(rx0, wy, rx1 - rx0, 1, roof, [0, 1, 0.3], { tone: -1 });
 }
 
 /**
@@ -97,16 +100,21 @@ function gableRoof(P: Painter, roof: Material, rx0: number, rx1: number, wy: num
  * (proportions.door + headroom), a deck with a veranda rail sits on top, with
  * stairs or a ladder on the veranda side and a steep roof over the cabin.
  */
+/** Stilt-house default (auto style + brick roof) is zinc; an explicit roof material wins. */
+const corr0 = (p: Params) => (str(p, "roof_style") === "auto" || str(p, "roof_style") === "corrugated") && mat(p, "roof") === "roof";
+
 function stiltHouse(p: Params, kit: StyleKit, r: Rng): GenResult {
   const S = kit.sizes.building;
   const k = S / 64;
   const pr = proportions(kit);
-  const wall = mat(p, "wall"), roof = mat(p, "roof"), trim = mat(p, "trim");
+  const wall = mat(p, "wall"), trim = mat(p, "trim");
+  const roof = corr0(p) ? "metal" : mat(p, "roof");
   const ladder = str(p, "access") === "ladder";
-  const corr = str(p, "roof_style") === "corrugated";
-  const hip = str(p, "roof_style") === "hip";
+  const rs = str(p, "roof_style");
+  const corr = rs === "corrugated" || rs === "auto"; // stilt houses default to zinc sheet
+  const hip = rs === "hip";
   const side = r.chance(0.5) ? 1 : -1; // which end the stairs leave the veranda
-  const gh = pr.door + 2; // clear height under the floor
+  const gh = pr.door; // clear height under the floor: one door tall
   const fb = Math.max(2, Math.round(2.5 * k)); // floor beam
   const wh = pr.story;
   const run = ladder ? 0 : Math.round(gh * 0.75);
@@ -151,18 +159,20 @@ function stiltHouse(p: Params, kit: StyleKit, r: Rng): GenResult {
     P.box(lo + lw, yF - rail + 2, 1, G - yF + rail - 2, trim, [0.5, 0, 1], { tone: -1 });
   } else {
     const n = Math.max(4, Math.round(gh / 3.2));
-    const dy = G - yF;
-    const tw = Math.ceil(run / n) + 1;
-    // stringer under the treads, then lit treads
-    for (let t = 0; t < 2; t++) P.line(e, yF + fb + t, e + side * run, G - 1 - (1 - t), trim, 1);
+    const tw = Math.ceil(run / n) + 2;
+    // 2px stringer (clear of the canvas margin), then treads: lit nosing over a shaded riser
+    const endY = G - 2;
+    for (let t = 0; t < 2; t++) P.line(e, yF + fb + t, e + side * run, endY - 1 + t, trim, 1);
     for (let i = 0; i < n; i++) {
-      const xi = e + side * Math.round((i * run) / n);
-      const yi = yF + Math.round(((i + 1) * dy) / (n + 1));
-      P.box(side === 1 ? xi : xi - tw + 1, yi, tw, 2, trim, [0, -0.6, 0.8], { tone: 1 });
+      const xi = e + side * Math.round(((i + 0.5) * run) / n);
+      const yi = yF + fb + Math.round(((i + 0.5) * (endY - yF - fb - 1)) / n);
+      const x = side === 1 ? xi : xi - tw + 1;
+      P.rect(x, yi, tw, 1, trim, 4);
+      P.rect(x, yi + 1, tw, 1, trim, 2);
     }
     // handrail parallels the slope on the outer side
-    P.line(e, yF - rail, e + side * run, G - rail - 1, trim, 3);
-    P.box(e + side * run - (side === 1 ? 0 : -1) - (side === 1 ? 0 : 1), G - rail - 1, 1, rail + 1, trim, [side * 0.5, 0, 1], { tone: -1 });
+    P.line(e, yF - rail, e + side * run, G - rail - 2, trim, 3);
+    P.box(e + side * run - (side === 1 ? 0 : 0), G - rail - 2, 1, rail, trim, [side * 0.5, 0, 1], { tone: -1 });
   }
 
   // deck: lit top edge, shaded front board
@@ -224,7 +234,7 @@ export const buildingGenerator: Generator = {
     { key: "style", label: "Style", type: "select", options: ["cottage", "shop", "tower", "keep", "barn", "stilt-house"], default: "cottage" },
     { key: "wall", label: "Walls", type: "material", options: WALLS, default: "wood" },
     { key: "roof", label: "Roof", type: "material", options: ROOFS, default: "roof" },
-    { key: "roof_style", label: "Roof style", type: "select", options: ["gable", "hip", "flat", "dome", "spire", "corrugated"], default: "gable" },
+    { key: "roof_style", label: "Roof style", type: "select", options: ["auto", "gable", "hip", "flat", "dome", "spire", "corrugated"], default: "auto" },
     { key: "floors", label: "Floors", type: "number", min: 1, max: 3, default: 1 },
     { key: "width", label: "Width", type: "select", options: ["narrow", "normal", "wide"], default: "normal" },
     { key: "lit_windows", label: "Lit windows", type: "bool", default: true },
@@ -241,6 +251,7 @@ export const buildingGenerator: Generator = {
     if (style === "stilt-house") return stiltHouse(p, kit, r);
     const wall = mat(p, "wall"), roof = mat(p, "roof"), trim = mat(p, "trim");
     let roofStyle = str(p, "roof_style");
+    if (roofStyle === "auto") roofStyle = "gable";
     const floors = num(p, "floors");
     const tower = style === "tower";
     const widthFrac = tower ? 0.42 : str(p, "width") === "narrow" ? 0.55 : str(p, "width") === "wide" ? 0.9 : 0.72;
@@ -333,11 +344,20 @@ export const buildingGenerator: Generator = {
     }
     if (roofStyle === "gable" || roofStyle === "hip") P.box(wx, wy + 1, ww, Math.max(1, Math.round(2 * k)), wall, [0, 1, 0.3], { tone: -1 });
     if (bool(p, "chimney") && !tower && roofStyle !== "dome" && roofStyle !== "spire") {
-      const cw = Math.max(2, Math.round(5 * k));
+      const cw = Math.max(3, Math.round(5 * k));
       const cx = Math.round(wx + ww * 0.72);
       const top = wy - rh - Math.round(5 * k);
-      P.box(cx, top, cw, Math.round(9 * k), "stone", [0.2, 0, 1]);
-      P.box(cx - 1, top - 1, cw + 2, Math.max(1, Math.round(2 * k)), "stone", [0, -1, 0.5]);
+      const ch = Math.round(9 * k);
+      if (corr) {
+        // stovepipe: round metal with a capped rim
+        P.cylinder(cx, top, Math.max(3, cw - 1), ch, "metal", { flat: 0.3 });
+        P.box(cx - 1, top - 1, Math.max(3, cw - 1) + 2, 1, "metal", [0, -1, 0.5], { tone: -1 });
+      } else {
+        P.box(cx, top, cw, ch, "stone", [0.2, 0, 1]);
+        for (let yy = top + 2; yy < top + ch; yy += 3) P.box(cx, yy, cw, 1, "stone", [0, 0, 1], { tone: -1 });
+        P.box(cx - 1, top - 1, cw + 2, Math.max(1, Math.round(2 * k)), "stone", [0, -1, 0.5]);
+        P.box(cx - 1, top + Math.max(1, Math.round(2 * k)) - 1, cw + 2, 1, "stone", [0, 1, 0.3], { tone: -1 });
+      }
     }
     if (style === "keep") {
       for (let xx = wx; xx < wx + ww; xx += Math.round(6 * k)) P.box(xx, wy - rh - Math.round(4 * k), Math.round(3 * k), Math.round(4 * k), wall, [0, -0.4, 1]);

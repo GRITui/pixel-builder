@@ -567,9 +567,11 @@ function paddyTile(T: number, r: Rng, seed: number, flat: boolean): Sprite[] {
   const gap = T / rowsN;
   const step = Math.max(3, Math.round(T / 4)); // seedling spacing along a row
   const per = Math.max(1, Math.round(T / step));
-  const off = r.int(0, 2);
+  // each row gets its own x jitter (and a tiny per-seedling wobble) so no lattice shows when tiled
+  const rowOff = Array.from({ length: rowsN }, () => r.int(0, T - 1));
+  const wob = Array.from({ length: rowsN * per }, () => (r.chance(0.3) ? 1 : 0));
   const rowPhase = Array.from({ length: T }, () => r.next() * tau);
-  const rowOn = Array.from({ length: T }, (_, y) => y % 3 === off % 3 && !(Math.round(gap * 0.5) + 1 === y));
+  const rowOn = Array.from({ length: T }, () => r.chance(0.3));
   const frames: Sprite[] = [];
   for (let f = 0; f < WATER_FRAMES; f++) {
     const { s, put } = painter(T);
@@ -577,22 +579,18 @@ function paddyTile(T: number, r: Rng, seed: number, flat: boolean): Sprite[] {
     for (let y = 0; y < T; y++)
       for (let x = 0; x < T; x++) {
         const m = mud((x * 4) / T, (y * 4) / T);
-        put(x, y, m > 0.82 && !flat ? "dirt" : "water", 1);
+        put(x, y, m > 0.82 && !flat ? "dirt" : "water", 2);
         // sky glints on the surface: short horizontal streaks that drift along their row
         const w = Math.sin(tau * (x / T - ph) + rowPhase[y]);
-        if (rowOn[y] && w > 0.8) put(x, y, "water", 2);
+        if (rowOn[y] && w > 0.85 && !(m > 0.82 && !flat)) put(x, y, "water", 3);
       }
     for (let j = 0; j < rowsN; j++) {
       const y = Math.round(gap * (j + 0.5)) + 1;
       for (let i = 0; i < per; i++) {
-        const x = Math.round(((i + (j % 2 ? 0.5 : 0)) * T) / per) + off;
+        const x = Math.round((i * T) / per) + rowOff[j] + wob[j * per + i];
         const sway = f === 1 ? 1 : f === 3 ? -1 : 0;
-        put(x, y + 1, "water", 0); // root shadow
-        put(x, y, "grass", 2);
-        put(x - 1, y - 1, "grass", 3);
-        put(x + 1, y - 1, "grass", 3);
-        put(x + sway, y - 2, "grass", 4);
-        if (T >= 24) put(x + sway, y - 3, "grass", 3);
+        put(x, y + 1, "grass", 2); // stem
+        put(x + (sway > 0 ? 1 : 0), y, "grass", 3); // leaf leans with the breeze
       }
     }
     frames.push(s);
