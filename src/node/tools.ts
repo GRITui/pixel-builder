@@ -302,6 +302,7 @@ function kitSummary(kit: StyleKit, active: boolean) {
     ...(kit.locked ? { locked: true } : {}),
     version: kit.version ?? 1,
     shade_steps: kit.shadeSteps,
+    ...(kit.rampDepth && kit.rampDepth > 5 ? { ramp_depth: kit.rampDepth } : {}),
     dither: kit.dither,
     ambient: kit.ambient,
     sizes: kit.sizes,
@@ -312,7 +313,8 @@ function paintingRules(kit: StyleKit): string[] {
   const levels = SHADE_LEVELS[Math.max(2, Math.min(5, Math.round(kit.shadeSteps)))];
   const rules = [
     "Paint with legend chars only. '.' is transparent. Every frame is exactly `height` rows of exactly `width` chars (no spaces, quotes or backslashes).",
-    `Each material has 5 shades, level 0 (darkest) to 4 (lightest). This kit shades with levels ${levels.join(", ")} (shade_steps ${kit.shadeSteps}); stay inside them. Use the middle levels for base colour, the lowest on the side facing away from the light, the highest for small highlights.`,
+    `Each material has 5 shades, level 0 (darkest) to 4 (lightest). This kit shades with levels ${levels.join(", ")} (shade_steps ${kit.shadeSteps}); stay inside them. Use the middle levels for base colour, the lowest on the side facing away from the light, the highest for small highlights.` +
+      (kit.rampDepth && kit.rampDepth > 5 ? ` This kit has ${kit.rampDepth}-shade ramps: the legend also lists in-between shades (level 0.5, 1.5, ...) for smooth gradients on large volumes.` : ""),
     `Light comes from the ${kit.lightDir.replace("-", " ")}: lit edges and tops get lighter levels, the opposite sides darker. Keep this identical across every asset.`,
     kit.outline === "none"
       ? "This kit has no outline: paint silhouettes with enough contrast against the background to read."
@@ -929,6 +931,7 @@ const kitChanges = z
     outline: z.enum(["none", "black", "colored", "selective"]),
     lightDir: z.enum(["top-left", "top", "top-right"]),
     shadeSteps: z.number().int().min(2).max(5).describe("Shades used per material (2 = flat/chunky, 5 = smooth)."),
+    rampDepth: z.union([z.literal(5), z.literal(7), z.literal(9)]).describe("Shades per material ramp: 5 (classic), 7 or 9 (deep: smoother lit volumes; the legend gains extra chars for the in-between shades)."),
     dither: z.boolean(),
     ambient: z.number().min(0).max(1),
     sizes: z.object({ character: size, building: size, environment: size, object: size, ui: size, tile: size }).partial().strict(),
@@ -960,7 +963,7 @@ const listKits = defineTool({
 const createKit = defineTool({
   name: "create_kit",
   title: "Create kit",
-  description: "Create a style kit by copying base_kit_id (default: the active kit) and applying `changes` (a partial StyleKit: paletteId, rampOverrides, outline, lightDir, shadeSteps, dither, ambient, sizes, vibe). It is not activated; use set_active_kit.",
+  description: "Create a style kit by copying base_kit_id (default: the active kit) and applying `changes` (a partial StyleKit: paletteId, rampOverrides, outline, lightDir, shadeSteps, rampDepth, dither, ambient, sizes, vibe). It is not activated; use set_active_kit.",
   shape: { name: z.string().min(1).max(60), base_kit_id: z.string().optional(), changes: kitChanges.optional() },
   positional: "name",
   run(ws, i) {
@@ -977,7 +980,7 @@ const createKit = defineTool({
 const updateKit = defineTool({
   name: "update_kit",
   title: "Update kit",
-  description: "Change a kit in place (partial StyleKit; sizes and rampOverrides merge). Palette/ramp changes recolour existing assets automatically (sprites store palette indices); shape-affecting changes (outline, light, shadeSteps, sizes) need rerender_assets for procedural assets.",
+  description: "Change a kit in place (partial StyleKit; sizes and rampOverrides merge). Palette/ramp changes recolour existing assets automatically (sprites store palette indices); shape-affecting changes (outline, light, shadeSteps, rampDepth, sizes) need rerender_assets for procedural assets.",
   shape: { kit_id: z.string(), changes: kitChanges },
   positional: "kit_id",
   run(ws, i) {
@@ -989,7 +992,7 @@ const updateKit = defineTool({
     ws.save(project);
     const used = project.assets.filter((a) => a.kitId === kit.id);
     const procedural = used.filter((a) => a.source.kind === "procedural" || a.source.kind === "rigged").length;
-    const reshape = ["outline", "lightDir", "shadeSteps", "dither", "ambient", "sizes"].some((k) => k in i.changes);
+    const reshape = ["outline", "lightDir", "shadeSteps", "rampDepth", "dither", "ambient", "sizes"].some((k) => k in i.changes);
     return {
       data: {
         kit: next,
