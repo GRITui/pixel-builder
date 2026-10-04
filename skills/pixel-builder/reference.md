@@ -65,7 +65,7 @@ Deep ramps: a kit with `rampDepth` 7 or 9 (`kit-hd-deep`) has that many shades p
 | `tileset` | environment | autotile atlas between two ground terrains: `wang16` (2-corner Wang, index = NE*1+SE*2+SW*4+NW*8, upper corner = bit set) or `blob47` (47-tile blob, N=1 NE=2 E=4 SE=8 S=16 SW=32 W=64 NW=128, ascending, slot 47 = plain lower); `meta.tileset.tiles` lists masks | `lower`, `upper` (any `<x>-tile` terrain: grass, dirt, sand, water, snow, paddy, tilled-soil...), `layout`, `variant` 0-9 |
 | `object` | object | 16px items and props (chest, barrel, potion, sword, coin, torch, gem, ...) | `kind`, `main`, `accent` (`natural` = the item's own colours, or any material to re-skin), `variant` |
 | `ui` | ui | button (normal/hover/pressed), panel (9-slice), slot, bar (frame/fill), icon-frame, cursor, tab, checkbox, dialog-arrow | `kind`, `material`, `accent`, `width`, `height`, `style` |
-| `map` | map | procedural tile map from the kit's tiles and props | `biome` (meadow/forest/island/desert/winter), `cols`, `rows`, `density`, `path` |
+| `map` | map | procedural tile map from the kit's tiles and props | `biome` (meadow/forest/island/desert/winter/rice-village/farm/forest-mmo), `cols`, `rows`, `density`, `path`, `detail` (off/low/medium/high), `season` (forest-mmo) |
 
 Material params take one of the 18 material names (each param lists its own
 allowed subset; objects also accept `natural`). `seed` changes shapes within a

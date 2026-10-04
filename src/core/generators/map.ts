@@ -5,7 +5,12 @@ import { animalGenerator, FARM_SETS } from "./animal";
 import { buildingGenerator } from "./building";
 import { environmentGenerator, environmentIdle, treeHeight } from "./environment";
 import { colorIndex, decodeIndex } from "../palette";
-import { createSprite } from "../sprite";
+import { Painter } from "../painter";
+import { finalize } from "../enforce";
+import { blit, createSprite } from "../sprite";
+import { foliageGenerator } from "./foliage";
+import { applyGroundDetail, DETAIL_LEVELS } from "./map-detail";
+import { FOREST_SEASONS, forestMmoPlan } from "./map-forest";
 import type { Sprite } from "../types";
 import { bool, defaults, num, str, type Generator } from "./types";
 
@@ -21,7 +26,7 @@ function cachedSprite(kit: StyleKit, key: string, make: () => Sprite): Sprite {
   return { ...sp, data: sp.data.slice() };
 }
 
-export const BIOMES = ["meadow", "forest", "island", "desert", "winter", "rice-village", "farm"] as const;
+export const BIOMES = ["meadow", "forest", "island", "desert", "winter", "rice-village", "farm", "forest-mmo"] as const;
 type Biome = (typeof BIOMES)[number];
 export type Ground = "grass" | "dirt" | "sand" | "water" | "stone-path" | "snow" | "paddy" | "tilled-soil" | "watered-soil";
 
@@ -67,6 +72,8 @@ const PROPS: Record<Biome, Weights> = {
     grass: { oak: 3, pine: 1.5, bush: 3, flowers: 4, "tall-grass": 3, rock: 1, mushroom: 0.3 },
     sand: { rock: 1 },
   },
+  // laid out by forestMmoPlan (HD foliage trees and grouped props), not scattered
+  "forest-mmo": {},
 };
 const FARM_SEA_PROPS: Weights = {
   grass: { palm: 4, bush: 3, flowers: 3, "tall-grass": 4, rock: 1 },
@@ -74,9 +81,9 @@ const FARM_SEA_PROPS: Weights = {
 };
 
 /** Chance (before density and clumping) that a free cell gets a prop. */
-const BASE_CHANCE: Record<Biome, number> = { meadow: 0.22, forest: 0.55, island: 0.3, desert: 0.14, winter: 0.3, "rice-village": 0.2, farm: 0.22 };
-const BASE_GROUND: Record<Biome, Ground> = { meadow: "grass", forest: "grass", island: "grass", desert: "sand", winter: "snow", "rice-village": "grass", farm: "grass" };
-const PATH_GROUND: Record<Biome, Ground> = { meadow: "dirt", forest: "dirt", island: "dirt", desert: "dirt", winter: "stone-path", "rice-village": "dirt", farm: "dirt" };
+const BASE_CHANCE: Record<Biome, number> = { meadow: 0.22, forest: 0.55, island: 0.3, desert: 0.14, winter: 0.3, "rice-village": 0.2, farm: 0.22, "forest-mmo": 0.5 };
+const BASE_GROUND: Record<Biome, Ground> = { meadow: "grass", forest: "grass", island: "grass", desert: "sand", winter: "snow", "rice-village": "grass", farm: "grass", "forest-mmo": "grass" };
+const PATH_GROUND: Record<Biome, Ground> = { meadow: "dirt", forest: "dirt", island: "dirt", desert: "dirt", winter: "stone-path", "rice-village": "dirt", farm: "dirt", "forest-mmo": "dirt" };
 const VARIANTS = 6;
 /** Which ground spreads over which at a seam (higher wins); water uses shoreTile instead. */
 const BLEND_PRIORITY: Record<Ground, number> = { water: -1, paddy: 0, "tilled-soil": 0.5, "watered-soil": 0.5, dirt: 1, "stone-path": 1, sand: 2, grass: 3, snow: 4 };
@@ -438,6 +445,8 @@ export const mapGenerator: Generator = {
     { key: "set", label: "Farm set (farm biome only)", type: "select", options: ["normal", "sea"], default: "normal" },
     { key: "water_depth", label: "Water depth (smooth shallow-to-abyss gradient, sandy shore banks, lily pads, reeds)", type: "bool", default: false },
     { key: "river", label: "River (a winding river across meadow / forest / winter maps)", type: "bool", default: false },
+    { key: "detail", label: "Ground detail (tufts, petals, pebbles, leaf litter, colour variation; any biome)", type: "select", options: [...DETAIL_LEVELS], default: "off" },
+    { key: "season", label: "Tree season (forest-mmo only; mixed = oak, maple, birch, willow groves)", type: "select", options: [...FOREST_SEASONS], default: "mixed" },
   ],
   generate(p, kit: StyleKit, seed) {
     const biome = ((BIOMES as readonly string[]).includes(str(p, "biome")) ? str(p, "biome") : "meadow") as Biome;
@@ -449,6 +458,8 @@ export const mapGenerator: Generator = {
     const T = kit.sizes.tile;
     const r = rng(seed >>> 0);
     const envDefaults = defaults(environmentGenerator);
+    const detail = str(p, "detail") || "off";
+    if (biome === "forest-mmo") return forestMmo(cols, rows, density, wantPath, str(p, "season"), detail, kit, seed >>> 0);
 
     const tm: TileMap = emptyTileMap(cols, rows, T);
     const farm = biome === "farm" ? farmPlan(cols, rows, seed >>> 0, sea, wantPath, kit) : null;
@@ -581,6 +592,7 @@ export const mapGenerator: Generator = {
         tm.deco[i] = propTile(kind, vRoll);
       }
     if (waterDepth) decorateWater(tm, ground, path, reserved, propTile, seed >>> 0, biome);
+    if (detail !== "off") applyGroundDetail(tm, kit, seed >>> 0, detail);
     return { rows: [{ name: "map", frames: [renderTileMap(tm)] }], fps: 1, tilemap: tm };
   },
 };
@@ -589,7 +601,7 @@ export const mapGenerator: Generator = {
  * Fill `tm.ground` from a ground-type grid: textured kit tiles with blended edges between
  * grounds and foam-rimmed shores. Exported so hand-laid scenes get the same transitions as maps.
  */
-export function paintGround(tm: TileMap, ground: Ground[], kit: StyleKit, seed: number, r: Rng = rng(seed >>> 0), opts: { waterDepth?: boolean } = {}): void {
+export function paintGround(tm: TileMap, ground: Ground[], kit: StyleKit, seed: number, r: Rng = rng(seed >>> 0), opts: { waterDepth?: boolean; smooth?: boolean } = {}): void {
   const { cols, rows } = tm;
   const depthOf = opts.waterDepth ? waterDepthField(ground, cols, rows) : null;
   const envDefaults = defaults(environmentGenerator);
@@ -644,6 +656,33 @@ export function paintGround(tm: TileMap, ground: Ground[], kit: StyleKit, seed: 
     }
     return idx;
   };
+  // smooth depth (opt-in): bands follow the true distance to the shore per pixel, wobble with noise and
+  // dither into each other, so the river deepens in curves instead of tile-sized steps
+  const warp = valueNoise((seed ^ 0x5b31) >>> 0, 16);
+  const BAYER4 = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+  const BAND_AT = [0.7, 1.6, 2.55];
+  const smoothWaterTile = (i: number): number => {
+    const T = tm.tile, cx = i % cols, cy = Math.floor(i / cols);
+    const land: [number, number][] = [];
+    for (let dy = -4; dy <= 4; dy++) for (let dx = -4; dx <= 4; dx++) { const x = cx + dx, y = cy + dy; if (x >= 0 && y >= 0 && x < cols && y < rows && !isWater(x, y)) land.push([x, y]); }
+    const sp = createSprite(T, T);
+    const used = new Set<number>();
+    for (let y = 0; y < T; y++)
+      for (let x = 0; x < T; x++) {
+        const px = cx * T + x + 0.5, py = cy * T + y + 0.5;
+        let d = 5 * T;
+        for (const [lx, ly] of land) {
+          const ex = Math.max(lx * T - px, 0, px - (lx * T + T)), ey = Math.max(ly * T - py, 0, py - (ly * T + T));
+          d = Math.min(d, Math.hypot(ex, ey));
+        }
+        const a = (d + 0.17 * T) / T + (warp(px / (T * 1.4), py / (T * 1.4)) - 0.5) * 0.55 + (BAYER4[(y & 3) * 4 + (x & 3)] / 16 - 0.5) * 0.24;
+        const b = BAND_AT.filter((t) => a > t).length;
+        used.add(b);
+        sp.data[y * T + x] = depthSprite(b).data[y * T + x];
+      }
+    const only = used.size === 1 ? [...used][0] : -1;
+    return ensureTile(tm, only >= 0 ? `water-d${only}` : `water-s${cx}-${cy}`, only >= 0 ? depthSprite(only) : sp, true);
+  };
   // Seeded value noise picks the texture variant so repeats form no visible lattice.
   const vNoise = valueNoise((seed ^ 0x7f31) >>> 0, 16);
   for (let i = 0; i < ground.length; i++) {
@@ -651,7 +690,7 @@ export function paintGround(tm: TileMap, ground: Ground[], kit: StyleKit, seed: 
     const x = i % cols, y = Math.floor(i / cols);
     const rr = r.next(), rv = r.int(1, VARIANTS - 1);
     const v = rr < 0.4 ? 0 : (rv + Math.floor(vNoise(x / 2, y / 2) * VARIANTS)) % VARIANTS;
-    if (g === "water" && depthOf) { tm.ground[i] = depthTile(i); continue; }
+    if (g === "water" && depthOf) { tm.ground[i] = opts.smooth ? smoothWaterTile(i) : depthTile(i); continue; }
     if (g === "water") { tm.ground[i] = groundTile(g, 0); continue; }
     // higher-priority neighbours spread into this cell along a smooth curve (see blendTile)
     const layers: { g: Ground; mask: number }[] = [];
@@ -904,4 +943,134 @@ function decorateWater(tm: TileMap, ground: Ground[], path: Set<number>, reserve
     if (roll < 0.28) tm.deco[i] = propTile(pick < 0.6 ? "reeds" : "cattail", v);
     else if (roll < 0.34) tm.deco[i] = propTile(pick < 0.5 ? "river-rock" : "driftwood", v);
   }
+}
+
+
+// ---------- forest-mmo ----------
+
+export interface MapObject {
+  /** index into tm.tiles */
+  tile: number;
+  name: string;
+  /** cell of the base */
+  col: number;
+  row: number;
+  /** pixel x of the base centre and y of the base line (the y-sort key) */
+  x: number;
+  y: number;
+  solid: boolean;
+}
+
+/**
+ * Deco objects (trees, props) in draw order: sorted by base line, then x. A game draws
+ * characters in the same list by their own base y, so they walk behind trunks.
+ */
+export function mapObjects(tm: TileMap): MapObject[] {
+  const out: MapObject[] = [];
+  tm.deco.forEach((t, i) => {
+    if (t < 0 || !tm.tiles[t]) return;
+    const col = i % tm.cols, row = Math.floor(i / tm.cols);
+    out.push({ tile: t, name: tm.tiles[t].name, col, row, x: col * tm.tile + tm.tile / 2, y: (row + 1) * tm.tile, solid: !!tm.tiles[t].solid });
+  });
+  return out.sort((a, b) => a.y - b.y || a.x - b.x);
+}
+
+/** Wooden bridge over the river, painted into the ground tiles of the cells it covers (so walkers are always on top of it). */
+function paintBridge(tm: TileMap, b: { x0: number; x1: number; y0: number; y1: number }, kit: StyleKit): void {
+  const T = tm.tile, nx = b.x1 - b.x0 + 1, W = nx * T, H = 4 * T;
+  const region = createSprite(W, H);
+  for (let cy = 0; cy < 4; cy++)
+    for (let cx = 0; cx < nx; cx++) {
+      const t = tm.tiles[tm.ground[(b.y0 - 1 + cy) * tm.cols + b.x0 + cx]];
+      if (t) blit(region, t.sprite, cx * T, cy * T);
+    }
+  const k = T / 24;
+  const R = (n: number) => Math.max(1, Math.round(n * k));
+  const top = Math.round(T * 1.1), bot = Math.round(T * 2.9), rail = R(6), x0 = Math.round(T * 0.5), x1 = W - x0;
+  // the deck's shadow darkens the water below it (only water pixels)
+  for (let y = bot; y < bot + R(4); y++)
+    for (let x = x0; x < x1; x++) {
+      const d = decodeIndex(region.data[y * W + x]);
+      if (d && d.mat === "water") region.data[y * W + x] = colorIndex("water", Math.max(0, d.level - 2));
+    }
+  const P = new Painter(W, H, kit);
+  P.box(x0, top, x1 - x0, bot - top, "wood", [0, -0.15, 1]);
+  const pw = Math.max(3, R(6));
+  for (let x = x0, n = 0; x < x1; x += pw, n++) {
+    if (n % 2) P.box(x, top + rail, Math.min(pw, x1 - x), bot - top - 2 * rail, "wood", [0, -0.15, 1], { tone: -1 });
+    if (x > x0) P.rect(x, top + rail, 1, bot - top - 2 * rail, "wood", 0);
+  }
+  P.box(x0, top, x1 - x0, rail, "wood", [0, -0.6, 0.8], { tone: 1 });
+  P.box(x0, bot - rail, x1 - x0, rail, "wood", [0, 0.8, 0.6], { tone: -1 });
+  const post = R(5);
+  const posts = [x0, x1 - post];
+  for (let x = x0 + T * 3; x < x1 - T * 2; x += T * 3) posts.push(x);
+  for (const x of posts) {
+    P.box(x, top - R(5), post, bot - top + R(7), "wood", [x <= x0 ? -0.5 : 0.5, -0.3, 0.9], { tone: -1 });
+    P.px(x + Math.floor(post / 2), top - R(5), "wood", 4);
+  }
+  blit(region, finalize(P.toSprite(), kit), 0, 0);
+  for (let cy = 0; cy < 4; cy++)
+    for (let cx = 0; cx < nx; cx++) {
+      const i = (b.y0 - 1 + cy) * tm.cols + b.x0 + cx, was = tm.tiles[tm.ground[i]];
+      const sp = createSprite(T, T);
+      for (let y = 0; y < T; y++) for (let x = 0; x < T; x++) sp.data[y * T + x] = region.data[(cy * T + y) * W + cx * T + x];
+      const deck = cy === 1 || cy === 2;
+      if (!deck && was.sprite.data.every((v, k) => v === sp.data[k])) continue;
+      // deck rows are walkable; the shadow rows keep the water (or land) they were
+      tm.ground[i] = ensureTile(tm, deck ? `bridge-${b.x0 + cx}-${b.y0 - 1 + cy}` : `${was.name}-br${b.x0 + cx}-${b.y0 - 1 + cy}`, sp, deck ? false : was.solid);
+    }
+}
+
+function forestMmo(cols: number, rows: number, density: number, wantPath: boolean, season: string, detail: string, kit: StyleKit, seed: number) {
+  const T = kit.sizes.tile;
+  const plan = forestMmoPlan(cols, rows, seed, kit, FOREST_SEASONS.includes(season as never) ? season : "mixed", density, wantPath);
+  const tm: TileMap = emptyTileMap(cols, rows, T);
+  paintGround(tm, plan.ground, kit, seed, rng(seed), { waterDepth: true, smooth: true });
+  if (plan.bridge) paintBridge(tm, plan.bridge, kit);
+
+  const envDefaults = defaults(environmentGenerator);
+  const propCache = new Map<string, number>();
+  const propTile = (kind: string, v: number): number => {
+    const name = `${kind}-${v}`;
+    let idx = propCache.get(name);
+    if (idx === undefined) {
+      const sp = cachedSprite(kit, `prop:${name}:${seed % 7}`, () => environmentIdle({ ...envDefaults, kind, variant: v * 3 + (kind.length % 3) }, kit, seed));
+      idx = ensureTile(tm, name, sp, SOLID_PROPS.has(kind));
+      propCache.set(name, idx);
+    }
+    return idx;
+  };
+  const treeTile = (t: { species: string; size: string; season: string; variant: number }): number => {
+    const name = `tree-${t.species}-${t.size}-${t.season}-${t.variant}`;
+    const i = tm.tiles.findIndex((x) => x.name === name);
+    if (i >= 0) return i;
+    const sp = cachedSprite(kit, name, () => foliageGenerator.generate({ ...defaults(foliageGenerator), species: t.species, size: t.size, season: t.season, variant: t.variant }, kit, 1 + t.variant).rows[0].frames[0]);
+    return ensureTile(tm, name, sp, true);
+  };
+  const at = (x: number, y: number) => y * cols + x;
+  // props first, trees after (a tree cell is never a prop cell by construction), water props last
+  for (const pr of plan.props) tm.deco[at(pr.x, pr.y)] = propTile(pr.kind, pr.v);
+  for (const t of plan.trees) tm.deco[at(t.x, t.y)] = treeTile(t);
+  const reserved = new Set<number>(plan.canopy);
+  for (const s of plan.spawns) reserved.add(at(s.x, s.y));
+  for (const c of plan.clearings) for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) if (Math.hypot((x - c.x) / c.rx, (y - c.y) / c.ry) <= 1) reserved.add(at(x, y));
+  if (density > 0) decorateWater(tm, plan.ground, plan.path, reserved, propTile, seed, "forest-mmo");
+  if (detail !== "off") {
+    const skip = new Set<number>();
+    tm.ground.forEach((t, i) => { if (tm.tiles[t]?.name.startsWith("bridge")) skip.add(i); });
+    applyGroundDetail(tm, kit, seed, detail, { maples: plan.trees.filter((t) => t.species === "maple-autumn").map((t) => at(t.x, t.y)), skip });
+  }
+  const objects = mapObjects(tm);
+  const meta = {
+    biome: "forest-mmo",
+    /** monster spawn cells (all walkable) */
+    spawns: plan.spawns,
+    playerStart: plan.start,
+    bridge: plan.bridge,
+    /** deco objects in draw order (sort key y = base line); tile index into tm.tiles */
+    ysorted: true,
+    objects: objects.map((o) => ({ tile: o.tile, name: o.name, col: o.col, row: o.row, x: o.x, y: o.y, solid: o.solid })),
+  };
+  return { rows: [{ name: "map", frames: [renderTileMap(tm)] }], fps: 1, tilemap: tm, meta };
 }

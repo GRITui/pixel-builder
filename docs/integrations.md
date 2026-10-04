@@ -532,6 +532,8 @@ Water depth (`environment` + `map` + `tileset`): `water-tile` takes `depth` 0 sh
 
 Example: `generate_asset generator=map params={"biome":"meadow","river":true,"water_depth":true}`. Preview: `docs/img/water-depth.png`.
 
+MMO forest (`map` biome `forest-mmo`, `detail`, `season`): a wide river with smooth depth bands, a dirt path over a wooden bridge, clearings, dense mixed HD tree groves (willow near water, oak, birch, maple-autumn, fruit tree), grouped props and monster spawn points. `detail: low | medium | high` works on every biome (default `off` = unchanged output): colour patches in neighbouring ramp shades plus tufts, petals, pebbles, cracks and leaf litter. The result's `meta` carries `objects` (trees and props sorted by base line `y`, so a game can draw characters in the same list and walk behind trunks), `spawns` (`{x,y,monster}` on walkable cells), `playerStart` and `bridge`. `export_asset format=tiled` writes the `ground` and `deco` tile layers plus a y-sorted `objects` object layer (tile objects, `ysort` property; `deco` is then hidden) and a `spawns` point layer. Example: `generate_asset generator=map params={"biome":"forest-mmo","cols":24,"rows":16,"detail":"high"} seed=7`. Full scene with hero, monsters and HUD: `npx tsx scripts/mmo-scene.ts` -> `docs/img/mmo-scene.png` (kit-hd-rich) and `docs/img/mmo-scene-deep.png` (kit-hd-deep).
+
 ### Autotile tilesets (`tileset` generator)
 
 `generate_asset generator=tileset params={lower,upper,layout}` makes one atlas PNG of transition
