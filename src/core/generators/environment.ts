@@ -577,7 +577,7 @@ function paddyTile(T: number, r: Rng, seed: number, flat: boolean): Sprite[] {
     for (let y = 0; y < T; y++)
       for (let x = 0; x < T; x++) {
         const m = mud((x * 4) / T, (y * 4) / T);
-        put(x, y, m > 0.82 && !flat ? "dirt" : "water", m > 0.82 && !flat ? 1 : 1);
+        put(x, y, m > 0.82 && !flat ? "dirt" : "water", 1);
         // sky glints on the surface: short horizontal streaks that drift along their row
         const w = Math.sin(tau * (x / T - ph) + rowPhase[y]);
         if (rowOn[y] && w > 0.8) put(x, y, "water", 2);

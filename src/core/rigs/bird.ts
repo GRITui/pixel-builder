@@ -65,9 +65,9 @@ function build(s: Spec): RigDef {
     { id: "head", kind: "ellipse", joint: "head", rx: s.headR, ry: s.headR, slot: "body", z: { down: 5, side: 5, up: 1 } },
     { id: "beakUp", kind: "ellipse", joint: "beak", dx: -s.beakLen * 0.4, rx: s.beakLen, ry: s.beakH, slot: "beak", z: 6, views: ["side"] },
     { id: "beakF", kind: "ellipse", joint: "beak", dy: -0.5, rx: s.duck ? 2.2 : 1.3, ry: s.duck ? 1.2 : 1.3, slot: "beak", z: 6, views: ["down"] },
-    { id: "eye", kind: "box", joint: "head", dx: s.headR * 0.3, dy: -s.headR * 0.35, w: 1, h: 1, slot: "ink", z: 9, views: ["side"] },
-    { id: "eyeL", kind: "box", joint: "head", dx: -s.headR * 0.55, dy: -0.5, w: 1, h: 1, slot: "ink", z: 9, views: ["down"] },
-    { id: "eyeR", kind: "box", joint: "head", dx: s.headR * 0.45, dy: -0.5, w: 1, h: 1, slot: "ink", z: 9, views: ["down"] },
+    { id: "eye", kind: "box", joint: "head", dx: s.headR * 0.3, dy: -s.headR * 0.35, w: 1, h: 1, slot: "ink", tone: -4, z: 9, views: ["side"] },
+    { id: "eyeL", kind: "box", joint: "head", dx: -s.headR * 0.55, dy: -0.5, w: 1, h: 1, slot: "ink", tone: -4, z: 9, views: ["down"] },
+    { id: "eyeR", kind: "box", joint: "head", dx: s.headR * 0.45, dy: -0.5, w: 1, h: 1, slot: "ink", tone: -4, z: 9, views: ["down"] },
   );
   if (s.comb) add(
     { id: "comb", kind: "ellipse", joint: "head", dx: -0.5, dy: -s.headR - 0.5, rx: s.plume ? 1.8 : 1.4, ry: s.plume ? 2.2 : 1.6, slot: "accent", z: 7, views: ["side", "up"] },

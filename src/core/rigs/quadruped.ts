@@ -114,7 +114,7 @@ function build(s: Spec): RigDef {
   }
   if (s.horns) {
     // swept-back crescent: base on the brow, arcs back, tip curls down
-    const arc: [number, number, number][] = [[1, -2.6, 1.7], [-1, -4.2, 1.6], [-3.5, -5, 1.5], [-6, -4.5, 1.3], [-7.6, -2.8, 1.1]];
+    const arc: [number, number, number][] = [[1, -2.6, 1.8], [-0.5, -4.8, 1.7], [-2.8, -6.2, 1.6], [-5.4, -6.4, 1.4], [-7.4, -5, 1.2]];
     arc.forEach(([dx, dy, r], i) => add({ id: `horn${i}`, kind: "ellipse", joint: "head", dx, dy, rx: r, ry: r, slot: "accent", z: 7 - i * 0.1, views: ["side"] }));
     const out: [number, number, number][] = [[2.2, -0.8, 1.5], [3.6, -1.6, 1.4], [4.6, -3.2, 1.2], [4.8, -4.6, 1.0]];
     for (const sgn of [-1, 1]) out.forEach(([dx, dy, r], i) => add(
@@ -122,10 +122,10 @@ function build(s: Spec): RigDef {
   }
   // eyes: a single ink pixel (box w=1 stays 1px at any kit size)
   add(
-    { id: "eye", kind: "box", joint: "head", dx: s.headRx * 0.35, dy: -s.headRy * 0.3, w: 1, h: 1, slot: "ink", z: 9, views: ["side"] },
-    { id: "eyeL", kind: "box", joint: "head", dx: -hr * 0.5, dy: -1, w: 1, h: 1, slot: "ink", z: 9, views: ["down"] },
-    { id: "eyeR", kind: "box", joint: "head", dx: hr * 0.5, dy: -1, w: 1, h: 1, slot: "ink", z: 9, views: ["down"] },
-    { id: "nose", kind: "box", joint: "jaw", dx: s.snoutRx - 1, dy: -s.snoutRy * 0.5, w: 1, h: 1, slot: "ink", z: 9, views: ["side"] },
+    { id: "eye", kind: "box", joint: "head", dx: s.headRx * 0.35, dy: -s.headRy * 0.3, w: 1, h: 1, slot: "ink", tone: -4, z: 9, views: ["side"] },
+    { id: "eyeL", kind: "box", joint: "head", dx: -hr * 0.5, dy: -1, w: 1, h: 1, slot: "ink", tone: -4, z: 9, views: ["down"] },
+    { id: "eyeR", kind: "box", joint: "head", dx: hr * 0.5, dy: -1, w: 1, h: 1, slot: "ink", tone: -4, z: 9, views: ["down"] },
+    { id: "nose", kind: "box", joint: "jaw", dx: s.snoutRx - 1, dy: -s.snoutRy * 0.5, w: 1, h: 1, slot: "ink", tone: -4, z: 9, views: ["side"] },
   );
 
   return {
@@ -136,8 +136,8 @@ function build(s: Spec): RigDef {
 
 const SPECIES: Spec[] = [
   { id: "quadruped-water-buffalo", name: "Water buffalo", coat: "stone", accent: "sand",
-    by: 16.5, bodyRx: 9.5, bodyRy: 6, legR: 2.1, hoof: true,
-    neck: [7.5, -2.5], head: [4.5, 2.5], headRx: 4.4, headRy: 3.5, snoutDx: 2.8, snoutRx: 2.8, snoutRy: 2.6, neckR: 3.1,
+    by: 16, bodyRx: 9.2, bodyRy: 5, legR: 2.1, hoof: true,
+    neck: [7.5, -0.5], head: [5, 3.2], headRx: 4.4, headRy: 3.5, snoutDx: 2.8, snoutRx: 2.8, snoutRy: 2.6, neckR: 3.1,
     ears: "flop", horns: true, tail: "whip" },
   { id: "quadruped-dog", name: "Dog", coat: "sand", accent: "leather",
     by: 20, bodyRx: 6.8, bodyRy: 3.8, legR: 1.5, hoof: false,

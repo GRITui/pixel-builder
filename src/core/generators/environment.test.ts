@@ -22,7 +22,7 @@ function lineDiff(s: Sprite, a: number, b: number, axis: "x" | "y"): number {
 
 describe("environment generator", () => {
   it("keeps the exported kind lists the map and UI rely on", () => {
-    expect(TILE_KINDS).toEqual(["grass-tile", "dirt-tile", "sand-tile", "water-tile", "stone-path-tile", "snow-tile"]);
+    expect(TILE_KINDS).toEqual(["grass-tile", "dirt-tile", "sand-tile", "water-tile", "stone-path-tile", "snow-tile", "paddy-tile"]);
     for (const k of ["oak", "pine", "palm", "dead-tree", "bush", "rock", "boulder", "flowers", "mushroom", "tall-grass", "stump", "crystal"]) expect(PROP_KINDS).toContain(k);
     const kind = environmentGenerator.params.find((p) => p.key === "kind");
     expect(kind && kind.type === "select" && kind.options.length).toBe(PROP_KINDS.length + TILE_KINDS.length);
