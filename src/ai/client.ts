@@ -2,7 +2,7 @@
 // (Vite proxies it in dev). The API key only ever lives on the server.
 import { finalize } from "../core/enforce";
 import { coerceParams, type Generator, type Params } from "../core/generators/types";
-import type { Clip } from "../core/rig";
+import type { Attachment, Clip, RigDef } from "../core/rig";
 import type { RigFamily } from "../core/rigs";
 import type { Category, Sprite, StyleKit } from "../core/types";
 
@@ -148,4 +148,46 @@ export async function aiClip(args: { prompt: string; family: RigFamily; rig?: st
   const c = r.clip;
   if (!c || typeof c.id !== "string" || typeof c.fps !== "number" || !c.frames || typeof c.frames !== "object") throw new Error("The server returned a malformed clip.");
   return { clip: c as Clip, notes: typeof r.notes === "string" ? r.notes : "" };
+}
+
+export interface RigAuthorResult {
+  /** Present when the model authored a new rig; otherwise `baseRig` names the registry rig that was extended. */
+  rig?: RigDef;
+  baseRig?: string;
+  family: string;
+  /** Built-in attachment ids to wear. */
+  attachmentIds: string[];
+  attachments: Attachment[];
+  /** Clips the new rig brings (idle/walk for free-form creatures). */
+  clips: Clip[];
+  slots: Record<string, string>;
+  name: string;
+  notes: string;
+}
+
+/**
+ * "Describe a character": text -> a rigged character or creature (a new rig, or a registry rig plus
+ * new attachments). The server validates the result; the caller stores it in the project.
+ */
+export async function aiRig(args: { prompt: string; kit: StyleKit; base?: string }): Promise<RigAuthorResult> {
+  const r = await request<Partial<RigAuthorResult>>("/api/rig", {
+    method: "POST",
+    timeoutMs: CALL_TIMEOUT_MS,
+    body: { prompt: args.prompt, kit: args.kit, ...(args.base ? { base: args.base } : {}) },
+  });
+  const rig = r.rig && typeof r.rig === "object" && Array.isArray(r.rig.joints) && Array.isArray(r.rig.parts) ? r.rig : undefined;
+  const baseRig = typeof r.baseRig === "string" ? r.baseRig : undefined;
+  if (!rig && !baseRig) throw new Error("The server returned a malformed rig.");
+  const list = <T extends { id: unknown }>(v: unknown): T[] => (Array.isArray(v) ? v.filter((x): x is T => !!x && typeof (x as T).id === "string") : []);
+  return {
+    rig,
+    baseRig,
+    family: typeof r.family === "string" ? r.family : "custom",
+    attachmentIds: Array.isArray(r.attachmentIds) ? r.attachmentIds.filter((x): x is string => typeof x === "string") : [],
+    attachments: list<Attachment>(r.attachments),
+    clips: list<Clip>(r.clips),
+    slots: r.slots && typeof r.slots === "object" ? (r.slots as Record<string, string>) : {},
+    name: typeof r.name === "string" && r.name ? r.name : rig?.name ?? "AI rig",
+    notes: typeof r.notes === "string" ? r.notes : "",
+  };
 }

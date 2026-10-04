@@ -58,6 +58,7 @@ export function Workspace(props: {
   customRigs?: RigDef[];
   customAttachments?: Attachment[];
   onSaveClip?: (c: Clip) => void;
+  onAuthored?: (a: { rig?: RigDef; attachments?: Attachment[]; clips?: Clip[] }) => void;
 }) {
   const { category, kit, pal, ws } = props;
   const g = (ws.generatorId && generatorById(ws.generatorId)?.category === category ? generatorById(ws.generatorId) : undefined) ?? generatorFor(category);
@@ -166,6 +167,8 @@ export function Workspace(props: {
           customAttachments={props.customAttachments ?? []}
           onSave={props.onSave}
           onSaveClip={props.onSaveClip ?? (() => {})}
+          status={props.status}
+          onAuthored={props.onAuthored ?? (() => {})}
           onError={props.onError}
         />
       </div>

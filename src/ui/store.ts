@@ -175,6 +175,8 @@ export interface ProjectApi {
   customRigs: RigDef[];
   customAttachments: Attachment[];
   addClip: (c: Clip) => void;
+  /** Store an AI-authored rig, attachments and clips on the project (same id replaces). */
+  addAuthored: (a: { rig?: RigDef; attachments?: Attachment[]; clips?: Clip[] }) => void;
   replaceProject: (p: ProjectFile) => void;
   mergeProject: (p: ProjectFile) => void;
 }
@@ -246,6 +248,16 @@ export function useProject(): ProjectApi {
       return { ...p, clips: [...list.filter((x) => x.id !== c.id), c] } as ProjectFile;
     });
 
+  const upsertById = <T extends { id: string }>(list: T[] | undefined, add: T[]): T[] => [...(list ?? []).filter((x) => !add.some((a) => a.id === x.id)), ...add];
+  const addAuthored: ProjectApi["addAuthored"] = (a) =>
+    setProject((p) => {
+      const next = { ...p } as ProjectFile & { clips?: Clip[] };
+      if (a.rig) next.rigs = upsertById(p.rigs, [a.rig]);
+      if (a.attachments?.length) next.attachments = upsertById(p.attachments, a.attachments);
+      if (a.clips?.length) next.clips = upsertById((p as ProjectFile & { clips?: Clip[] }).clips, a.clips);
+      return next;
+    });
+
   return {
     project,
     kits,
@@ -254,6 +266,7 @@ export function useProject(): ProjectApi {
     customRigs,
     customAttachments,
     addClip,
+    addAuthored,
     replaceProject: setProject,
     mergeProject: (incoming) => setProject((p) => mergeProjects(p, incoming)),
   };

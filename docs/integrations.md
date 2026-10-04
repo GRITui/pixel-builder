@@ -505,7 +505,7 @@ image-reading tool, since looking at the output is part of the workflow.
 `generate_rigged` (`directions: 4|8`; 8 adds 3/4 diagonal rows), `attach`, `create_rig`, `create_clip`, `create_attachment`, `generate_pack` (whole starter set in one call, e.g. `farming-v1`). `export_asset format=svg` writes a layered SVG (layer per material, per part for rigged assets, locked `guides` layer);
 `export_asset format=aseprite` writes `<slug>.aseprite` (see section 14). `import_svg` reads it back: edit by layer, keep `data-material` attrs or use kit colours, the guides layer is ignored. MCP also exposes the resources
 `pixel-builder://project`, `pixel-builder://style-guide` and the prompt
-`asset_pack` (`game`, `count`). Inputs and outputs: see
+`asset_pack` (`game`, `count`) and `design_creature` (`description`, `family?`: pick a family or write a new rig, `create_rig` / `create_attachment` / `create_clip`, `generate_rigged` with idle + walk, look, fix; no API key needed). The web app's rigged-mode "Describe" box does the same with a server key via `POST /api/rig` (`{prompt, kit, base?}`). Inputs and outputs: see
 [`BUILD_PLAN.md`](BUILD_PLAN.md) ("Agent tool contract") and the skill's cheat-sheet.
 
 **Text to animation clip.** Agents write the clip JSON themselves and call `create_clip` with `rig`

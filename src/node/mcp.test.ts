@@ -85,13 +85,17 @@ describe("MCP server (in-memory transport)", () => {
   it("offers the asset_pack prompt", async () => {
     const client = await connect();
     const { prompts } = await client.listPrompts();
-    expect(prompts.map((p) => p.name)).toEqual(["asset_pack"]);
+    expect(prompts.map((p) => p.name)).toEqual(["asset_pack", "design_creature"]);
     expect(prompts[0].arguments?.map((a) => a.name)).toEqual(["game", "count"]);
     const p = await client.getPrompt({ name: "asset_pack", arguments: { game: "a seaside farming sim", count: "8" } });
     const text = (p.messages[0].content as { text: string }).text;
     expect(text).toContain("about 8 assets");
     expect(text).toContain("a seaside farming sim");
     for (const tool of ["get_style_guide", "create_kit", "generate_variations", "generate_asset", "paint_asset", "rerender_assets"]) expect(text).toContain(tool);
+    const d = await client.getPrompt({ name: "design_creature", arguments: { description: "a river crab", family: "custom" } });
+    const dt = (d.messages[0].content as { text: string }).text;
+    expect(dt).toContain("a river crab");
+    for (const tool of ["create_rig", "create_attachment", "create_clip", "generate_rigged", "list_rigs"]) expect(dt).toContain(tool);
     expect(assetPackPrompt("x", 12)).toContain("about 12 assets");
   });
 });
