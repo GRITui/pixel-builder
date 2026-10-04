@@ -25,6 +25,9 @@ export const DIRS: Dir[] = ["down", "left", "right", "up"];
 /** All eight directions in document order; the diagonals are 3/4 views (`down-side`, `up-side`), mirrored for the left ones. */
 export const DIRS8: Dir[] = ["down", "down-right", "right", "up-right", "up", "up-left", "left", "down-left"];
 export type Directions = 4 | 8;
+/** Side-view (platformer) rigs draw only profile rows, whatever `directions` asks for. */
+export const SIDE_ONLY_RIGS = new Set(["humanoid-side"]);
+const SIDE_DIRS: Dir[] = ["right", "left"];
 export const viewOf = (d: Dir): RigView =>
   d === "left" || d === "right" ? "side" : d === "down-left" || d === "down-right" ? "down-side" : d === "up-left" || d === "up-right" ? "up-side" : d;
 const isMirrored = (d: Dir) => d === "left" || d === "down-left" || d === "up-left";
@@ -271,7 +274,7 @@ export function renderRigFrame(r: RigRender, dir: Dir, pose: Pose = {}): Sprite 
 /** Render clips x 4 (or 8) directions as animation rows named `<clip>-<dir>`. */
 export function renderRig(r: RigRender, clips: Clip[], opts: RenderOptions = {}): FrameSet[] {
   const rows: FrameSet[] = [];
-  const dirs = opts.directions === 8 ? DIRS8 : DIRS;
+  const dirs = SIDE_ONLY_RIGS.has(r.rig.id) ? SIDE_DIRS : opts.directions === 8 ? DIRS8 : DIRS;
   for (const clip of clips)
     for (const dir of dirs) {
       const frames = clipFrames(clip, viewOf(dir));

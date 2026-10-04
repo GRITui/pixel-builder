@@ -28,7 +28,7 @@ hand-write PNGs or invent colours.
 | Tool | Use it to |
 |---|---|
 | `get_style_guide` | read the kit (vibe, light, outline, sizes), the **legend** and painting rules. Call first. |
-| `list_kits` / `create_kit` / `update_kit` / `set_active_kit` | pick or shape the kit to the game's vibe. Presets: `kit-default`, `kit-gameboy`, `kit-neon`, and the HD pair `kit-hd` / `kit-hd-rich` (every size 1.5x: 48px characters, 24px tiles; pick it for richer pixels, keep one kit per game) |
+| `list_kits` / `create_kit` / `update_kit` / `set_active_kit` | pick or shape the kit to the game's vibe. Presets: `kit-default`, `kit-gameboy`, `kit-neon`, and the HD pair `kit-hd` / `kit-hd-rich` (every size 1.5x: 48px characters, 24px tiles; pick it for richer pixels, keep one kit per game). `kit-side` is the platformer camera: generators `sideview` (ground tiles, slopes, platform, ladder, front-on house, tiling sky/hills/trees layers), `sideenemy`, `sidelevel` (Tiled-exportable level), rig `humanoid-side` with clips jump/fall/climb/crouch; pack `side-view-starter` |
 | `list_generators` | see generators and their params (authoritative list) |
 | `generate_asset` | procedural asset; saves + exports PNG by default |
 | `generate_variations` | contact sheet of 1-12 seeds or param sets (not saved) |

@@ -6,10 +6,13 @@ import { environmentGenerator } from "./environment";
 import { mapGenerator } from "./map";
 import { tilesetGenerator } from "./tileset";
 import { objectGenerator } from "./object";
+import { sideEnemyGenerator } from "./sideenemy";
+import { sideLevelGenerator } from "./sidelevel";
+import { sideviewGenerator } from "./sideview";
 import type { Generator } from "./types";
 import { uiGenerator } from "./ui";
 
-export const GENERATORS: Generator[] = [characterGenerator, animalGenerator, buildingGenerator, environmentGenerator, objectGenerator, uiGenerator, mapGenerator, tilesetGenerator];
+export const GENERATORS: Generator[] = [characterGenerator, animalGenerator, buildingGenerator, environmentGenerator, objectGenerator, uiGenerator, mapGenerator, tilesetGenerator, sideviewGenerator, sideEnemyGenerator, sideLevelGenerator];
 
 /** Primary generator for a category (the first registered; "character" also has "animal"). */
 export function generatorFor(category: Category): Generator {
