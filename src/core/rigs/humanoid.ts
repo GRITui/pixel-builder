@@ -122,6 +122,12 @@ export const HUMAN_RIGS: RigDef[] = SEXES.flatMap((sex) =>
   AGES.map((age) => ({ ...humanoidRig("normal", age, sex), id: `human-${sex}-${age}`, name: `Human ${sex} ${age}` })),
 );
 
+/** Arm radius on the design grid for a build / age / sex (sleeve cuffs, hands). */
+export function armRadius(build: Build, age: Age = "young-adult", sex: Sex = "male"): number {
+  const A = AGE[age], fem = sex === "female" ? A.female : 0;
+  return BUILDS[build].arm * A.limb * (1 - 0.12 * fem);
+}
+
 /** Torso width on the design grid for a build (cape / collar / weapon placement). */
 export const torsoWidth = (b: Build) => BUILDS[b].tw;
 

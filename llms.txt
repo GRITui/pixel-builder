@@ -26,7 +26,7 @@ Agents making pixel art: read the skill first. Agents editing this repository: r
 
 get_style_guide, list_generators, generate_asset, generate_variations, paint_asset, edit_asset, edit_region (change only a rect or cells region with your own legend rows, or a prompt when ANTHROPIC_API_KEY is set), list_assets, get_asset, delete_asset, export_asset (png/spritesheet/tiled/svg/aseprite/tiled-tileset/godot/unity/atlas), import_image, import_svg, list_kits, create_kit, update_kit, set_active_kit, rerender_assets, list_rigs, list_clips, list_attachments, generate_rigged (directions 4|8), attach, create_rig, create_clip, create_attachment, generate_pack (built-in farming-v1 starter kit or your own manifest). MCP resources: pixel-builder://project, pixel-builder://style-guide. MCP prompt: asset_pack.
 
-Generators include rigged characters and animals, a Thai stilt house, corrugated roofs, a rice-paddy tile and a rice-village map biome.
+Generators include rigged characters and animals, a Thai stilt house, corrugated roofs, a rice-paddy tile and a rice-village map biome. Characters take `pattern` (plaid, stripes, polka, gingham) and `expression` (happy, surprised, tired); rigged recipes can request a pattern with a part-less attachment id `pattern-<kind>[:slot]` (applied by `applyPattern` in `src/core/rigs/shapes-pattern.ts`).
 
 ## Optional
 
