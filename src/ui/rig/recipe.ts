@@ -1,4 +1,4 @@
-import { renderRig, type Attachment, type Clip, type RigDef, type RigRecipe } from "../../core/rig";
+import { renderRig, type Directions, type Attachment, type Clip, type RigDef, type RigRecipe } from "../../core/rig";
 import { fitRigToWorld } from "../../core/rigs/fit";
 import { attachmentById, clipById, rigById, RIGS, withHumanoidDefaults } from "../../core/rigs";
 import type { Material } from "../../core/palette";
@@ -26,14 +26,14 @@ export function resolveRecipe(r: RigRecipe, customClips: Clip[] = []): ResolvedR
 }
 
 /** Render a rig; built-in animals are fitted to world scale like the `animal` generator (issue #24). */
-export function renderRigWorld(rig: RigDef, kit: StyleKit, slots: Record<string, Material> | undefined, attachments: Attachment[], clips: Clip[]): FrameSet[] {
+export function renderRigWorld(rig: RigDef, kit: StyleKit, slots: Record<string, Material> | undefined, attachments: Attachment[], clips: Clip[], directions: Directions = 4): FrameSet[] {
   const registered = rigById(rig.id)?.rig === rig;
   const fit = registered && !attachments.length ? fitRigToWorld(rig, kit, slots ?? {}, clips) : undefined;
-  return fit ? renderRig({ rig: fit.rig, kit, slots, size: fit.size }, fit.clips) : renderRig({ rig, kit, slots, attachments }, clips);
+  return fit ? renderRig({ rig: fit.rig, kit, slots, size: fit.size }, fit.clips, { directions }) : renderRig({ rig, kit, slots, attachments }, clips, { directions });
 }
 
 export function renderRecipe(r: RigRecipe, kit: StyleKit, customClips: Clip[] = []): { rows: FrameSet[]; fps: number } {
   const { rig, attachments, clips } = resolveRecipe(r, customClips);
   if (!clips.length) throw new Error("Rigged asset has no clips");
-  return { rows: renderRigWorld(rig, kit, r.slots, attachments, clips), fps: clips[0].fps };
+  return { rows: renderRigWorld(rig, kit, r.slots, attachments, clips, r.directions === 8 ? 8 : 4), fps: clips[0].fps };
 }

@@ -1,7 +1,7 @@
 // Humanoid rigs (slim / normal / stocky) on a 32 grid, plus swappable hair parts.
 // Joint names follow HUMANOID_JOINTS (joints.ts) so shared clips and attachments fit.
 // A standing figure spans y 2.4..29.5 (~84% of the canvas, see proportions(kit)).
-import type { Attachment, PartDef, RigDef, View } from "../rig";
+import type { Attachment, PartDef, RigDef, RigView } from "../rig";
 import { HUMANOID_JOINTS } from "./joints";
 
 export type Build = "slim" | "normal" | "stocky";
@@ -46,8 +46,9 @@ function joints(tw: number, age: Age, fem: number): RigDef["joints"] {
   return [
     J("hip", null, [16, hipY]),
     J("chest", "hip", v([16, chestY], [cx, chestY])),
-    J("neck", "chest", v([16, neckY], [sideX(0.7), neckY])),
-    J("head", "neck", v([16, headY], [sideX(1), headY])),
+    J("neck", "chest", { ...v([16, neckY], [sideX(0.7), neckY]), "down-side": [16.4 + stoop * 0.3, neckY], "up-side": [16.4 + stoop * 0.3, neckY] }),
+    // 3/4 views: the head turns toward the facing side, so it sits ~1px right of the neck line
+    J("head", "neck", { ...v([16, headY], [sideX(1), headY]), "down-side": [16.9 + stoop * 0.5, headY], "up-side": [16.9 + stoop * 0.5, headY] }),
     J("shoulderL", "chest", v([16 - sx, shY], [cx, shY])),
     J("shoulderR", "chest", v([16 + sx, shY], [cx, shY])),
     J("elbowL", "shoulderL", v([16 - sx, elY], [cx, elY])),
@@ -79,17 +80,19 @@ export function humanoidRig(build: Build, age: Age = "young-adult", sex: Sex = "
     { id: "bootR", kind: "box", joint: "footR", dx: -leg - 0.5, dy: -1.5, w: leg * 2 + 1, h: 3, slot: "boots", z: 1.5, views: ["down", "up"] },
     // torso
     { id: "torso", kind: "ellipse", joint: "chest", dy: 2.4 * s, rx: trw, ry: 5.2 * s, flat: 0.45, slot: "top", z: 2, views: ["down", "up"] },
-    { id: "torsoSide", kind: "ellipse", joint: "chest", dy: 2.4 * s, rx: trs, ry: 5.2 * s, flat: 0.45, slot: "top", z: 2, views: ["side"] },
+    { id: "torsoSide", kind: "ellipse", joint: "chest", dy: 2.4 * s, rx: trs, ry: 5.2 * s, flat: 0.45, slot: "top", z: 2, views: ["side"], noDiag: true },
+    { id: "torsoDiag", kind: "ellipse", joint: "chest", dy: 2.4 * s, rx: (trw + trs) / 2, ry: 5.2 * s, flat: 0.45, slot: "top", z: 2, views: ["down-side", "up-side"] },
     { id: "belt", kind: "box", joint: "chest", dx: -tw / 2, dy: 5.4 * s, w: tw, h: 1, slot: "boots", tone: 1, z: 2.5, views: ["down", "up"] },
-    { id: "beltSide", kind: "box", joint: "chest", dx: -tw * 0.4, dy: 5.4 * s, w: tw * 0.8, h: 1, slot: "boots", tone: 1, z: 2.5, views: ["side"] },
+    { id: "beltSide", kind: "box", joint: "chest", dx: -tw * 0.4, dy: 5.4 * s, w: tw * 0.8, h: 1, slot: "boots", tone: 1, z: 2.5, views: ["side"], noDiag: true },
+    { id: "beltDiag", kind: "box", joint: "chest", dx: -tw * 0.45, dy: 5.4 * s, w: tw * 0.9, h: 1, slot: "boots", tone: 1, z: 2.5, views: ["down-side", "up-side"] },
     // arms (sleeve + hand); in side view the near arm is L, the far arm R sits behind the torso
     { id: "upperArmL", kind: "limb", from: "shoulderL", to: "elbowL", r: arm, slot: "top", z: 3 },
     { id: "foreArmL", kind: "limb", from: "elbowL", to: "handL", r: arm, slot: "top", z: 3 },
     { id: "handLp", kind: "ellipse", joint: "handL", dy: 0.6, rx: arm + 0.2, ry: arm + 0.2, slot: "skin", z: 3.1 },
-    { id: "upperArmR", kind: "limb", from: "shoulderR", to: "elbowR", r: arm, slot: "top", z: 3, tone: 0, views: ["down", "up"] },
-    { id: "foreArmR", kind: "limb", from: "elbowR", to: "handR", r: arm, slot: "top", z: 3, views: ["down", "up"] },
-    { id: "handRp", kind: "ellipse", joint: "handR", dy: 0.6, rx: arm + 0.2, ry: arm + 0.2, slot: "skin", z: 3.1, views: ["down", "up"] },
-    { id: "armRfar", kind: "limb", from: "shoulderR", to: "handR", r: arm, slot: "top", tone: -1, z: 1, views: ["side"] },
+    { id: "upperArmR", kind: "limb", from: "shoulderR", to: "elbowR", r: arm, slot: "top", z: 3, tone: 0, views: ["down", "up", "down-side", "up-side"] },
+    { id: "foreArmR", kind: "limb", from: "elbowR", to: "handR", r: arm, slot: "top", z: 3, views: ["down", "up", "down-side", "up-side"] },
+    { id: "handRp", kind: "ellipse", joint: "handR", dy: 0.6, rx: arm + 0.2, ry: arm + 0.2, slot: "skin", z: 3.1, views: ["down", "up", "down-side", "up-side"] },
+    { id: "armRfar", kind: "limb", from: "shoulderR", to: "handR", r: arm, slot: "top", tone: -1, z: 1, views: ["side"], noDiag: true },
     // head: identical for every age and sex
     { id: "head", kind: "ellipse", joint: "head", rx: 7.2, ry: 6.6, slot: "skin", z: 4 },
   ];
@@ -97,7 +100,8 @@ export function humanoidRig(build: Build, age: Age = "young-adult", sex: Sex = "
     // slightly wider hips, drawn in the trouser/skirt slot under the torso
     parts.push(
       { id: "hips", kind: "ellipse", joint: "hip", dy: -0.6, rx: tw / 2 + 0.4 + 1.5 * fem, ry: 2.6, flat: 0.4, slot: "bottom", z: 1.8, views: ["down", "up"] },
-      { id: "hipsSide", kind: "ellipse", joint: "hip", dy: -0.6, rx: tw * 0.4 + 0.4 + 1 * fem, ry: 2.6, flat: 0.4, slot: "bottom", z: 1.8, views: ["side"] },
+      { id: "hipsDiag", kind: "ellipse", joint: "hip", dy: -0.6, rx: tw * 0.45 + 0.4 + 1.25 * fem, ry: 2.6, flat: 0.4, slot: "bottom", z: 1.8, views: ["down-side", "up-side"] },
+      { id: "hipsSide", kind: "ellipse", joint: "hip", dy: -0.6, rx: tw * 0.4 + 0.4 + 1 * fem, ry: 2.6, flat: 0.4, slot: "bottom", z: 1.8, views: ["side"], noDiag: true },
     );
   }
   const def = age === "young-adult" && sex === "male";
@@ -121,10 +125,10 @@ export const HUMAN_RIGS: RigDef[] = SEXES.flatMap((sex) =>
 /** Torso width on the design grid for a build (cape / collar / weapon placement). */
 export const torsoWidth = (b: Build) => BUILDS[b].tw;
 
-const H = (id: string, p: Omit<Extract<PartDef, { kind: "ellipse" }>, "id" | "kind" | "joint" | "slot" | "z"> & { z?: number; views?: View[] }): PartDef => ({
+const H = (id: string, p: Omit<Extract<PartDef, { kind: "ellipse" }>, "id" | "kind" | "joint" | "slot" | "z"> & { z?: number; views?: RigView[] }): PartDef => ({
   id, kind: "ellipse", joint: "head", slot: "hair", z: 5, ...p,
 });
-const HB = (id: string, p: { dx: number; dy: number; w: number; h: number; views: View[]; z?: number }): PartDef => ({
+const HB = (id: string, p: { dx: number; dy: number; w: number; h: number; views: RigView[]; z?: number }): PartDef => ({
   id, kind: "box", joint: "head", slot: "hair", z: 5, ...p,
 });
 
@@ -136,23 +140,29 @@ export function hairAttachment(style: HairStyle, fringe: -1 | 0 | 1 = 0): Attach
   if (style === "bald") return { id: "hair-bald", name: "Bald", parts: [] };
   const crown: PartDef[] = [
     H("hair-crown-front", { dy: -2.6, rx: 7.4, ry: 4.6, views: ["down"] }),
-    H("hair-crown-side", { dx: -1, dy: -1.5, rx: 7, ry: 5.2, views: ["side"] }),
-    H("hair-crown-up", { rx: 7.4, ry: 6.8, views: ["up"] }),
+    H("hair-crown-side", { dx: -1, dy: -1.5, rx: 7, ry: 5.2, views: ["side"], noDiag: true }),
+    H("hair-crown-diag", { dx: -0.6, dy: -2.1, rx: 7.3, ry: 4.9, views: ["down-side"] }),
+    H("hair-crown-up", { rx: 7.4, ry: 6.8, views: ["up", "up-side"] }),
     HB("hair-back", { dx: -7.2, dy: -2, w: 5, h: 7, views: ["side"] }),
     HB("hair-tuftL", { dx: -7.2, dy: -1, w: 2, h: 5, views: ["down"] }),
     HB("hair-tuftR", { dx: 5.2, dy: -1, w: 2, h: 5, views: ["down"] }),
     { id: "hair-face", kind: "ellipse", joint: "head", dx: fringe * 0.5, dy: 1, rx: 6, ry: 4.6, slot: "skin", z: 6, views: ["down"] },
     { id: "hair-fringe-shadow", kind: "box", joint: "head", dx: -3.5 + fringe * 0.5, dy: -2.4, w: 7, h: 1, slot: "skin", tone: -1, z: 6.1, views: ["down"] },
-    { id: "hair-fringe-shadow-side", kind: "box", joint: "head", dx: 1, dy: -2.4, w: 6, h: 1, slot: "skin", tone: -1, z: 6.1, views: ["side"] },
+    { id: "hair-fringe-shadow-side", kind: "box", joint: "head", dx: 1, dy: -2.4, w: 6, h: 1, slot: "skin", tone: -1, z: 6.1, views: ["side"], noDiag: true },
+    { id: "hair-fringe-shadow-diag", kind: "box", joint: "head", dx: -1.2 + fringe * 0.4, dy: -2.4, w: 7, h: 1, slot: "skin", tone: -1, z: 6.1, views: ["down-side"] },
     HB("hair-part-up", { dx: -0.5, dy: -6, w: 1, h: 5, views: ["up"], z: 5.2 }),
-    HB("hair-nape-up", { dx: -5, dy: 3, w: 10, h: 1, views: ["up"], z: 5.2 }),
-    HB("hair-band-up", { dx: -6, dy: 0, w: 12, h: 1, views: ["up"], z: 5.1 }),
-    { id: "hair-face-side", kind: "ellipse", joint: "head", dx: 3.8, dy: 1.6, rx: 3.4, ry: 3.8, slot: "skin", z: 6, views: ["side"] },
+    { id: "face-edge-upside", kind: "ellipse", joint: "head", dx: 6.2, dy: 1.6, rx: 1.5, ry: 2.8, slot: "skin", z: 5.3, views: ["up-side"] },
+    HB("hair-part-upside", { dx: 1, dy: -6, w: 1, h: 4, views: ["up-side"], z: 5.2 }),
+    HB("hair-nape-up", { dx: -5, dy: 3, w: 10, h: 1, views: ["up", "up-side"], z: 5.2 }),
+    HB("hair-band-up", { dx: -6, dy: 0, w: 12, h: 1, views: ["up", "up-side"], z: 5.1 }),
+    { id: "hair-face-side", kind: "ellipse", joint: "head", dx: 3.8, dy: 1.6, rx: 3.4, ry: 3.8, slot: "skin", z: 6, views: ["side"], noDiag: true },
+    // 3/4 front: the face window sits half-way between front and side
+    { id: "hair-face-diag", kind: "ellipse", joint: "head", dx: 2.4 + fringe * 0.3, dy: 1.3, rx: 4.9, ry: 4.4, slot: "skin", z: 6, views: ["down-side"] },
   ];
   const extra: PartDef[] = [];
   if (style === "long") {
     extra.push(
-      H("hair-long-up", { dy: 3, rx: 7.6, ry: 7.4, views: ["up"], z: 5 }),
+      H("hair-long-up", { dy: 3, rx: 7.6, ry: 7.4, views: ["up", "up-side"], z: 5 }),
       HB("hair-long-side", { dx: -7.2, dy: 0, w: 5, h: 9, views: ["side"] }),
       HB("hair-long-L", { dx: -8, dy: 1, w: 3, h: 8, views: ["down"], z: 6 }),
       HB("hair-long-R", { dx: 5, dy: 1, w: 3, h: 8, views: ["down"], z: 6 }),
@@ -164,7 +174,7 @@ export function hairAttachment(style: HairStyle, fringe: -1 | 0 | 1 = 0): Attach
     });
   } else if (style === "ponytail") {
     extra.push(
-      HB("hair-tail-up", { dx: -1, dy: 3, w: 2, h: 4, views: ["up"], z: 6 }),
+      HB("hair-tail-up", { dx: -1, dy: 3, w: 2, h: 4, views: ["up", "up-side"], z: 6 }),
       HB("hair-tail-side", { dx: -10, dy: -1, w: 3, h: 8, views: ["side"], z: 5 }),
     );
   }
@@ -175,6 +185,14 @@ export function hairAttachment(style: HairStyle, fringe: -1 | 0 | 1 = 0): Attach
 for (const r of HUMANOID_RIGS) {
   const ids = new Set(r.joints.map((j) => j.id));
   for (const j of HUMANOID_JOINTS) if (!ids.has(j)) throw new Error(`humanoid rig ${r.id} is missing joint ${j}`);
+}
+
+/** Eyes and mouth for the front 3/4 view (head turned right: the face window sits right of centre). */
+export function diagFaceParts(z: number, ex = 0, withMouth = true): PartDef[] {
+  const B = (id: string, o: Record<string, unknown>) => ({ id, kind: "box", joint: "head", slot: "ink", tone: -2, z, views: ["down-side"], ...o }) as PartDef;
+  const P = [B("eyeDiagA", { dx: -ex, dy: -1, w: 1, h: 2 }), B("eyeDiagB", { dx: 4, dy: -1, w: 1, h: 2 })];
+  if (withMouth) P.push(B("mouthDiag", { dx: 2, dy: 2, w: 1, h: 1, slot: "skin" }));
+  return P;
 }
 
 /**
@@ -189,6 +207,7 @@ export const FACE: Attachment = {
     { id: "face-eyeR", kind: "box", joint: "head", dx: 2, dy: -1, w: 1, h: 2, slot: "ink", tone: -2, z: 30, views: ["down"] },
     { id: "face-eyeSide", kind: "box", joint: "head", dx: 3, dy: -1, w: 1, h: 2, slot: "ink", tone: -2, z: 30, views: ["side"] },
     { id: "face-mouth", kind: "box", joint: "head", dx: -0.5, dy: 2, w: 1, h: 1, slot: "skin", tone: -2, z: 30, views: ["down"] },
+    ...diagFaceParts(30),
   ],
 };
 /** Opt-out marker: a rigged humanoid with this attachment gets no default face. */
@@ -204,14 +223,17 @@ export function femaleCueParts(age: Age, z: number, ex = 0, withBlush = true): P
   const P: PartDef[] = [
     B("fem-lashL", { dx: -4 - ex, dy: -2, w: 1, h: 1, slot: "ink", tone: -2, views: ["down"] }),
     B("fem-lashR", { dx: 3 + ex, dy: -2, w: 1, h: 1, slot: "ink", tone: -2, views: ["down"] }),
-    B("fem-lashS", { dx: 4, dy: -2, w: 1, h: 1, slot: "ink", tone: -2, views: ["side"] }),
+    B("fem-lashS", { dx: 4, dy: -2, w: 1, h: 1, slot: "ink", tone: -2, views: ["side"], noDiag: true }),
+    B("fem-lashD", { dx: 5, dy: -2, w: 1, h: 1, slot: "ink", tone: -2, views: ["down-side"] }),
     B("fem-lips", { dx: -1, dy: 2, w: 2, h: 1, slot: "accent", tone: 0, views: ["down"] }),
-    B("fem-lipsS", { dx: 5, dy: 2, w: 1, h: 1, slot: "accent", tone: 0, views: ["side"] }),
+    B("fem-lipsS", { dx: 5, dy: 2, w: 1, h: 1, slot: "accent", tone: 0, views: ["side"], noDiag: true }),
+    B("fem-lipsD", { dx: 2, dy: 2, w: 2, h: 1, slot: "accent", tone: 0, views: ["down-side"] }),
   ];
   if (withBlush)
     P.push(
       B("fem-blushL", { dx: -4 - ex, dy: 1, w: 1, h: 1, slot: "accent", tone: 1, views: ["down"] }),
       B("fem-blushR", { dx: 3 + ex, dy: 1, w: 1, h: 1, slot: "accent", tone: 1, views: ["down"] }),
+      B("fem-blushD", { dx: -1 - ex, dy: 1, w: 1, h: 1, slot: "accent", tone: 1, views: ["down-side"] }),
     );
   if (age !== "baby")
     // side locks falling past the jaw: the one cue that survives a 4-tone kit at adult sizes
@@ -219,14 +241,14 @@ export function femaleCueParts(age: Age, z: number, ex = 0, withBlush = true): P
       B("fem-lockL", { dx: -8, dy: 0, w: 2, h: age === "kid" ? 5 : 7, slot: "hair", z: 5.5, views: ["down"] }),
       B("fem-lockR", { dx: 6, dy: 0, w: 2, h: age === "kid" ? 5 : 7, slot: "hair", z: 5.5, views: ["down"] }),
       B("fem-lockS", { dx: -8, dy: 0, w: 3, h: age === "kid" ? 6 : 8, slot: "hair", z: 5.5, views: ["side"] }),
-      B("fem-lockU", { dx: -8, dy: 0, w: 16, h: age === "kid" ? 6 : 8, slot: "hair", z: 4.5, views: ["up"] }),
+      B("fem-lockU", { dx: -8, dy: 0, w: 16, h: age === "kid" ? 6 : 8, slot: "hair", z: 4.5, views: ["up", "up-side"] }),
     );
   if (age === "baby" || age === "kid")
     P.push(
-      B("fem-bowL", { dx: 0, dy: -8, w: 2, h: 2, slot: "accent", tone: 1, z: z + 1, views: ["down", "up"] }),
-      B("fem-bowR", { dx: 3, dy: -8, w: 2, h: 2, slot: "accent", tone: 1, z: z + 1, views: ["down", "up"] }),
-      B("fem-bowKnot", { dx: 2, dy: -7, w: 1, h: 1, slot: "accent", tone: -1, z: z + 1, views: ["down", "up"] }),
-      B("fem-bowSide", { dx: -1, dy: -8, w: 3, h: 2, slot: "accent", tone: 1, z: z + 1, views: ["side"] }),
+      B("fem-bowL", { dx: 0, dy: -8, w: 2, h: 2, slot: "accent", tone: 1, z: z + 1, views: ["down", "up", "up-side"] }),
+      B("fem-bowR", { dx: 3, dy: -8, w: 2, h: 2, slot: "accent", tone: 1, z: z + 1, views: ["down", "up", "up-side"] }),
+      B("fem-bowKnot", { dx: 2, dy: -7, w: 1, h: 1, slot: "accent", tone: -1, z: z + 1, views: ["down", "up", "up-side"] }),
+      B("fem-bowSide", { dx: -1, dy: -8, w: 3, h: 2, slot: "accent", tone: 1, z: z + 1, views: ["side", "down-side"] }),
     );
   return P;
 }

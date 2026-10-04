@@ -36,3 +36,17 @@ readable errors for agent- or hand-written rigs.
   pose are an error, missing ones mean "no offset".
 - Always render the result (see `scripts/preview.ts`) and look at it in all
   three kit presets before opening a PR.
+
+## Eight directions
+
+`renderRig(r, clips, { directions: 8 })` adds two 3/4 views, `down-side` and
+`up-side` (right-facing; the left diagonals are lit mirrors, like `left`).
+Rows are `<clip>-<dir>` in the order down, down-right, right, up-right, up,
+up-left, left, down-left; the default (4) is unchanged.
+
+- Joints: a missing diagonal rest is the midpoint of the front/back view and the side view.
+- Parts: a part that lists a diagonal view appears exactly there; otherwise it follows `side`
+  (down-only/up-only parts are hidden; face-like ids are dropped in `up-side`). `noDiag: true` hides a
+  side part when a dedicated diagonal part replaces it.
+- Clips: a per-view clip without diagonal frames borrows the `side` frames with x scaled by 0.75.
+- Isometric camera (`camera: "iso"`, `map isometric`) is not implemented yet (follow-up on #17).

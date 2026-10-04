@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createAsset } from "../../core/asset";
 import { MATERIALS, type Material } from "../../core/palette";
-import { DIRS, validateRig, type Attachment, type Clip, type RigDef, type RigRecipe } from "../../core/rig";
+import { DIRS, DIRS8, validateRig, type Directions, type Attachment, type Clip, type RigDef, type RigRecipe } from "../../core/rig";
 import { ATTACHMENTS, CLIPS, RIGS, rigById, withHumanoidDefaults, type RigFamily } from "../../core/rigs";
 import type { Asset, FrameSet, StyleKit } from "../../core/types";
 import { RigEditor } from "../rig/RigEditor";
@@ -18,6 +18,8 @@ export interface RigSel {
   attachments: string[];
   clips: string[];
   name: string;
+  /** 4 (default) or 8 directions. */
+  directions?: Directions;
 }
 
 export function initRigSel(): RigSel {
@@ -28,7 +30,8 @@ export function initRigSel(): RigSel {
 const FAMILIES: RigFamily[] = ["humanoid", "quadruped", "bird"];
 
 /** One animation loop for every preview cell: frame = floor(t * fps) per clip. */
-function RigPreview({ rows, clips, pal, scale }: { rows: FrameSet[]; clips: Clip[]; pal: FlatPalette; scale: number }) {
+function RigPreview({ rows, clips, pal, scale, directions }: { rows: FrameSet[]; clips: Clip[]; pal: FlatPalette; scale: number; directions: Directions }) {
+  const dirs = directions === 8 ? DIRS8 : DIRS;
   const refs = useRef<(HTMLCanvasElement | null)[]>([]);
   useEffect(() => {
     let raf = 0;
@@ -42,7 +45,7 @@ function RigPreview({ rows, clips, pal, scale }: { rows: FrameSet[]; clips: Clip
         rows.forEach((r, i) => {
           const c = refs.current[i];
           if (!c) return;
-          const clip = clips[Math.floor(i / DIRS.length)];
+          const clip = clips[Math.floor(i / dirs.length)];
           const f = clip && r.frames[Math.floor(t * clip.fps) % r.frames.length];
           if (!f) return;
           if (c.width !== f.w * scale) {
@@ -58,7 +61,7 @@ function RigPreview({ rows, clips, pal, scale }: { rows: FrameSet[]; clips: Clip
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [rows, clips, pal, scale]);
+  }, [rows, clips, pal, scale, dirs]);
 
   return (
     <div className="rigw-clips">
@@ -68,9 +71,9 @@ function RigPreview({ rows, clips, pal, scale }: { rows: FrameSet[]; clips: Clip
             {c.id} <span className="dim fine">{c.fps} fps</span>
           </strong>
           <div className="rigw-dirs">
-            {DIRS.map((d, di) => (
+            {dirs.map((d, di) => (
               <figure key={d} className="checker">
-                <canvas ref={(el) => void (refs.current[ci * DIRS.length + di] = el)} className="px" />
+                <canvas ref={(el) => void (refs.current[ci * dirs.length + di] = el)} className="px" />
                 <figcaption>{d}</figcaption>
               </figure>
             ))}
@@ -95,6 +98,7 @@ export function RiggedWorkspace(props: {
   onError: (m: string) => void;
 }) {
   const { kit, pal, sel, update } = props;
+  const directions: Directions = sel.directions === 8 ? 8 : 4;
   const allRigs = useMemo<{ rig: RigDef; family: RigFamily | "custom" }[]>(
     () => [...RIGS, ...(props.customRigs ?? []).filter((r) => !rigById(r.id)).map((rig) => ({ rig, family: "custom" as const }))],
     [props.customRigs],
@@ -125,11 +129,11 @@ export function RiggedWorkspace(props: {
   const gen = useMemo(() => {
     try {
       if (!clips.length) return { rows: null, error: "Pick at least one clip." };
-      return { rows: renderRigWorld(rig, kit, slots, withHumanoidDefaults(rig, attachments), clips), error: null };
+      return { rows: renderRigWorld(rig, kit, slots, withHumanoidDefaults(rig, attachments), clips, directions), error: null };
     } catch (e) {
       return { rows: null, error: e instanceof Error ? e.message : String(e) };
     }
-  }, [rig, kit, slots, attachments, clips]);
+  }, [rig, kit, slots, attachments, clips, directions]);
 
   const toggle = (list: string[], id: string) => (list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
   const name = sel.name.trim() || rig.name;
@@ -144,9 +148,10 @@ export function RiggedWorkspace(props: {
       slots: sel.slots,
       attachments: attachments.map((a) => (ATTACHMENTS.some((x) => x.attachment.id === a.id) ? a.id : a)),
       clips: clips.map((c) => (props.customClips.some((x) => x.id === c.id) ? c : c.id)),
+      ...(directions === 8 ? { directions: 8 as const } : {}),
     };
     return createAsset({ name, category: "character", kit, rows: gen.rows, fps: clips[0].fps, source: { kind: "rigged", rig: recipe } });
-  }, [gen.rows, rig, customRig, sel.slots, attachments, clips, props.customClips, name, kit]);
+  }, [gen.rows, rig, customRig, sel.slots, attachments, clips, props.customClips, name, kit, directions]);
 
   const pickRig = (id: string) => update((s) => ({ ...s, rigId: id, slots: {}, attachments: [], clips: [] }));
   const familyRigs = allRigs.filter((r) => r.family === family);
@@ -218,6 +223,15 @@ export function RiggedWorkspace(props: {
               Edit / new clip…
             </button>
           </div>
+          <div className="rigw-slot" role="group" aria-label="Directions">
+            <span className="dim">Directions</span>
+            {([4, 8] as const).map((n) => (
+              <label key={n} className="rigw-check">
+                <input type="radio" name="rig-directions" checked={directions === n} onChange={() => update((s) => ({ ...s, directions: n }))} />
+                {n}{n === 8 ? " (3/4 diagonals)" : ""}
+              </label>
+            ))}
+          </div>
         </section>
       </div>
 
@@ -226,7 +240,7 @@ export function RiggedWorkspace(props: {
           <div className="card-head">
             <h3 className="card-title">Rigged preview</h3>
           </div>
-          {gen.rows ? <RigPreview rows={gen.rows} clips={clips} pal={pal} scale={scale} /> : <p className="error">{gen.error}</p>}
+          {gen.rows ? <RigPreview rows={gen.rows} clips={clips} pal={pal} scale={scale} directions={directions} /> : <p className="error">{gen.error}</p>}
           <div className="action-row">
             <input className="name-field" aria-label="Asset name" placeholder={rig.name} value={sel.name} onChange={(e) => update((s) => ({ ...s, name: e.target.value }))} />
             <button className="primary" disabled={!draft} onClick={() => draft && props.onSave(draft)}>
@@ -234,7 +248,7 @@ export function RiggedWorkspace(props: {
             </button>
             {draft && <ExportMenu asset={draft} kit={kit} onError={props.onError} align="right" />}
           </div>
-          {gen.rows && <p className="dim fine">{size}×{size}px · {gen.rows.length} rows ({clips.length} clip{clips.length === 1 ? "" : "s"} × 4 directions)</p>}
+          {gen.rows && <p className="dim fine">{size}×{size}px · {gen.rows.length} rows ({clips.length} clip{clips.length === 1 ? "" : "s"} × {directions} directions)</p>}
         </section>
       </div>
 

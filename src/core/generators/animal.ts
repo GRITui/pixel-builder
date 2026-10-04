@@ -33,6 +33,7 @@ export const animalGenerator: Generator = {
     { key: "coat", label: "Coat / feathers", type: "material", options: PAINT, default: "stone" },
     { key: "accent", label: "Horns / comb / markings", type: "material", options: PAINT, default: "sand" },
     { key: "variant", label: "Variant (patches, horn length, tail)", type: "number", min: 0, max: 3, default: 0 },
+    { key: "directions", label: "Directions", type: "select", options: ["4", "8"], default: "4" },
     { key: "use_species_coat", label: "Use species default coat", type: "bool", default: true },
   ],
   generate(p, kit, _seed) {
@@ -50,7 +51,7 @@ export const animalGenerator: Generator = {
       slots.accent = mat(p, "accent");
     }
     const fit = fitRigToWorld(base, kit, slots, clips, { family: bird ? "bird" : fish ? "fish" : "quadruped", species, baby })!;
-    const rows = renderRig({ rig: fit.rig, kit, slots, size: fit.size }, fit.clips);
+    const rows = renderRig({ rig: fit.rig, kit, slots, size: fit.size }, fit.clips, { directions: str(p, "directions") === "8" ? 8 : 4 });
     return { rows, fps: 6 };
   },
 };

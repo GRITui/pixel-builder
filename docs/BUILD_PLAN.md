@@ -280,7 +280,7 @@ optional unless marked *; `kit_id` defaults to the active kit.
 | `set_active_kit` | kit_id* | kit |
 | `rerender_assets` | ids, kit_id | re-generated procedural and rigged assets (consistency after a kit change) |
 | `list_rigs` / `list_clips` / `list_attachments` | family | rigs / clips / attachments (registry first, then project-defined), with family |
-| `generate_rigged` | rig*, slots, attachments[], clips[] (default walk, idle), name, kit_id, save (true) | character asset (rows `<clip>-<dir>`), spritesheet files, preview |
+| `generate_rigged` | rig*, slots, attachments[], clips[] (default walk, idle), directions (4 or 8, default 4), name, kit_id, save (true) | character asset (rows `<clip>-<dir>`; 8 adds down-right, up-right, up-left, down-left), spritesheet files, preview |
 | `attach` | id*, add[], remove[] | re-rendered rigged asset, files, preview |
 | `create_rig` | rig* (RigDef JSON), kit_id | validated + stored in the project, 3-view preview |
 | `create_clip` | clip* (Clip JSON), rig, kit_id | validated + stored; preview on `rig` if given |

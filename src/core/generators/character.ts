@@ -4,7 +4,7 @@ import { buildLegend } from "../legend";
 import { Painter } from "../painter";
 import { colorIndex, type Material } from "../palette";
 import { clipFrames, renderRig, type Attachment, type Clip, type PartDef } from "../rig";
-import { HUMANOID_RIGS, humanoidRig, femaleCueParts, AGES, torsoWidth, type Age, type Build, type Sex } from "../rigs/humanoid";
+import { HUMANOID_RIGS, humanoidRig, femaleCueParts, diagFaceParts, AGES, torsoWidth, type Age, type Build, type Sex } from "../rigs/humanoid";
 import { attachmentById, clipById } from "../rigs";
 import { WALK } from "../rigs/example";
 import { hairStyleAttachment } from "../rigs/wardrobe";
@@ -113,7 +113,8 @@ function detailParts(t: Traits, tw: number, size: number, eyeZ: number, fem?: Ag
   const P: PartDef[] = [
     { id: "eyeL", kind: "box", joint: "head", dx: -3 - ex, dy: -1, w: 1, h: 2, slot: "ink", tone: -2, z: eyeZ, views: ["down"] },
     { id: "eyeR", kind: "box", joint: "head", dx: 2 + ex, dy: -1, w: 1, h: 2, slot: "ink", tone: -2, z: eyeZ, views: ["down"] },
-    { id: "eyeSide", kind: "box", joint: "head", dx: 3, dy: -1, w: 1, h: 2, slot: "ink", tone: -2, z: eyeZ, views: ["side"] },
+    { id: "eyeSide", kind: "box", joint: "head", dx: 3, dy: -1, w: 1, h: 2, slot: "ink", tone: -2, z: eyeZ, views: ["side"], noDiag: true },
+    ...diagFaceParts(eyeZ, ex, !fem),
   ];
   if (fem) {
     // female cues: lashes, lips, always-on blush and a bow for the young (replace the neutral mouth)
@@ -124,7 +125,7 @@ function detailParts(t: Traits, tw: number, size: number, eyeZ: number, fem?: Ag
       P.push(
         { id: "blushL", kind: "box", joint: "head", dx: -4 - ex, dy: 1, w: 1, h: 1, slot: "cloth2", tone: 1, z: eyeZ, views: ["down"] },
         { id: "blushR", kind: "box", joint: "head", dx: 3 + ex, dy: 1, w: 1, h: 1, slot: "cloth2", tone: 1, z: eyeZ, views: ["down"] },
-        { id: "blushS", kind: "box", joint: "head", dx: 4, dy: 1, w: 1, h: 1, slot: "cloth2", tone: 1, z: eyeZ, views: ["side"] },
+        { id: "blushS", kind: "box", joint: "head", dx: 4, dy: 1, w: 1, h: 1, slot: "cloth2", tone: 1, z: eyeZ, views: ["side"], noDiag: true },
       );
     }
   }
@@ -192,7 +193,7 @@ function drawHumanoid(p: Params, kit: StyleKit, size: number, t: Traits): FrameS
   }
   atts.push({ id: "details", name: "Seeded details", parts: detailParts(t, tw, size, hat !== "none" && (!attach(HEADWEAR_ID[hat]) || WARDROBE_HATS.has(hat)) ? 30 : 7, sex === "female" ? (age as Age) : undefined) });
 
-  return renderRig({ rig, kit, slots, attachments: atts, size }, [walkClip()]);
+  return renderRig({ rig, kit, slots, attachments: atts, size }, [walkClip()], { directions: str(p, "directions") === "8" ? 8 : 4 });
 }
 
 function drawSlime(p: Params, kit: StyleKit, dir: Dir, frame: number, size: number, _t: Traits): Sprite {
@@ -235,6 +236,7 @@ export const characterGenerator: Generator = {
     { key: "weapon", label: "Held item", type: "select", options: ["none", "sword", "staff", "shield", "bow"], default: "none" },
     { key: "accent_mat", label: "Accent (cape, hat, gem)", type: "material", options: PAINT, default: "cloth2" },
     { key: "cape", label: "Cape", type: "bool", default: false },
+    { key: "directions", label: "Directions (4, or 8 with 3/4 diagonals)", type: "select", options: ["4", "8"], default: "4" },
   ],
   generate(p, kit, seed) {
     const traits = rollTraits(rng(seed));
