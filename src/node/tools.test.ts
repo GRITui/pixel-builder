@@ -25,6 +25,7 @@ describe("tool contract", () => {
       "get_style_guide", "list_generators", "generate_asset", "generate_variations", "paint_asset", "edit_asset", "list_assets",
       "get_asset", "delete_asset", "export_asset", "import_image", "list_kits", "create_kit", "update_kit", "set_active_kit", "rerender_assets",
       "list_rigs", "list_clips", "list_attachments", "generate_rigged", "attach", "create_rig", "create_clip", "create_attachment",
+      "generate_pack",
     ]);
     for (const t of TOOLS) expect(t.description.length).toBeGreaterThan(20);
   });
@@ -305,5 +306,34 @@ describe("rerender_assets", () => {
     expect(explicit.rerendered).toBe(1);
     expect(explicit.skipped[0]).toMatchObject({ name: "Gem" });
     expect(ws.load().assets.find((a) => a.name === "Oak")!.kitId).toBe("kit-neon");
+  });
+});
+
+describe("generate_pack", () => {
+  const manifest = {
+    entries: [
+      { name: "p-oak", generator: "environment", params: { kind: "oak" }, seed: 1, tags: ["tree"] },
+      { name: "p-farmer", rig: "humanoid-normal", attachments: ["straw-hat"], clips: ["idle"] },
+      { name: "p-bad", generator: "nope" },
+    ],
+  };
+  it("generates every entry, reports failures and returns a contact sheet", () => {
+    const r = call("generate_pack", { manifest });
+    const d = r.data as any;
+    expect(d.generated).toBe(2);
+    expect(d.failed.map((f: any) => f.name)).toEqual(["p-bad"]);
+    expect(isPng(r.images![0].png)).toBe(true);
+    expect(data("list_assets").assets.map((a: any) => a.name).sort()).toEqual(["p-farmer", "p-oak"]);
+  });
+  it("replaces same-named assets and filters with only", () => {
+    call("generate_pack", { manifest });
+    const d = data("generate_pack", { manifest, only: ["tree"] });
+    expect(d.assets.map((a: any) => a.name)).toEqual(["p-oak"]);
+    expect(data("list_assets").assets.filter((a: any) => a.name === "p-oak")).toHaveLength(1);
+  });
+  it("dry_run lists entries without generating; needs pack or manifest", () => {
+    expect(data("generate_pack", { manifest, dry_run: true }).count).toBe(3);
+    expect(data("list_assets").assets).toHaveLength(0);
+    expect(() => call("generate_pack", {})).toThrow(ToolError);
   });
 });

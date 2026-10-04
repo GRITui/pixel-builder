@@ -18,6 +18,7 @@ import { ATTACHMENTS, CLIPS, RIGS, withHumanoidDefaults } from "../core/rigs";
 import { randomSeed, rng } from "../core/rng";
 import { CATEGORIES, type Asset, type Category, type Sprite, type StyleKit } from "../core/types";
 import { decodePng, contactSheet, encodePng, previewScale, sheetImage, spriteImage, type RgbaImage } from "./png";
+import { isRigged, packById, PACKS, type PackEntry } from "./packs";
 import {
   ToolError, Workspace, assetFiles, exportAsset, findAsset, getKit, isAnimated, kitOf, removeAssetFiles,
   type ExportedFile,
@@ -1185,8 +1186,62 @@ const createAttachment = defineTool({
   },
 });
 
+
+// ---------- packs ----------
+
+const packEntrySchema = z.union([
+  z.object({ name: z.string().min(1).max(80), generator: z.string(), params: paramsField, seed: z.number().int().min(0).max(4294967295).optional(), tags: z.array(z.string()).optional() }).strict(),
+  z.object({ name: z.string().min(1).max(80), rig: z.string(), slots: z.record(z.string(), z.string()).optional(), attachments: z.array(z.string()).optional(), clips: z.array(z.string()).optional(), tags: z.array(z.string()).optional() }).strict(),
+]);
+
+const generatePack = defineTool({
+  name: "generate_pack",
+  title: "Generate asset pack",
+  description:
+    "Build a whole starter set in one call: a built-in pack (e.g. 'farming-v1') or your own manifest of generate_asset / generate_rigged inputs. Every asset uses the kit, is saved and exported like generate_asset; same-named assets are replaced so re-running a pack updates it. `only` keeps entries with any of those tags or generator ids (e.g. ['sea'], ['building']). dry_run lists the entries without generating.",
+  shape: {
+    pack: z.string().optional().describe(`Built-in pack id. Available: ${PACKS.map((p) => p.id).join(", ") || "(none yet)"}.`),
+    manifest: z.object({ id: z.string().optional(), name: z.string().optional(), entries: z.array(packEntrySchema).min(1) }).optional().describe("Your own pack: {entries: [{name, generator, params, seed, tags} | {name, rig, slots, attachments, clips, tags}]}."),
+    only: z.array(z.string()).optional().describe("Keep entries tagged with any of these (or using one of these generator ids; rigged entries count as 'rigged')."),
+    kit_id: kitIdField,
+    replace: z.boolean().default(true).describe("Delete an existing asset with the same name first, so re-running a pack updates it in place."),
+    dry_run: z.boolean().default(false),
+  },
+  positional: "pack",
+  run(ws, i) {
+    if (!i.pack === !i.manifest) throw new ToolError(`Give either pack (one of: ${PACKS.map((p) => p.id).join(", ")}) or manifest.`);
+    const pack = i.pack ? packById(i.pack) : undefined;
+    if (i.pack && !pack) notFound("pack", i.pack, PACKS.map((p) => p.id), "generate_pack with dry_run");
+    const all = (pack ? pack.entries : i.manifest!.entries) as PackEntry[];
+    const keys = (e: PackEntry) => [...(e.tags ?? []), isRigged(e) ? "rigged" : e.generator];
+    const entries = i.only?.length ? all.filter((e) => keys(e).some((k) => i.only!.includes(k))) : all;
+    if (i.dry_run) return { data: { pack: pack?.id ?? i.manifest?.id ?? "manifest", count: entries.length, entries } };
+    const made: { name: string; files: string[] }[] = [];
+    const failed: { name: string; error: string }[] = [];
+    for (const e of entries) {
+      try {
+        if (i.replace && ws.load().assets.some((a) => a.name === e.name)) callTool(ws, "delete_asset", { id: e.name });
+        const { tags: _t, ...input } = e;
+        const r = callTool(ws, isRigged(e) ? "generate_rigged" : "generate_asset", { ...input, ...(i.kit_id ? { kit_id: i.kit_id } : {}) });
+        const asset = (r.data as { asset: { name: string; files: string[] } }).asset;
+        made.push({ name: asset.name, files: asset.files });
+      } catch (err) {
+        failed.push({ name: e.name, error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+    const project = ws.load();
+    const kit = getKit(project, i.kit_id);
+    const sprites = made.flatMap((m) => project.assets.find((a) => a.name === m.name)?.rows[0].frames[0] ?? []);
+    return {
+      data: { pack: pack?.id ?? i.manifest?.id ?? "manifest", generated: made.length, failed, assets: made },
+      images: sprites.length ? [png(contactSheet(sprites, kit, { columns: Math.min(8, sprites.length) }), `${pack?.id ?? "pack"}-sheet`)] : [],
+    };
+  },
+});
+
 export const TOOLS: ToolDef[] = [
   getStyleGuide, listGenerators, generateAsset, generateVariations, paintAsset, editAsset, listAssets, getAsset,
   deleteAsset, exportAssetTool, importImage, listKits, createKit, updateKit, setActiveKit, rerenderAssets,
   listRigs, listClips, listAttachments, generateRigged, attach, createRig, createClip, createAttachment,
+  generatePack,
 ];
