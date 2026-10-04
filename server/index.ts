@@ -7,6 +7,8 @@ import { fileURLToPath } from "node:url";
 
 import { callStructured, getModel, hasKey } from "./claude";
 import { buildLegend, decodeRows } from "../src/core/legend";
+import { cropSprite, inpaintFrame, maskBounds, toMaskGrid } from "../src/core/inpaint";
+import type { Sprite } from "../src/core/types";
 import * as P from "./prompts";
 
 try {
@@ -81,10 +83,36 @@ async function kitRoute(body: Record<string, unknown>, signal: AbortSignal) {
   return P.parseKit(raw);
 }
 
+async function inpaintRoute(body: Record<string, unknown>, signal: AbortSignal) {
+  const prompt = P.requirePrompt(body.prompt);
+  const kit = P.normalizeKit(body.kit);
+  const legend = buildLegend(kit);
+  // Two input shapes: a sprite/frames array (the web editor), or legend `rows`
+  // + a `mask` region (the MCP tool). Both end up as the same model call.
+  const frames = body.frames !== undefined ? P.normalizeFrames(body.frames) : [P.normalizeSpriteOrThrow(body.sprite ?? body.rows)];
+  const region = P.normalizeRegion(body.mask);
+  const out: Sprite[] = [];
+  for (const frame of frames) {
+    const mask = toMaskGrid(frame.w, frame.h, region);
+    const { system, user, schema } = P.buildInpaintCall({ prompt, frame, region, kit });
+    const raw = (await callStructured({ system, user, schema, effort: "medium", maxTokens: 32000, stream: true, signal })) as Record<string, unknown> | null;
+    const model = decodeRows(Array.isArray(raw?.rows) ? (raw.rows as string[]) : [], frame.w, frame.h, legend);
+    out.push(inpaintFrame(frame, model, mask, kit));
+  }
+  // `rows` in means rows out: the caller asked for one sprite and wants the
+  // replaced cells back as legend rows (the MCP tool merges them itself).
+  if (body.frames === undefined) {
+    const box = maskBounds(toMaskGrid(frames[0].w, frames[0].h, region));
+    return { sprite: out[0], rows: box ? cropSprite(out[0], box, legend) : [] };
+  }
+  return { frames: out };
+}
+
 const POST_ROUTES: Record<string, (b: Record<string, unknown>, s: AbortSignal) => Promise<unknown>> = {
   "/api/vibe": vibe,
   "/api/pixels": pixels,
   "/api/kit": kitRoute,
+  "/api/inpaint": inpaintRoute,
 };
 
 const MIME: Record<string, string> = {

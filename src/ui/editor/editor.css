@@ -150,6 +150,30 @@
 .pe-overlay .pe-swatch.is-active { outline: 2px solid var(--ed-accent); outline-offset: 1px; border-color: #fff; }
 .pe-preview { display: flex; align-items: flex-end; gap: 12px; padding: 8px; background: #2b2638; border-radius: 6px; overflow: hidden; }
 
+/* AI region edit (issue #18): dashed accent border, everything outside dimmed. */
+.pe-region {
+  position: absolute;
+  pointer-events: none;
+  outline: 1px dashed var(--ed-accent);
+  box-shadow: 0 0 0 9999px rgba(13, 11, 19, .45);
+}
+.pe-ip { display: flex; flex-direction: column; gap: 6px; }
+.pe-ip textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  font: inherit;
+  color: var(--ed-text);
+  background: var(--ed-panel2);
+  border: 1px solid var(--ed-line);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+.pe-compare { display: flex; gap: 10px; }
+.pe-compare figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.pe-compare figcaption { font-size: 11px; color: var(--ed-dim); }
+.pe-ip .pe-error { margin: 6px 0 0; font-size: 12px; color: #e8836b; }
+
 @media (max-width: 860px) {
   .pe-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; overflow-y: auto; }
   .pe-tools { flex-direction: row; flex-wrap: wrap; border-right: 0; border-bottom: 1px solid var(--ed-line); }

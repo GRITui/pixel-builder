@@ -5,6 +5,7 @@ import { DEFAULT_KIT } from "../src/core/kit";
 import { CATEGORIES, type Category, type LightDir, type OutlineMode, type Sprite, type StyleKit } from "../src/core/types";
 import { PAINT, coerceParams, type Generator, type ParamSpec, type Params } from "../src/core/generators/types";
 import { buildLegend, encodeSprite, legendText } from "../src/core/legend";
+import { buildInpaintPrompt, type Region } from "../src/core/inpaint";
 
 export const MIN_DIM = 8;
 export const MAX_DIM = 64;
@@ -144,6 +145,12 @@ export function normalizeSprite(raw: unknown): Sprite | null {
 
 export function normalizeReferences(raw: unknown): Sprite[] {
   if (!Array.isArray(raw)) return [];
+export function normalizeSpriteOrThrow(raw: unknown): Sprite {
+  const s = normalizeSprite(raw);
+  if (!s) throw new HttpError(400, "`sprite` must be a {w,h,data} sprite of palette indices, or `rows` of legend chars (with width and height).");
+  return s;
+}
+
   return raw.slice(0, 2).map(normalizeSprite).filter((s): s is Sprite => !!s);
 }
 
@@ -362,5 +369,51 @@ export function parseKit(raw: unknown): { kit: Partial<StyleKit>; notes: string 
   // The model's list is the complete new override set (an empty list clears old overrides).
   if (Array.isArray(o.rampOverrides)) kit.rampOverrides = overrides;
   return { kit, notes: cleanText(o.notes, 300) };
+}
+
+// ---------- inpaint (region edit) ----------
+
+export function buildInpaintSchema(): JsonSchema {
+  return {
+    type: "object",
+    properties: {
+      rows: { type: "array", items: { type: "string" }, description: "The complete sprite as legend rows, top to bottom" },
+    },
+    required: ["rows"],
+    additionalProperties: false,
+  };
+}
+
+/** Normalize an untrusted frames array into sprites (invalid entries dropped). */
+export function normalizeFrames(raw: unknown): Sprite[] {
+  if (!Array.isArray(raw)) throw new HttpError(400, "`frames` must be an array of sprites");
+  const out = raw.slice(0, 64).map(normalizeSprite).filter((s): s is Sprite => !!s);
+  if (!out.length) throw new HttpError(400, "`frames` must contain at least one valid sprite");
+  return out;
+}
+
+/** Normalize an untrusted region: a rect `{x,y,w,h}` or a 2D boolean lasso grid. */
+export function normalizeRegion(raw: unknown): Region {
+  if (isObj(raw)) {
+    const { x, y, w, h } = raw;
+    if (typeof x === "number" && typeof y === "number" && typeof w === "number" && typeof h === "number") {
+      return { x, y, w, h };
+    }
+    throw new HttpError(400, "`mask` must be a rect {x,y,w,h} or a 2D boolean grid");
+  }
+  if (Array.isArray(raw)) {
+    return raw.slice(0, MAX_DIM).map((row) => (Array.isArray(row) ? row.slice(0, MAX_DIM).map((v) => v === true) : []));
+  }
+  throw new HttpError(400, "`mask` must be a rect {x,y,w,h} or a 2D boolean grid");
+}
+
+/** Compose the `{system, user, schema}` for one inpaint model call (per frame). */
+export function buildInpaintCall(a: { prompt: string; frame: Sprite; region: Region; kit: StyleKit }) {
+  const system =
+    "You are a pixel artist editing a small region of a game sprite. " +
+    "You return the COMPLETE sprite as legend rows, changing only the cells marked # in the region. " +
+    "Every cell marked . must be returned exactly as it appears in the current sprite. " +
+    "Use only characters from the legend. Respond only with the JSON object described by the schema.";
+  return { system, user: buildInpaintPrompt(a), schema: buildInpaintSchema() };
 }
 

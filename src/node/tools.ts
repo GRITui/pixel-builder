@@ -12,10 +12,11 @@ import { GENERATORS, generatorById } from "../core/generators";
 import { coerceParams, defaults, randomParams, type Generator, type ParamSpec, type Params } from "../core/generators/types";
 import { newId } from "../core/kit";
 import { buildLegend, decodeRows, encodeSprite, legendText, type Legend } from "../core/legend";
+import { cropRowsToSprite, inpaintFrame, maskBounds, offLegendChars, toMaskGrid, type MaskRect, type Region } from "../core/inpaint";
 import { MATERIALS, PALETTES, RAMP_LEN, type Material } from "../core/palette";
 import type { ProjectFile } from "../core/project";
 import { rigSvgInfo, svgToSprites } from "../core/svg";
-import { renderRig, renderRigFrame, validateRig, type Attachment, type Clip, type RigDef, type RigRecipe } from "../core/rig";
+import { renderRig, renderRigFrame, solvePose, validateRig, type Attachment, type Clip, type RigDef, type RigRecipe } from "../core/rig";
 import { ATTACHMENTS, CLIPS, RIGS, withHumanoidDefaults } from "../core/rigs";
 import { randomSeed, rng } from "../core/rng";
 import { CATEGORIES, type Asset, type Category, type Sprite, type StyleKit } from "../core/types";
@@ -55,7 +56,8 @@ export interface ToolDef {
   positional?: string;
   readOnly?: boolean;
   destructive?: boolean;
-  run(ws: Workspace, input: any): ToolResult;
+  /** Sync tools return a ToolResult; async tools (edit_region prompt-mode) return a promise. */
+  run(ws: Workspace, input: any): ToolResult | Promise<ToolResult>;
 }
 
 function defineTool<S extends z.ZodRawShape>(d: {
@@ -66,7 +68,7 @@ function defineTool<S extends z.ZodRawShape>(d: {
   positional?: keyof S & string;
   readOnly?: boolean;
   destructive?: boolean;
-  run: (ws: Workspace, input: z.output<z.ZodObject<S>>) => ToolResult;
+  run: (ws: Workspace, input: z.output<z.ZodObject<S>>) => ToolResult | Promise<ToolResult>;
 }): ToolDef {
   return d as unknown as ToolDef;
 }
@@ -99,13 +101,30 @@ export function inputJsonSchema(tool: ToolDef): { properties?: Record<string, an
   return z.toJSONSchema(z.object(tool.shape), { io: "input", unrepresentable: "any" }) as any;
 }
 
+/** Withhold workspace warnings until the result is built (shared by both entry points). */
+function withWarnings(ws: Workspace, result: ToolResult): ToolResult {
+  if (ws.warnings.length && result.data && typeof result.data === "object" && !Array.isArray(result.data))
+    (result.data as Record<string, unknown>).workspace_warnings = ws.warnings;
+  return result;
+}
+
 export function callTool(ws: Workspace, name: string, raw: unknown): ToolResult {
   const tool = TOOLS.find((t) => t.name === name);
   if (!tool) throw new ToolError(`Unknown tool '${name}'. Tools: ${TOOLS.map((t) => t.name).join(", ")}`);
   const result = tool.run(ws, parseInput(tool, raw));
-  if (ws.warnings.length && result.data && typeof result.data === "object" && !Array.isArray(result.data))
-    (result.data as Record<string, unknown>).workspace_warnings = ws.warnings;
-  return result;
+  if (result instanceof Promise) throw new ToolError(`Tool '${name}' is async; call it with callToolAsync.`);
+  return withWarnings(ws, result);
+}
+
+/**
+ * Async entry point for tools that may hit the network (edit_region prompt-mode).
+ * Sync tools resolve immediately; the CLI, the MCP server and internal callers
+ * that only use sync tools keep their synchronous signature.
+ */
+export async function callToolAsync(ws: Workspace, name: string, raw: unknown): Promise<ToolResult> {
+  const tool = TOOLS.find((t) => t.name === name);
+  if (!tool) throw new ToolError(`Unknown tool '${name}'. Tools: ${TOOLS.map((t) => t.name).join(", ")}`);
+  return withWarnings(ws, await tool.run(ws, parseInput(tool, raw)));
 }
 
 // ---------- helpers ----------
@@ -532,6 +551,185 @@ const editAsset = defineTool({
     ws.save(project);
     exportAsset(ws, project, asset);
     return { data: { asset: summarize(ws, project, asset), ...(notes.length ? { notes } : {}) }, images: [previewOf(asset, kit)] };
+  },
+});
+
+/** Resolve a row by name or index, with the same errors every editing tool uses. */
+function resolveRowIndex(asset: Asset, row: string | number | undefined): number {
+  if (row === undefined) return 0;
+  let ri = 0;
+  if (typeof row === "string") {
+    const byName = asset.rows.findIndex((r) => r.name === row);
+    ri = byName >= 0 ? byName : /^\d+$/.test(row) ? Number(row) : -1;
+  } else ri = row;
+  if (ri < 0 || ri >= asset.rows.length)
+    throw new ToolError(`No row ${JSON.stringify(row)} in '${asset.name}'. Rows: ${asset.rows.map((r, k) => `${k}=${r.name}`).join(", ")}.`);
+  return ri;
+}
+
+// ---------- region edit (inpaint, issue #18) ----------
+
+/**
+ * Ask the model for the region's replacement pixels. The node layer has no API
+ * key of its own, so it goes through the local API server (the same one the web
+ * editor uses); when that server has no key the caller gets the rows it already
+ * has. Returns legend rows sized to the region's bounding box.
+ */
+async function modelRegionRows(a: { prompt: string; frame: Sprite; box: MaskRect; kit: StyleKit; legend: Legend }): Promise<string[]> {
+  const url = process.env.PIXEL_API_URL ?? "http://127.0.0.1:8787";
+  let res: Response;
+  try {
+    res = await fetch(`${url}/api/inpaint`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        prompt: a.prompt,
+        kit: a.kit,
+        // the model sees the whole sprite as legend rows for context; only the
+        // region's rect is asked back (the server crops the answer to it)
+        sprite: { w: a.frame.w, h: a.frame.h, data: a.frame.data },
+        mask: a.box,
+      }),
+      signal: AbortSignal.timeout(240_000),
+    });
+  } catch (e) {
+    throw new ToolError(
+      `Prompt mode needs the pixel-builder API server running (${url}) with ANTHROPIC_API_KEY set. ` +
+        `Give rows instead to paint the region yourself with no API key. (${e instanceof Error ? e.message : String(e)})`,
+    );
+  }
+  const data = (await res.json().catch(() => null)) as { rows?: unknown; error?: unknown; frames?: unknown } | null;
+  if (!res.ok) throw new ToolError(typeof data?.error === "string" ? data.error : `The API server returned ${res.status}. Give rows instead to paint the region yourself.`);
+  const rows = data?.rows;
+  if (!Array.isArray(rows)) throw new ToolError("The API server returned no rows for the region. Give rows instead to paint the region yourself.");
+  return rows.filter((r): r is string => typeof r === "string");
+}
+
+/**
+ * Turn an inpaint into a rig attachment (issue #18 "prefer the rig attachment
+ * path when rigged"): the painted rows become a `pixels` part pinned to the
+ * joint nearest the region, so every clip x direction re-renders with the edit
+ * instead of baking one raster frame. Returns null when the rig has no joints.
+ */
+function rigAttachmentForEdit(region: MaskRect, rows: string[], kit: StyleKit, rig: RigDef, id: string): Attachment | null {
+  const joints = solvePose(rig, "down");
+  const ids = Object.keys(joints);
+  if (!ids.length) return null;
+  const size = kit.sizes.character;
+  const k = size / rig.grid;
+  const cx = (region.x + region.w / 2) * k;
+  const cy = (region.y + region.h / 2) * k;
+  let best = ids[0];
+  let bestD = Infinity;
+  for (const jid of ids) {
+    const d = (joints[jid][0] * k - cx) ** 2 + (joints[jid][1] * k - cy) ** 2;
+    if (d < bestD) {
+      bestD = d;
+      best = jid;
+    }
+  }
+  // `anchor` is in grid units and is measured back from the joint's pixel
+  // position, so the painted block lands back on the cells it was taken from.
+  return {
+    id,
+    name: id,
+    parts: [{ id, kind: "pixels", joint: best, anchor: [region.x - joints[best][0] + (k - region.w) / 2, region.y - joints[best][1]], z: 90, rows }],
+  };
+}
+
+const editRegion = defineTool({
+  name: "edit_region",
+  title: "Edit a region (inpaint)",
+  description:
+    "AI region edit on a saved sprite: change part of a frame from plain words (prompt, e.g. 'add a red scarf') while every pixel outside the region stays byte-identical. Pass `rows` instead of `prompt` to paint the region yourself (works with no API key). On a rigged asset the edit is applied through the rig so every clip and direction follows; `all_frames` applies it to every frame of the row otherwise. Pixels outside the region never change.",
+  shape: {
+    id: z.string().describe("Asset id (or exact name)."),
+    row: z.union([z.string(), z.number().int().min(0)]).optional().describe("Animation row name or index. Default 0."),
+    frame: z.number().int().min(0).default(0).describe("Frame index within the row."),
+    rect: z.object({ x: z.number(), y: z.number(), w: z.number().min(1), h: z.number().min(1) }).optional().describe("Rectangular region in pixels: {x,y,w,h}."),
+    mask: z.array(z.array(z.boolean())).optional().describe("Lasso region as a 2D boolean grid (one row per pixel row)."),
+    prompt: z.string().min(1).max(1000).optional().describe("What to change in the region. Needs ANTHROPIC_API_KEY."),
+    rows: z.array(z.string()).optional().describe("Your own replacement legend rows for the region, sized to the region's bounding box."),
+    all_frames: z.boolean().default(false).describe("Apply the same edit to every frame of the row."),
+    attachment_name: z.string().min(1).max(80).optional().describe("On a rigged asset, name the attachment this edit is stored as (so attach can remove it)."),
+  },
+  positional: "id",
+  async run(ws, i) {
+    const project = ws.load();
+    const asset = findAsset(project, i.id);
+    if (asset.tilemap) throw new ToolError(`'${asset.name}' is a map (a tile grid); edit_region only edits sprites.`);
+    if (!i.rect && !i.mask) throw new ToolError("Give rect {x,y,w,h} or mask (a 2D boolean grid) to select the region.");
+    if (!i.prompt && !i.rows) throw new ToolError("Give a prompt (needs ANTHROPIC_API_KEY) or rows to paint the region yourself.");
+    const kit = kitOf(project, asset);
+    const legend = buildLegend(kit);
+
+    const ri = resolveRowIndex(asset, i.row);
+    const row = asset.rows[ri];
+    const frames = row.frames.map((f) => ({ ...f, data: f.data.slice() }));
+    const fi = Math.min(i.frame, frames.length - 1);
+    const frame = frames[fi];
+    if (!frame) throw new ToolError(`Row '${row.name}' has no frames.`);
+
+    const region: Region = i.mask ? toMaskGrid(frame.w, frame.h, i.mask) : (i.rect as MaskRect);
+    const box = maskBounds(toMaskGrid(frame.w, frame.h, region));
+    if (!box) throw new ToolError(`The region covers none of the ${frame.w}x${frame.h} pixels. Check rect / mask bounds.`);
+    const notes: string[] = [];
+
+    // One painted result for the region: the agent's own rows, or the model's.
+    const painted = i.rows ?? (await modelRegionRows({ prompt: i.prompt!, frame, box, kit, legend }));
+    if (i.rows) notes.push(...lintRows([i.rows], box.w, box.h, legend));
+    const bad = offLegendChars(painted, legend);
+    if (bad.length) notes.push(`${bad.length} char(s) not in the legend (${bad.map((c) => JSON.stringify(c)).slice(0, 6).join(" ")}); those pixels became transparent`);
+    if (!painted.some((r) => Array.from(r).some((c) => c !== ".")))
+      throw new ToolError(i.prompt ? "The model returned an empty region (all transparent). Try a more specific prompt." : "The rows you gave are all transparent; nothing to draw.");
+
+    const regionOut = { x: box.x, y: box.y, w: box.w, h: box.h };
+    const recipe = asset.source.rig;
+
+    // Rigged assets prefer the attachment path: all clips and directions change.
+    if (recipe) {
+      const lib = resolveRig(project, recipe.rig);
+      const attachment = rigAttachmentForEdit(box, painted, kit, lib.rig, i.attachment_name ?? "ai-region-edit");
+      if (attachment) {
+        const next: RigRecipe = { ...recipe, attachments: [...(recipe.attachments ?? []), attachment] };
+        const res = renderRecipe(project, kit, next);
+        asset.source = { ...asset.source, rig: next };
+        asset.rows = res.rows;
+        asset.updatedAt = Date.now();
+        ws.save(project);
+        return {
+          data: {
+            asset: { ...summarize(ws, project, asset), files: absPaths(exportAsset(ws, project, asset)) },
+            region: regionOut,
+            via: "rig-attachment",
+            attachment: attachment.id,
+            ...(notes.length ? { notes } : {}),
+          },
+          images: [previewOf(asset, kit)],
+        };
+      }
+    }
+
+    // Otherwise bake: only the masked cells change; the rest is byte-identical.
+    const targets = i.all_frames ? frames.map((_, k) => k) : [fi];
+    for (const k of targets) {
+      const f = frames[k];
+      const mask = toMaskGrid(f.w, f.h, region);
+      frames[k] = inpaintFrame(f, cropRowsToSprite(painted, box, f.w, f.h, legend), mask, kit);
+    }
+    asset.rows[ri] = { ...row, frames };
+    asset.updatedAt = Date.now();
+    ws.save(project);
+    return {
+      data: {
+        asset: { ...summarize(ws, project, asset), files: absPaths(exportAsset(ws, project, asset)) },
+        region: regionOut,
+        via: "baked",
+        frames_edited: targets.length,
+        ...(notes.length ? { notes } : {}),
+      },
+      images: [previewOf(asset, kit)],
+    };
   },
 });
 
@@ -1325,7 +1523,7 @@ const generatePack = defineTool({
 });
 
 export const TOOLS: ToolDef[] = [
-  getStyleGuide, listGenerators, generateAsset, generateVariations, paintAsset, editAsset, listAssets, getAsset,
+  getStyleGuide, listGenerators, generateAsset, generateVariations, paintAsset, editAsset, editRegion, listAssets, getAsset,
   deleteAsset, exportAssetTool, importImage, listKits, createKit, updateKit, setActiveKit, rerenderAssets,
   listRigs, listClips, listAttachments, generateRigged, attach, createRig, createClip, createAttachment,
   generatePack, importSvg,

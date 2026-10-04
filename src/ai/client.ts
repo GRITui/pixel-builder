@@ -105,6 +105,32 @@ export async function aiPixels(args: { prompt: string; category: Category; w: nu
   return { name: typeof r.name === "string" && r.name ? r.name : "AI sprite", sprite };
 }
 
+/**
+ * "Region edit" (inpaint): the model rewrites only the masked cells of the
+ * given frames. The server sees each frame as legend rows for context and
+ * merges the result back, so pixels outside the mask are unchanged.
+ */
+export async function aiInpaint(args: {
+  prompt: string;
+  frames: Sprite[];
+  mask: { x: number; y: number; w: number; h: number } | boolean[][];
+  kit: StyleKit;
+}): Promise<Sprite[]> {
+  const r = await request<{ frames?: { w: number; h: number; data: number[] }[] }>("/api/inpaint", {
+    method: "POST",
+    timeoutMs: CALL_TIMEOUT_MS,
+    body: { prompt: args.prompt, frames: args.frames, mask: args.mask, kit: args.kit },
+  });
+  const frames = r.frames;
+  if (!Array.isArray(frames) || frames.length !== args.frames.length)
+    throw new Error("The server returned a malformed inpaint result.");
+  return frames.map((s) => {
+    if (!Number.isInteger(s?.w) || !Number.isInteger(s?.h) || !Array.isArray(s?.data) || s.data.length !== (s.w as number) * (s.h as number))
+      throw new Error("The server returned a malformed inpaint result.");
+    return { w: s.w as number, h: s.h as number, data: s.data as number[] };
+  });
+}
+
 /** "Describe a style": natural language -> a partial style kit (palette, outline, light, ramp tweaks...). */
 export async function vibeKit(args: { prompt: string; kit: StyleKit }): Promise<{ kit: Partial<StyleKit>; notes: string }> {
   const r = await request<{ kit?: unknown; notes?: unknown }>("/api/kit", {

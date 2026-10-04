@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { aiInpaint } from "../ai/client";
 import { applyOutline, stripOutline } from "../core/enforce";
 import { resolveRamps } from "../core/kit";
+import { maskBounds, polygonMask, rectMask, toMaskGrid, type MaskGrid, type MaskRect, type Region } from "../core/inpaint";
 import { colorIndex, MATERIALS, RAMP_LEN } from "../core/palette";
 import { cloneSprite, createSprite, getPx, spritesEqual } from "../core/sprite";
 import type { Asset, FrameSet, Sprite, StyleKit } from "../core/types";
@@ -12,6 +14,7 @@ import {
 import { SpriteThumb } from "./editor/SpriteThumb";
 import "./editor/editor.css";
 import { paletteFor } from "./render";
+import { aiOffReason, useAiStatus } from "./components/common";
 
 export interface PixelEditorProps {
   asset: Asset;
@@ -20,7 +23,7 @@ export interface PixelEditorProps {
   onClose: () => void;
 }
 
-type Tool = "pencil" | "eraser" | "fill" | "line" | "rect" | "picker" | "shade";
+type Tool = "pencil" | "eraser" | "fill" | "line" | "rect" | "picker" | "shade" | "inpaint";
 
 const TOOLS: { id: Tool; label: string; key: string; hint: string }[] = [
   { id: "pencil", label: "Pencil", key: "B", hint: "Draw (right-click erases)" },
@@ -30,9 +33,10 @@ const TOOLS: { id: Tool; label: string; key: string; hint: string }[] = [
   { id: "rect", label: "Rect", key: "R", hint: "Drag a rectangle" },
   { id: "picker", label: "Pick", key: "I", hint: "Eyedropper" },
   { id: "shade", label: "Shade", key: "S", hint: "Click lightens, Shift-click darkens along the colour ramp" },
+  { id: "inpaint", label: "Inpaint", key: "A", hint: "Select a region, then describe the change (AI)" },
 ];
 
-const TOOL_KEYS: Record<string, Tool> = { b: "pencil", e: "eraser", g: "fill", l: "line", r: "rect", i: "picker", s: "shade" };
+const TOOL_KEYS: Record<string, Tool> = { b: "pencil", e: "eraser", g: "fill", l: "line", r: "rect", i: "picker", s: "shade", a: "inpaint" };
 
 interface Stroke {
   tool: Tool;
@@ -76,6 +80,15 @@ export function PixelEditor({ asset, kit, onSave, onClose }: PixelEditorProps) {
   const [fps, setFps] = useState(asset.fps || 6);
   const [draft, setDraft] = useState<Sprite | null>(null);
   const [allFrames, setAllFrames] = useState(false);
+  // AI region edit (issue #18)
+  const [lasso, setLasso] = useState(false);
+  const [region, setRegion] = useState<Region | null>(null);
+  const [ipPrompt, setIpPrompt] = useState("");
+  const [ipBusy, setIpBusy] = useState(false);
+  const [ipError, setIpError] = useState<string | null>(null);
+  const [ipAllFrames, setIpAllFrames] = useState(false);
+  const [ipDraft, setIpDraft] = useState<Sprite[] | null>(null);
+  const ai = useAiStatus();
 
   const rows = hist.present;
   const ri = Math.min(ri0, rows.length - 1);
@@ -97,8 +110,17 @@ export function PixelEditor({ asset, kit, onSave, onClose }: PixelEditorProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const coordRef = useRef<HTMLSpanElement>(null);
   const strokeRef = useRef<Stroke | null>(null);
+  /** Live region selection: the marquee corner, plus the freehand lasso path. */
+  const [drag, setDrag] = useState<{ start: Point; cur: Point; path: Point[] } | null>(null);
+  // The pointer handlers read the live drag through a ref: several move events
+  // can arrive before React re-renders, and a captured `drag` would be stale.
+  const dragRef = useRef<{ start: Point; cur: Point; path: Point[] } | null>(null);
+  const setDragState = useCallback((next: { start: Point; cur: Point; path: Point[] } | null) => {
+    dragRef.current = next;
+    setDrag(next);
+  }, []);
 
-  const shown = draft ?? frame;
+  const shown = draft ?? ipDraft?.[Math.min(fi, ipDraft.length - 1)] ?? frame;
 
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -164,6 +186,17 @@ export function PixelEditor({ asset, kit, onSave, onClose }: PixelEditorProps) {
     if (e.button !== 0 && e.button !== 2) return;
     if (strokeRef.current) return;
     const p = cellAt(e);
+    // Inpaint is a selection tool, not a paint stroke: no Stroke, no history entry.
+    if (tool === "inpaint") {
+      if (e.button === 2) {
+        setDragState(null);
+        setRegion(null);
+        return;
+      }
+      e.currentTarget.setPointerCapture(e.pointerId);
+      setDragState({ start: p, cur: p, path: [{ x: p.x + 0.5, y: p.y + 0.5 }] });
+      return;
+    }
     const erase = e.button === 2;
     const value = erase || tool === "eraser" ? 0 : color;
     if (tool === "picker") {
@@ -199,6 +232,12 @@ export function PixelEditor({ asset, kit, onSave, onClose }: PixelEditorProps) {
       const ok = p.x >= 0 && p.y >= 0 && p.x < frame.w && p.y < frame.h;
       coordRef.current.textContent = ok ? `${p.x}, ${p.y}` : "";
     }
+    const d = dragRef.current;
+    if (d) {
+      if (lasso) setDragState({ ...d, cur: p, path: [...d.path, { x: p.x + 0.5, y: p.y + 0.5 }] });
+      else setDragState({ ...d, cur: p });
+      return;
+    }
     const s = strokeRef.current;
     if (!s || (p.x === s.last.x && p.y === s.last.y)) return;
     applyStroke(s, p);
@@ -206,10 +245,25 @@ export function PixelEditor({ asset, kit, onSave, onClose }: PixelEditorProps) {
 
   const endStroke = () => {
     const s = strokeRef.current;
-    if (!s) return;
-    strokeRef.current = null;
-    replaceFrame(s.ri, s.fi, s.work);
-    setDraft(null);
+    if (s) {
+      strokeRef.current = null;
+      replaceFrame(s.ri, s.fi, s.work);
+      setDraft(null);
+      return;
+    }
+    const d = dragRef.current;
+    if (!d) return;
+    setDragState(null);
+    if (lasso) {
+      setRegion(d.path.length >= 3 ? polygonMask(frame.w, frame.h, d.path) : null);
+      return;
+    }
+    // A click without a drag is a 1x1 region; a click outside the frame clears it.
+    const x0 = Math.max(0, Math.min(d.start.x, d.cur.x));
+    const y0 = Math.max(0, Math.min(d.start.y, d.cur.y));
+    const x1 = Math.min(frame.w - 1, Math.max(d.start.x, d.cur.x));
+    const y1 = Math.min(frame.h - 1, Math.max(d.start.y, d.cur.y));
+    setRegion(d.start.x >= 0 && d.start.y >= 0 && d.start.x < frame.w && d.start.y < frame.h ? rectMask(frame.w, frame.h, { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 }) : null);
   };
 
   // ---------- frame + row ops ----------
@@ -245,6 +299,59 @@ export function PixelEditor({ asset, kit, onSave, onClose }: PixelEditorProps) {
 
   const dirty = hist.present !== startRows || fps !== (asset.fps || 6);
 
+  // ---------- AI region edit (inpaint) ----------
+
+  /** The committed selection as a mask grid for the current frame, or null. */
+    const mask = useMemo<MaskGrid | null>(() => (region ? toMaskGrid(frame.w, frame.h, region) : null), [region, frame.w, frame.h]);
+
+  const ipBox = useMemo<MaskRect | null>(() => (mask ? maskBounds(mask) : null), [mask]);
+  /** The overlay box: the live drag while selecting, the committed region after. */
+  const regionBox = useMemo<MaskRect | null>(() => {
+    if (drag && !lasso) {
+      const x0 = Math.max(0, Math.min(drag.start.x, drag.cur.x));
+      const y0 = Math.max(0, Math.min(drag.start.y, drag.cur.y));
+      const x1 = Math.min(frame.w - 1, Math.max(drag.start.x, drag.cur.x));
+      const y1 = Math.min(frame.h - 1, Math.max(drag.start.y, drag.cur.y));
+      return { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+    }
+    return ipBox;
+  }, [drag, lasso, ipBox, frame.w, frame.h]);
+  const ipCanRun = !!ai.status?.enabled && !!ipBox && !!ipPrompt.trim() && !ipBusy;
+
+  const generate = async () => {
+    if (!mask || !ipBox || !ipPrompt.trim()) return;
+    setIpBusy(true);
+    setIpError(null);
+    try {
+      const targets = ipAllFrames ? row.frames : [frame];
+      const out = await aiInpaint({ prompt: ipPrompt.trim(), frames: targets, mask: region as Region, kit });
+      setIpDraft(ipAllFrames ? out : [out[0]]);
+    } catch (e) {
+      setIpDraft(null);
+      setIpError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setIpBusy(false);
+    }
+  };
+
+  const applyInpaint = () => {
+    if (!ipDraft) return;
+    if (ipAllFrames) {
+      // one history entry for the whole row
+      const frames = ipDraft.slice(0, row.frames.length);
+      for (const [k, f] of frames.entries()) if (row.frames[k] && !spritesEqual(row.frames[k], f)) replaceFrame(ri, k, f);
+    } else {
+      replaceFrame(ri, fi, ipDraft[0]);
+    }
+    setIpDraft(null);
+    setRegion(null);
+  };
+
+  const discardInpaint = () => {
+    setIpDraft(null);
+    setIpError(null);
+  };
+
   const save = () => onSave({ ...asset, rows: hist.present, fps, updatedAt: Date.now() });
   const requestClose = () => {
     if (dirty && !window.confirm("Discard unsaved changes?")) return;
@@ -257,6 +364,10 @@ export function PixelEditor({ asset, kit, onSave, onClose }: PixelEditorProps) {
   // keyboard (handlers kept in a ref so the listener is registered once)
   const stepFrame = (d: number) => setFi(Math.max(0, Math.min(row.frames.length - 1, fi + d)));
   const latest = useRef({ doUndo, doRedo, save, requestClose, stepFrame });
+  // Esc clears the region first (and only closes the editor once there is none);
+  // the key listener is registered once, so it reads the region through a ref.
+  const regionRef = useRef<Region | null>(null);
+  regionRef.current = region;
   latest.current = { doUndo, doRedo, save, requestClose, stepFrame };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -280,7 +391,12 @@ export function PixelEditor({ asset, kit, onSave, onClose }: PixelEditorProps) {
       else if (k === "-") setZoom((z) => Math.max(1, z - 1));
       else if (k === ",") L.stepFrame(-1);
       else if (k === ".") L.stepFrame(1);
-      else if (k === "escape") L.requestClose();
+      else if (k === "escape") {
+          if (regionRef.current) {
+            setRegion(null);
+            e.preventDefault();
+          } else L.requestClose();
+        }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -358,6 +474,9 @@ export function PixelEditor({ asset, kit, onSave, onClose }: PixelEditorProps) {
           {tool === "rect" && (
             <label className="pe-check"><input type="checkbox" checked={filled} onChange={(e) => setFilled(e.target.checked)} />Filled</label>
           )}
+          {tool === "inpaint" && (
+            <label className="pe-check" title="Freehand lasso instead of a rectangle"><input type="checkbox" checked={lasso} onChange={(e) => setLasso(e.target.checked)} />Lasso</label>
+          )}
         </nav>
 
         <main className="pe-main">
@@ -376,6 +495,9 @@ export function PixelEditor({ asset, kit, onSave, onClose }: PixelEditorProps) {
               />
               {gridStyle && <div className="pe-grid" style={gridStyle} />}
               {mirror && <div className="pe-mirror-line" style={{ left: pw / 2 }} />}
+              {tool === "inpaint" && regionBox && (
+                <div className="pe-region" style={{ left: regionBox.x * zoom, top: regionBox.y * zoom, width: regionBox.w * zoom, height: regionBox.h * zoom }} />
+              )}
             </div>
           </div>
 
@@ -445,6 +567,73 @@ export function PixelEditor({ asset, kit, onSave, onClose }: PixelEditorProps) {
               Re-outline
             </button>
             <label className="pe-check"><input type="checkbox" checked={allFrames} onChange={(e) => setAllFrames(e.target.checked)} />Whole row</label>
+          </div>
+
+          <h3>AI edit</h3>
+          <div className="pe-ip">
+            <textarea
+              rows={3}
+              value={ipPrompt}
+              placeholder="e.g. add a red scarf"
+              aria-label="Describe the change to the selected region"
+              disabled={ipBusy}
+              onChange={(e) => setIpPrompt(e.target.value)}
+              onKeyDown={(e) => {
+                if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && ipCanRun) {
+                  e.preventDefault();
+                  void generate();
+                }
+              }}
+            />
+            {row.frames.length > 1 && (
+              <label className="pe-check">
+                <input type="checkbox" checked={ipAllFrames} disabled={ipBusy} onChange={(e) => setIpAllFrames(e.target.checked)} />
+                All frames
+              </label>
+            )}
+            <div className="pe-row">
+              <button type="button" className="pe-primary" disabled={!ipCanRun} onClick={() => void generate()} title={ipCanRun ? "Ask the model to change only the selected region (Ctrl+Enter)" : !ai.status?.enabled ? aiOffReason(ai.status) : !ipBox ? "Select a region on the canvas first" : "Describe the change first"}>
+                {ipBusy ? "Generating…" : "Generate"}
+              </button>
+              {ipDraft && (
+                <>
+                  <button type="button" onClick={applyInpaint} title="Commit the edit (undoable with Ctrl+Z)">Apply</button>
+                  <button type="button" onClick={discardInpaint} title="Drop the result and keep the region">Discard</button>
+                </>
+              )}
+            </div>
+            {ipDraft && (
+              <div className="pe-compare">
+                <figure>
+                  <SpriteThumb sprite={frame} pal={pal} scale={Math.max(1, Math.floor(96 / Math.max(frame.w, frame.h)))} className="pe-preview-canvas" />
+                  <figcaption>Before</figcaption>
+                </figure>
+                <figure>
+                  <SpriteThumb sprite={ipDraft[Math.min(fi, ipDraft.length - 1)]} pal={pal} scale={Math.max(1, Math.floor(96 / Math.max(frame.w, frame.h)))} className="pe-preview-canvas" />
+                  <figcaption>After</figcaption>
+                </figure>
+              </div>
+            )}
+            {ipBusy && (
+              <p className="pe-note" role="status">
+                <span className="spinner" /> Claude is editing the region…
+              </p>
+            )}
+            {ipError && (
+              <p className="pe-error" role="alert">
+                {ipError}
+              </p>
+            )}
+            {!ai.status?.enabled && (
+              <>
+                <p className="pe-note">{aiOffReason(ai.status)}</p>
+                <p className="pe-note">
+                  In this mode region edits are made by an agent via the <code>edit_region</code> tool (agent-supplied rows). Set a key to prompt here.
+                </p>
+              </>
+            )}
+            {ai.status?.enabled && !ipBox && <p className="pe-note">Select a region on the canvas (drag a rectangle, or turn on Lasso).</p>}
+            {ai.status?.enabled && ipBox && !ipPrompt.trim() && <p className="pe-note">Describe the change first.</p>}
           </div>
 
           <h3>Canvas size</h3>
