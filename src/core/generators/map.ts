@@ -399,7 +399,7 @@ function tmKind(tm: TileMap, idx: number): string {
  * corners round both ways. Depends only on (T, mask), so it is computed once per process.
  */
 const edgeShapes = new Map<string, Uint8Array>();
-function edgeShape(T: number, mask: number): Uint8Array {
+export function edgeShape(T: number, mask: number): Uint8Array {
   const key = `${T}:${mask}`;
   const hit = edgeShapes.get(key);
   if (hit) return hit;
@@ -447,7 +447,7 @@ function edgeShape(T: number, mask: number): Uint8Array {
  * cells within a tile's reach, so adjacent transition tiles line up. A 1px darker rim marks
  * land lips; water layers get a foam rim instead.
  */
-function blendTile(base: Sprite, layers: { sprite: Sprite; mask: number; foam?: boolean }[]): Sprite {
+export function blendTile(base: Sprite, layers: { sprite: Sprite; mask: number; foam?: boolean }[]): Sprite {
   const T = base.w;
   const out = createSprite(T, T);
   for (let i = 0; i < base.data.length; i++) out.data[i] = base.data[i];
