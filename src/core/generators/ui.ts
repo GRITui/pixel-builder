@@ -5,9 +5,10 @@ import type { Material } from "../palette";
 import { rng } from "../rng";
 import { blit } from "../sprite";
 import type { FrameSet, Sprite, StyleKit } from "../types";
+import { drawChat, drawDamage, drawMinimap, drawNameplate, drawQuestTracker, drawSkillBar, drawTooltip, drawUnitFrame, isMmoSkin, skinOf, mmoBar, mmoButton, mmoPanel, MMO_KINDS, MMO_NAMES, MMO_PORTRAITS, MMO_RARITY, MMO_TONES, UI_SKINS } from "./ui-mmo";
 import { mat, num, PAINT, str, type GenResult, type Generator } from "./types";
 
-export const UI_KINDS = ["button", "panel", "slot", "bar", "icon-frame", "cursor", "tab", "checkbox", "dialog-arrow", "clock", "time-panel", "weather-icon", "season-icon", "date-panel"] as const;
+export const UI_KINDS = ["button", "panel", "slot", "bar", "icon-frame", "cursor", "tab", "checkbox", "dialog-arrow", "clock", "time-panel", "weather-icon", "season-icon", "date-panel", ...MMO_KINDS] as const;
 export const UI_STYLES = ["bevel", "flat", "inset", "ornate"] as const;
 type Style = (typeof UI_STYLES)[number];
 
@@ -500,13 +501,83 @@ export const uiGenerator: Generator = {
     { key: "season", label: "Season (season-icon, date-panel)", type: "select", options: [...SEASONS], default: "spring" },
     { key: "day", label: "Day 1-31 (date-panel)", type: "number", min: 1, max: 31, step: 1, default: 1 },
     { key: "weekday", label: "Weekday (date-panel)", type: "select", options: [...WEEKDAYS], default: "mon" },
+    { key: "skin", label: "Skin (wood = classic; mmo-* = glossy MMO HUD, also skins button/panel/slot/bar)", type: "select", options: [...UI_SKINS], default: "wood" },
+    { key: "name", label: "Name (unit-frame, tooltip, nameplate)", type: "select", options: [...MMO_NAMES], default: "HERO" },
+    { key: "level", label: "Level 1-99 (unit-frame badge, nameplate)", type: "number", min: 1, max: 99, step: 1, default: 12 },
+    { key: "hp", label: "HP % (unit-frame, nameplate)", type: "number", min: 0, max: 100, step: 1, default: 75 },
+    { key: "mp", label: "MP % (unit-frame)", type: "number", min: 0, max: 100, step: 1, default: 60 },
+    { key: "xp", label: "XP % (unit-frame)", type: "number", min: 0, max: 100, step: 1, default: 35 },
+    { key: "portrait", label: "Portrait (unit-frame): none, silhouette or hero (head crop of the character generator)", type: "select", options: [...MMO_PORTRAITS], default: "silhouette" },
+    { key: "shape", label: "Minimap shape", type: "select", options: ["round", "square"], default: "round" },
+    { key: "slots", label: "Skill-bar slots", type: "number", min: 1, max: 12, step: 1, default: 6 },
+    { key: "cooldown", label: "Skill-bar cooldown sweep 0-8 (slot 2); a 'sweep' row has all 9 steps", type: "number", min: 0, max: 8, step: 1, default: 0 },
+    { key: "rarity", label: "Tooltip rarity", type: "select", options: [...MMO_RARITY], default: "rare" },
+    { key: "tone", label: "Damage-number / nameplate tone", type: "select", options: [...MMO_TONES], default: "white" },
+    { key: "amount", label: "Damage amount (0 = MISS)", type: "number", min: 0, max: 99999, step: 1, default: 128 },
+    { key: "crit", label: "Critical (2x glyphs)", type: "bool", default: false },
   ],
   generate(p, kit, seed): GenResult {
     const kind = (UI_KINDS as readonly string[]).includes(str(p, "kind")) ? str(p, "kind") : "button";
     const style = ((UI_STYLES as readonly string[]).includes(str(p, "style")) ? str(p, "style") : "bevel") as Style;
     const c: Ctx = { kit, m: mat(p, "material"), a: mat(p, "accent"), style, seed };
     const one = (name: string, s: Sprite): FrameSet => ({ name, frames: [s] });
+    const skin = isMmoSkin(str(p, "skin")) ? str(p, "skin") : "wood";
+    const dim = (d: [number, number], lo: number, hi: number): [number, number] => {
+      const w = Number(p.width), h = Number(p.height);
+      return [clamp(w > 0 ? w : d[0], lo, hi), clamp(h > 0 ? h : d[1], lo, hi)];
+    };
 
+    // glossy MMO kinds (the skin param is ignored by them: they are always mmo-*, default mmo-gold)
+    const sk = skin === "wood" ? "mmo-gold" : skin;
+    switch (kind) {
+      case "unit-frame": {
+        const [w] = dim([80, 30], 56, 160);
+        return { rows: [one("normal", drawUnitFrame(kit, sk, p, seed, w))], fps: 1 };
+      }
+      case "minimap-frame": {
+        const [w] = dim([44, 44], 24, 96);
+        const m = drawMinimap(kit, sk, w, str(p, "shape") !== "square");
+        return { rows: [one("normal", m.sprite)], fps: 1, meta: { mapRect: m.map } };
+      }
+      case "skill-bar": {
+        const n = clamp(num(p, "slots"), 1, 12);
+        const s = drawSkillBar(kit, sk, n, clamp(num(p, "cooldown"), 0, 8));
+        return { rows: [one("bar", s.bar), { name: "sweep", frames: s.sweepFrames }], fps: 8, meta: { slots: s.wells } };
+      }
+      case "chat-panel": {
+        const [w, h] = dim([96, 56], 48, 192);
+        return { rows: [one("normal", drawChat(kit, sk, w, Math.max(32, h)))], fps: 1, meta: { nineSlice: { left: 4, top: 4, right: 4, bottom: 4 } } };
+      }
+      case "quest-tracker":
+        return { rows: [one("normal", drawQuestTracker(kit, sk))], fps: 1 };
+      case "tooltip": {
+        const [w, h] = dim([56, 36], 40, 128);
+        return { rows: [one("normal", drawTooltip(kit, sk, str(p, "rarity"), str(p, "name"), w, Math.max(30, h)))], fps: 1 };
+      }
+      case "nameplate":
+        return { rows: [one("normal", drawNameplate(kit, sk, str(p, "name"), Math.round(num(p, "level")), str(p, "tone"), Number(p.hp) / 100))], fps: 1 };
+      case "damage-numbers":
+        return { rows: [{ name: "pop", frames: drawDamage(kit, num(p, "amount"), str(p, "tone"), Boolean(p.crit)) }], fps: 10 };
+    }
+    if (skin !== "wood") {
+      switch (kind) {
+        case "bar": {
+          const [w, h] = sizeFor(kind, p, kit);
+          const b = mmoBar(kit, skinOf(skin), w, h, mat(p, "accent") === "gold" ? "cloth2" : mat(p, "accent"));
+          return { rows: [one("frame", b.frame), one("fill", b.fill)], fps: 1, meta: { fillRect: b.fillRect } };
+        }
+        case "panel":
+        case "slot":
+        case "icon-frame": {
+          const [w, h] = sizeFor(kind, p, kit);
+          return { rows: [one("normal", mmoPanel(kit, skinOf(skin), w, h, kind))], fps: 1, meta: { nineSlice: { left: 3, top: 3, right: 3, bottom: 3 } } };
+        }
+        case "button": {
+          const [w, h] = sizeFor(kind, p, kit);
+          return { rows: (["normal", "hover", "pressed"] as const).map((st) => one(st, mmoButton(kit, skinOf(skin), w, h, st))), fps: 1 };
+        }
+      }
+    }
     switch (kind) {
       case "button": {
         const [w, h] = sizeFor(kind, p, kit);

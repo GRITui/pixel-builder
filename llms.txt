@@ -28,7 +28,7 @@ get_style_guide, list_generators, generate_asset, generate_variations, paint_ass
 
 Custom motion: write the clip yourself and call create_clip with rig (no key needed). Poses are {joint:[dx,dy]} in grid units (y grows down), per-view frames {down,side,up} with equal counts, only the family's joints, offsets within +-4 (+-8 for jumps), feet kept on the ground. Worked example (wai bow) in skills/pixel-builder/SKILL.md. The web app's "Describe animation" box (POST /api/clip) does this with the server model.
 
-Generators include rigged characters and animals, a Thai stilt house, corrugated roofs, a rice-paddy tile and a rice-village map biome. Characters take `pattern` (plaid, stripes, polka, gingham) and `expression` (happy, surprised, tired); rigged recipes can request a pattern with a part-less attachment id `pattern-<kind>[:slot]` (applied by `applyPattern` in `src/core/rigs/shapes-pattern.ts`).
+The `ui` generator has an MMO HUD skin (`skin: mmo-gold|mmo-stone|mmo-dark`) with unit frames, glossy bars, minimap, skill bar with cooldown sweep, chat, quest tracker, tooltip, nameplate and damage numbers. Generators include rigged characters and animals, a Thai stilt house, corrugated roofs, a rice-paddy tile and a rice-village map biome. Characters take `pattern` (plaid, stripes, polka, gingham) and `expression` (happy, surprised, tired); rigged recipes can request a pattern with a part-less attachment id `pattern-<kind>[:slot]` (applied by `applyPattern` in `src/core/rigs/shapes-pattern.ts`).
 
 ## Optional
 
