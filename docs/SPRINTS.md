@@ -32,13 +32,14 @@ Use the kit end to end: tiles that auto-tile in engines, consistent animal scale
 **Exit:** a farm map that exports to Tiled with tiles that auto-tile in Godot, plus a regenerated `farming-v1`. This closes epic #25.
 
 ## Sprint 2: artist workflow
-Fit into how artists already work: Aseprite, selection edits, 8 directions.
+Fit into how artists already work: Aseprite, selection edits, 8 directions, and richer character pixels.
 
 | Lane | Issue | Owns | Notes |
 |---|---|---|---|
 | A | #21 Aseprite export and extension | new `node/aseprite.ts`, `integrations/aseprite/` | Layers come from the SVG layer split (`core/svg.ts` `rigSvgInfo`). |
 | I | #18 AI region edit (inpaint) in the editor and the `edit_region` tool | `server/`, `ui/PixelEditor.tsx`, the `edit_region` part of `node/tools.ts` | With no API key, MCP agents supply the replacement rows themselves. |
 | D | #17 8 directions and isometric for rigs | `core/rig.ts`, `rigs/*` rest poses, the `directions` param in `character.ts` and `animal.ts` | Largest lane; isometric maps can slip to Sprint 4. |
+| R | #36 Rich character pixels at the same resolution (hue-shifted ramps, sel-out, micro-detail, AA) | `kit.ts` `detail`, `palette.ts`, `enforce.ts`, new `rigs/detail.ts`, a small hook in `character.ts` | Opt-in `detail: "rich"`, so standard output stays byte-identical. |
 
 **Exit:** a farmer animated in 8 directions, an `.aseprite` file that opens with the right palette and tags, and a scarf added to a sprite by prompt.
 
