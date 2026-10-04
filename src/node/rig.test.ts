@@ -74,6 +74,8 @@ describe("rig tools", () => {
     expect(() => callTool(ws, "create_rig", { rig: EXAMPLE_RIG })).toThrow(/built-in/);
     expect(() => callTool(ws, "create_rig", { rig: { ...rig, parts: [{ id: "x", kind: "ellipse", joint: "nowhere", rx: 1, ry: 1, z: 1 }] } })).toThrow(/unknown joint nowhere/);
     expect(() => callTool(ws, "create_rig", { rig: { id: "bad" } })).toThrow(/Invalid rig/);
+    expect(() => callTool(ws, "create_rig", { rig: { ...rig, id: "slotty", parts: [{ ...rig.parts[0], slot: "nope" }] } })).toThrow(/unknown slot 'nope'/);
+    expect(() => callTool(ws, "create_attachment", { attachment: { id: "empty", name: "empty", parts: [] } })).toThrow(/parts' is empty/);
     expect(() => callTool(ws, "create_clip", { clip: { id: "bob", fps: 4, frames: [{ wing: [0, 1] }] }, rig: "my-biped" })).toThrow(/unknown joint 'wing'/);
     expect(data("create_clip", { clip: { id: "bob", fps: 4, frames: [{}, { head: [0, 1] }] }, rig: "my-biped" }).clip.id).toBe("bob");
     const att = { id: "dot", name: "Dot", parts: [{ id: "dot", kind: "ellipse", joint: "head", rx: 2, ry: 2, z: 9 }] };

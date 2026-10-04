@@ -913,10 +913,13 @@ function renderRecipe(project: ProjectFile, kit: StyleKit, recipe: RigRecipe) {
   if (!clips.length) throw new ToolError("At least one clip is required (see list_clips).");
   const errs = validateRig(lib.rig, atts);
   const joints = new Set(lib.rig.joints.map((j) => j.id));
+  // Clips may pose optional attachment joints (a tool tip, a carrying pole); without that attachment
+  // the pose key is simply ignored, so only joints nothing could ever provide are errors.
+  const optional = new Set([...allAttachments(project), ...atts.map((attachment) => ({ attachment }))].flatMap((x) => (x.attachment.joints ?? []).map((j) => j.id)));
   for (const c of clips) {
     const frames = Array.isArray(c.frames) ? [c.frames] : Object.values(c.frames);
     for (const pose of frames.flat() as Record<string, unknown>[])
-      for (const j of Object.keys(pose)) if (!joints.has(j)) errs.push(`clip '${c.id}' moves unknown joint '${j}' (rig '${lib.rig.id}' joints: ${[...joints].join(", ")})`);
+      for (const j of Object.keys(pose)) if (!joints.has(j) && !optional.has(j)) errs.push(`clip '${c.id}' moves unknown joint '${j}' (rig '${lib.rig.id}' joints: ${[...joints].join(", ")})`);
   }
   if (errs.length) throw new ToolError(`Cannot render rig '${lib.rig.id}': ${[...new Set(errs)].slice(0, 6).join("; ")}.`);
   const rows = renderRig({ rig: lib.rig, kit, slots: recipe.slots, attachments: atts }, clips);
@@ -1092,7 +1095,7 @@ const createRig = defineTool({
     if (errs.length) failWith("rig", errs);
     const rig = i.rig as unknown as RigDef;
     if (RIGS.some((r) => r.rig.id === rig.id)) throw new ToolError(`Rig id '${rig.id}' is a built-in; choose another id.`);
-    const verr = validateRig(rig);
+    const verr = [...validateRig(rig), ...slotErrors(rig.parts, rig.slots, "rig")];
     if (verr.length) failWith("rig", verr);
     const kit = getKit(project, i.kit_id);
     const frames = (["down", "side", "up"] as const).map((v) => {
@@ -1110,6 +1113,17 @@ const createRig = defineTool({
     };
   },
 });
+
+/** Every part's material slot must be a slot the rig declares or a literal material, else it silently renders as skin. */
+function slotErrors(parts: unknown, slots: Record<string, unknown> | undefined, where: string): string[] {
+  if (!Array.isArray(parts)) return [];
+  const known = new Set([...Object.keys(slots ?? {}), ...(MATERIALS as readonly string[])]);
+  return parts.flatMap((p: any) =>
+    p && typeof p.slot === "string" && !known.has(p.slot)
+      ? [`part ${p.id ?? "?"}: unknown slot '${p.slot}' in ${where} (use one of the rig slots ${Object.keys(slots ?? {}).join(", ") || "(none)"} or a material name)`]
+      : [],
+  );
+}
 
 const createClip = defineTool({
   name: "create_clip",
@@ -1153,13 +1167,14 @@ const createAttachment = defineTool({
     if (typeof a.id !== "string" || !a.id) errs.push("needs a string 'id'");
     if (typeof a.name !== "string") errs.push("needs a string 'name'");
     errs.push(...shapeErrors(a.parts, "attachment"));
+    if (Array.isArray(a.parts) && a.parts.length === 0) errs.push("'parts' is empty; an attachment needs at least one part");
     if (errs.length) failWith("attachment", errs);
     const att = a as unknown as Attachment;
     const kit = getKit(project, i.kit_id);
     let images: ToolImage[] | undefined;
     if (i.rig) {
       const lib = resolveRig(project, i.rig);
-      const verr = validateRig(lib.rig, [att]);
+      const verr = [...validateRig(lib.rig, [att]), ...slotErrors(att.parts, lib.rig.slots, `attachment for rig '${lib.rig.id}'`)];
       if (verr.length) failWith(`attachment for rig '${lib.rig.id}'`, verr);
       const frames = (["down", "right", "up"] as const).map((d) => renderRigFrame({ rig: lib.rig, kit, attachments: [att] }, d));
       images = [png(contactSheet(frames, kit, { columns: 3 }), `${att.id}-worn`)];
