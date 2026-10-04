@@ -20,6 +20,8 @@ export const CATEGORIES: { id: Category; label: string }[] = [
 ];
 
 export type OutlineMode = "none" | "black" | "colored" | "selective";
+/** "rich" adds hue-shifted ramps, sel-out, anti-aliased curves and humanoid micro-detail; absent = "standard". */
+export type DetailLevel = "standard" | "rich";
 export type LightDir = "top-left" | "top" | "top-right";
 
 /**
@@ -40,6 +42,8 @@ export interface StyleKit {
   /** Ambient light 0..1 — raises the darkest shade used on shadow sides. */
   ambient: number;
   sizes: Record<Exclude<Category, "map">, number> & { tile: number };
+  /** Pixel richness (see DetailLevel). Optional so existing kits stay standard. */
+  detail?: DetailLevel;
   /** Free-text art direction used by the AI ("cozy, chunky, SNES-era"). */
   vibe: string;
 }

@@ -10,6 +10,7 @@ import { finalize } from "./enforce";
 import { buildLegend } from "./legend";
 import { Painter } from "./painter";
 import { decodeIndex, MATERIALS, type Material } from "./palette";
+import { richParts, richShade } from "./rigs/detail";
 import type { FrameSet, Sprite, StyleKit } from "./types";
 
 /** Drawing views. "left" is rendered as the mirror of "side" (lighting is recomputed, not flipped). */
@@ -210,6 +211,7 @@ export function renderRigFrame(r: RigRender, dir: Dir, pose: Pose = {}): Sprite 
   // attachments replace parts with the same id, otherwise add to them
   const parts = new Map<string, PartDef>(rig.parts.map((p) => [p.id, p]));
   for (const a of r.attachments ?? []) for (const p of a.parts) parts.set(p.id, p);
+  if (kit.detail === "rich") for (const p of richParts(rig, parts, size)) parts.set(p.id, p);
   const ordered = [...parts.values()]
     .filter((p) => visibleIn(p, view))
     .sort((a, b) => pick(a.z, view) - pick(b.z, view));
@@ -217,6 +219,7 @@ export function renderRigFrame(r: RigRender, dir: Dir, pose: Pose = {}): Sprite 
   const P = new Painter(size, size, kit);
   for (const p of ordered) {
     const opts = { tone: p.tone };
+    P.setLayer(p.id, pick(p.z, view));
     const joint = (id: string) => {
       const j = J[id];
       if (!j) throw new Error(`Part "${p.id}" references unknown joint "${id}"`);
@@ -259,6 +262,7 @@ export function renderRigFrame(r: RigRender, dir: Dir, pose: Pose = {}): Sprite 
       }
     }
   }
+  if (kit.detail === "rich") richShade(P, { rig, parts, slots, J, view, flip, size });
   return finalize(P.toSprite(), kit);
 }
 
