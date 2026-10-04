@@ -508,6 +508,15 @@ image-reading tool, since looking at the output is part of the workflow.
 `asset_pack` (`game`, `count`). Inputs and outputs: see
 [`BUILD_PLAN.md`](BUILD_PLAN.md) ("Agent tool contract") and the skill's cheat-sheet.
 
+**Text to animation clip.** Agents write the clip JSON themselves and call `create_clip` with `rig`
+(worked example "bow politely (wai)" and the validation rules in the skill's "Authoring an animation clip").
+No key needed. The web app's rig editor has a "Describe animation" box backed by
+`POST /api/clip` (`{prompt, family, rig?, fps?, frames?}` -> `{clip, notes}`; needs `ANTHROPIC_API_KEY`;
+joints limited to the family, offsets within +-4 grid units (+-8 for jumps), planted feet on the ground,
+one repair round, then 422). The result is loaded into the timeline for hand-tuning, never auto-saved.
+`npx tsx scripts/clip-author-demo.ts out.png` runs 9 prompts against a running server and writes a
+contact sheet (`--fixtures` renders the offline fixtures instead).
+
 ### Autotile tilesets (`tileset` generator)
 
 `generate_asset generator=tileset params={lower,upper,layout}` makes one atlas PNG of transition

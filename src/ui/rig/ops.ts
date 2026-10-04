@@ -1,5 +1,7 @@
 // Pure logic for the rig editor: pose edits, joint hit-testing, frame lists, history.
 import { solvePose, type Clip, type Pose, type RigDef, type View } from "../../core/rig";
+import { rigById, type RigFamily } from "../../core/rigs";
+import { BIRD_JOINTS, HUMANOID_JOINTS, QUADRUPED_JOINTS } from "../../core/rigs/joints";
 
 export const VIEWS: View[] = ["down", "side", "up"];
 export type ViewFrames = Record<View, Pose[]>;
@@ -106,4 +108,13 @@ export function undo<T>(h: History<T>): History<T> {
 }
 export function redo<T>(h: History<T>): History<T> {
   return canRedo(h) ? { past: [...h.past, h.present], present: h.future[0], future: h.future.slice(1) } : h;
+}
+
+/** Rig family for the "Describe animation" box: the registry's, else the family whose joint contract the rig contains. */
+export function clipFamily(rig: RigDef): RigFamily | null {
+  const reg = rigById(rig.id);
+  if (reg) return reg.family;
+  const ids = new Set(rig.joints.map((j) => j.id));
+  const contracts: [RigFamily, readonly string[]][] = [["humanoid", HUMANOID_JOINTS], ["quadruped", QUADRUPED_JOINTS], ["bird", BIRD_JOINTS], ["fish", ["body", "head", "tail", "finTop", "finL", "finR"]]];
+  return contracts.find(([, js]) => js.every((j) => ids.has(j)))?.[0] ?? null;
 }

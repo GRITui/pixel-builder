@@ -146,6 +146,52 @@ Rules:
   the server model and needs `ANTHROPIC_API_KEY`. `all_frames` repeats it on
   every frame of the row. For rigged assets prefer an attachment.
 
+## Authoring an animation clip (text to motion, you write the JSON)
+
+When no built-in clip does what the user asks ("bow politely (wai)", "pick up the basket then walk",
+"the goat headbutts"), write the clip yourself and call `create_clip` with `rig` set, so it is
+validated and previewed on that rig. No API key is needed (the web app's "Describe animation" box and
+`POST /api/clip` do the same with the server model).
+
+1. `list_rigs` for the rig and its family, `list_clips family=...` to read a similar clip.
+2. A clip is `{id, fps, frames}`. A pose is `{joint: [dx, dy]}` in grid units (design grid 32), `[0,0]`
+   is the rest pose (omit rested joints). **x grows right, y grows DOWN** (`dy < 0` lifts). Children
+   inherit their parent's offset: `hip` moves both legs, so a bob down needs a negative `dy` on the feet.
+3. Give per-view frames `{down, side, up}` with the **same number of frames** in each (side faces right;
+   swing limbs on x in `side`, lift on y in `down`/`up`). Use 4-8 frames, `fps` 4-8 for gestures. Make
+   frame 0 the rest pose and the last frame return towards it so it loops.
+4. Joints per family (see `joints.ts`): humanoid `hip chest neck head shoulderL/R elbowL/R handL/R kneeL/R footL/R`;
+   quadruped `body neck head jaw tail shoulderFL/FR kneeFL/FR footFL/FR hipBL/BR kneeBL/BR footBL/BR`;
+   bird `body head beak tail wingL wingR legL footL legR footR`; fish `body head tail finTop finL finR`.
+
+Worked example, "bow politely (wai)" on `human-male-young-adult` (hands rise to the chest, the torso
+folds forward with the head, a short hold, then up; feet planted):
+
+```json
+{"id":"wai-bow","fps":4,"frames":{
+ "side":[{},
+  {"elbowL":[1,-1],"elbowR":[1,-1],"handL":[2,-2],"handR":[2,-2]},
+  {"hip":[0,1],"chest":[1,2],"head":[1,1],"elbowL":[1,-1],"elbowR":[1,-1],"handL":[2,-2],"handR":[2,-2],"footL":[0,-1],"footR":[0,-1]},
+  {"hip":[0,1],"chest":[1,2],"head":[1,1],"elbowL":[1,-1],"elbowR":[1,-1],"handL":[2,-2],"handR":[2,-2],"footL":[0,-1],"footR":[0,-1]},
+  {"chest":[0,1],"elbowL":[1,-1],"elbowR":[1,-1],"handL":[1,-2],"handR":[1,-2]}],
+ "down":[{},
+  {"elbowL":[0.5,-1],"elbowR":[0.5,-1],"handL":[1,-2],"handR":[1,-2]},
+  {"hip":[0,1],"chest":[0.5,2],"head":[0.5,1],"elbowL":[0.5,-1],"elbowR":[0.5,-1],"handL":[1,-2],"handR":[1,-2],"footL":[0,-1],"footR":[0,-1]},
+  {"hip":[0,1],"chest":[0.5,2],"head":[0.5,1],"elbowL":[0.5,-1],"elbowR":[0.5,-1],"handL":[1,-2],"handR":[1,-2],"footL":[0,-1],"footR":[0,-1]},
+  {"chest":[0,1],"elbowL":[0.5,-1],"elbowR":[0.5,-1],"handL":[0.5,-2],"handR":[0.5,-2]}],
+ "up":[{},{"elbowL":[0.5,-1],"elbowR":[0.5,-1]},{"hip":[0,1],"chest":[0.5,2],"head":[0.5,1],"footL":[0,-1],"footR":[0,-1]},{"hip":[0,1],"chest":[0.5,2],"head":[0.5,1],"footL":[0,-1],"footR":[0,-1]},{"chest":[0,1]}]}}
+```
+
+Then `generate_rigged` with `clips: ["wai-bow", "idle"]`, look at the sheet, adjust, call `create_clip`
+again with the same id (it replaces). Rules (the server enforces the same ones for `/api/clip`):
+
+- Only joints of the rig's family; an unknown joint is an error.
+- Offsets within +-4 grid units (+-8 when the motion is a jump, hop, leap or flap).
+- Planted feet stay on the ground: a foot's own `dy` plus its parents' `dy` must not be > 0 (no sinking), and
+  at least one foot stays within 2 units of the ground in every frame, unless the motion leaves the ground on purpose.
+- 2-12 frames per view, the same count in every view, `fps` 1-30.
+- Check at 1x: if the motion does not read, exaggerate the key pose, not the offsets of every joint.
+
 ## Consistency rules (read before generating)
 
 - Stay in the kit palette. Never ask for or paint arbitrary hex colours; to get a

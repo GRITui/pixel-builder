@@ -2,6 +2,8 @@
 // (Vite proxies it in dev). The API key only ever lives on the server.
 import { finalize } from "../core/enforce";
 import { coerceParams, type Generator, type Params } from "../core/generators/types";
+import type { Clip } from "../core/rig";
+import type { RigFamily } from "../core/rigs";
 import type { Category, Sprite, StyleKit } from "../core/types";
 
 export interface AiStatus {
@@ -135,4 +137,15 @@ export async function aiInpaint(args: {
   });
   if (!r.rect || !Array.isArray(r.rows) || !r.rows.every((x) => typeof x === "string")) throw new Error("The server returned a malformed edit.");
   return { rect: r.rect, rows: r.rows as string[] };
+}
+
+/**
+ * "Describe animation": text -> a Clip for a rig family (validated server-side against the
+ * family's joints). Load it into the rig editor timeline; it is not stored until saved.
+ */
+export async function aiClip(args: { prompt: string; family: RigFamily; rig?: string | { id: string; joints: { id: string; parent: string | null }[] }; fps?: number; frames?: number }): Promise<{ clip: Clip; notes: string }> {
+  const r = await request<{ clip?: Partial<Clip>; notes?: unknown }>("/api/clip", { method: "POST", timeoutMs: CALL_TIMEOUT_MS, body: args });
+  const c = r.clip;
+  if (!c || typeof c.id !== "string" || typeof c.fps !== "number" || !c.frames || typeof c.frames !== "object") throw new Error("The server returned a malformed clip.");
+  return { clip: c as Clip, notes: typeof r.notes === "string" ? r.notes : "" };
 }

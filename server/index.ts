@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { callStructured, getModel, hasKey } from "./claude";
 import { buildLegend, decodeRows } from "../src/core/legend";
 import { inpaint } from "./inpaint";
+import { clipRoute } from "./clip";
 import * as P from "./prompts";
 
 try {
@@ -87,6 +88,7 @@ const POST_ROUTES: Record<string, (b: Record<string, unknown>, s: AbortSignal) =
   "/api/pixels": pixels,
   "/api/kit": kitRoute,
   "/api/inpaint": inpaint,
+  "/api/clip": clipRoute,
 };
 
 const MIME: Record<string, string> = {
