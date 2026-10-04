@@ -25,7 +25,7 @@ import {
   ToolError, Workspace, assetFiles, exportAsset as exportAssetRaw, findAsset, getKit, isAnimated, kitOf, removeAssetFiles,
   type ExportedFile, type ExportOptions,
 } from "./workspace";
-import { svgExists } from "./workspace";
+import { asepriteExists, svgExists } from "./workspace";
 
 export { ToolError };
 
@@ -597,30 +597,33 @@ const exportAssetTool = defineTool({
   name: "export_asset",
   title: "Export asset",
   description:
-    "Write game-ready files for an asset. 'png' = image (animated assets become a spritesheet + .json metadata; maps also get .tiled.json + tilesets); 'spritesheet' = always sheet + .json; 'tiled' = map only; 'svg' = layered vector (a layer per material, per part for rigged assets, plus a locked 'guides' layer with pixel/tile grid, ground line, frame labels, joints) that opens in Inkscape/Figma and comes back with import_svg. Default folder: <workspace>/<category>s/ (characters/, buildings/, environments/, objects/, maps/ - and ui/ for UI assets, not uis/).",
+    "Write game-ready files for an asset. 'png' = image (animated assets become a spritesheet + .json metadata; maps also get .tiled.json + tilesets); 'spritesheet' = always sheet + .json; 'tiled' = map only; 'aseprite' = .aseprite file (indexed colour with the kit palette locked, one layer per rig part or material, one tag per animation row; opens in Aseprite/LibreSprite), 'svg' = layered vector (a layer per material, per part for rigged assets, plus a locked 'guides' layer with pixel/tile grid, ground line, frame labels, joints) that opens in Inkscape/Figma and comes back with import_svg. Default folder: <workspace>/<category>s/ (characters/, buildings/, environments/, objects/, maps/ - and ui/ for UI assets, not uis/).",
   shape: {
     id: z.string().describe("Asset id (or exact name)."),
-    format: z.enum(["png", "spritesheet", "tiled", "svg"]).default("png"),
-    scale: z.number().int().min(1).max(16).default(1).describe("Integer upscale of the PNG (nearest neighbour); ignored for svg."),
+    format: z.enum(["png", "spritesheet", "tiled", "svg", "aseprite"]).default("png"),
+    scale: z.number().int().min(1).max(16).default(1).describe("Integer upscale of the PNG (nearest neighbour); ignored for svg and aseprite."),
     out_dir: z.string().optional().describe("Output folder (relative to the current directory). Default: <workspace>/<category>s/ (ui/ for UI assets)."),
   },
   positional: "id",
   run(ws, i) {
     const project = ws.load();
     const asset = findAsset(project, i.id);
-    const files = exportAsset(ws, project, asset, { format: i.format, scale: i.scale, outDir: i.out_dir, rig: i.format === "svg" ? rigInfoOf(project, asset) : undefined });
+    const files = exportAsset(ws, project, asset, { format: i.format, scale: i.scale, outDir: i.out_dir, rig: i.format === "svg" || i.format === "aseprite" ? rigInfoOf(project, asset) : undefined });
     return { data: { asset: { id: asset.id, name: asset.name }, files } };
   },
 });
 
 /**
- * Every re-export of an asset's PNG also refreshes its editable .svg when one already
+ * Every re-export of an asset's PNG also refreshes its editable .svg / .aseprite when one already
  * exists, so the vector never goes stale (rerender, attach, edit, import replace, ...).
  */
 function exportAsset(ws: Workspace, project: ProjectFile, asset: Asset, opts: ExportOptions = {}): ExportedFile[] {
   const files = exportAssetRaw(ws, project, asset, opts);
-  if ((opts.format ?? "png") !== "svg" && svgExists(ws, project, asset, opts.outDir))
+  const fmt = opts.format ?? "png";
+  if (fmt !== "svg" && svgExists(ws, project, asset, opts.outDir))
     files.push(...exportAssetRaw(ws, project, asset, { format: "svg", outDir: opts.outDir, rig: rigInfoOf(project, asset) }));
+  if (fmt !== "aseprite" && asepriteExists(ws, project, asset, opts.outDir))
+    files.push(...exportAssetRaw(ws, project, asset, { format: "aseprite", outDir: opts.outDir, rig: rigInfoOf(project, asset) }));
   return files;
 }
 

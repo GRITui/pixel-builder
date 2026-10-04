@@ -1,0 +1,11 @@
+{
+  "name": "pixel-builder",
+  "displayName": "Pixel Builder",
+  "description": "Generate on-kit pixel art with pixel-builder, open it as an indexed .aseprite (layers, tags, kit palette), re-render when the kit changes, and pull the kit palette into any sprite.",
+  "version": "0.1.0",
+  "publisher": "pixel-builder",
+  "categories": ["Scripts"],
+  "contributes": {
+    "scripts": [{ "path": "./pixel-builder.lua" }]
+  }
+}

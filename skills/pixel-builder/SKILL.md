@@ -35,7 +35,7 @@ hand-write PNGs or invent colours.
 | `paint_asset` | new asset from legend rows (what generators can't do) |
 | `edit_asset` | fix pixels or replace a frame of an existing asset |
 | `list_assets` / `get_asset` / `delete_asset` | manage the library |
-| `export_asset` | `png`, `spritesheet`, `tiled` (maps) or `svg` (layered, see below) |
+| `export_asset` | `png`, `spritesheet`, `tiled` (maps), `svg` (layered, see below) or `aseprite` (see below) |
 | `import_image` | quantise an existing PNG to the kit palette |
 | `import_svg` | read a layered SVG back (new asset, or `replace_id` to retexture an existing one): edit by layer, keep `data-material`/`data-level` or use kit colours, the `guides` layer is ignored |
 | `rerender_assets` | regenerate procedural and rigged assets after a kit change |
@@ -44,6 +44,8 @@ hand-write PNGs or invent colours.
 | `attach` | add/remove attachments (hat, tool) on a saved rigged asset; re-renders every frame |
 | `create_rig` / `create_clip` / `create_attachment` | author your own rig/clip/attachment as JSON (see `docs/RIG.md`); validated and stored in the project |
 | `generate_pack` | build a whole starter set in one call: built-in `farming-v1` (104 assets) or your own `manifest` of generate_asset/generate_rigged inputs; `only` filters by tag (`sea`, `normal`, `building`, `tool`...), re-running replaces in place, writes `.svg` too |
+
+**Aseprite.** `export_asset format=aseprite` writes `<slug>.aseprite`: INDEXED colour mode with the kit palette as the file palette (index 0 transparent, sprite indices map 1:1, so the palette is locked to the kit), one layer per rig part (rigged assets) or per material, all animation rows laid out as consecutive frames with one tag per row (`walk-down`...), frame duration from fps. Re-exporting the PNG (`rerender_assets`, `attach`...) refreshes an existing `.aseprite` too. Artists can also use the Aseprite extension in `integrations/aseprite/`.
 
 **SVG round trip.** `export_asset format=svg` (and `generate_pack`, by default) writes `<slug>.svg`: one layer per material (per part for rigged assets: core, hair, hat...), frames as a grid, and a locked `guides` layer (pixel/tile grid, ground line, frame labels, joints). Pixels are rectangle `<path>`s (one per colour per frame; `fill`/`data-material`/`data-level` sit on the layer and colour groups, repeated map tiles are `<symbol>`/`<use>`), and plain `<rect>`s are read too. Any tool that re-exports an asset's PNG (`rerender_assets`, `attach`, `edit_asset`, ...) also rewrites its `.svg` if one exists, so it never goes stale. Open it in Inkscape/Figma or edit the XML, then `import_svg`.
 
