@@ -1,9 +1,9 @@
 import { useMemo, useState } from "react";
 import { aiPixels, vibeParams, type AiStatus } from "../../ai/client";
 import { createAsset } from "../../core/asset";
-import { coerceParams, defaults, generatorFor, randomParams, type GenResult, type Generator, type ParamValue, type Params } from "../../core/generators";
+import { coerceParams, defaults, generatorById, generatorFor, GENERATORS, randomParams, type GenResult, type Generator, type ParamValue, type Params } from "../../core/generators";
 import { rng, randomSeed } from "../../core/rng";
-import type { Clip } from "../../core/rig";
+import type { Attachment, Clip, RigDef } from "../../core/rig";
 import { CATEGORIES, type Asset, type Category, type Sprite, type StyleKit } from "../../core/types";
 import type { FlatPalette } from "../render";
 import { ExportMenu } from "./ExportMenu";
@@ -26,6 +26,8 @@ export interface WsState {
   /** Characters only: use the rig method instead of the procedural generator. */
   rigMode: boolean;
   rig: RigSel;
+  /** Which generator of the category is active (categories like "character" have several). */
+  generatorId?: string;
 }
 
 export function initWs(g: Generator): WsState {
@@ -53,10 +55,13 @@ export function Workspace(props: {
   onImport: () => void;
   onError: (m: string) => void;
   customClips?: Clip[];
+  customRigs?: RigDef[];
+  customAttachments?: Attachment[];
   onSaveClip?: (c: Clip) => void;
 }) {
   const { category, kit, pal, ws } = props;
-  const g = generatorFor(category);
+  const g = (ws.generatorId && generatorById(ws.generatorId)?.category === category ? generatorById(ws.generatorId) : undefined) ?? generatorFor(category);
+  const siblings = GENERATORS.filter((x) => x.category === category);
   const upd = (fn: (w: WsState) => WsState) => props.update(category, fn);
   const [zoom, setZoom] = useState(0);
   const [bg, setBg] = useState<PreviewBg>("checker");
@@ -128,11 +133,22 @@ export function Workspace(props: {
     }
   };
 
+  const pickGenerator = (id: string) =>
+    upd((w) => {
+      const next = generatorById(id) ?? g;
+      return next.id === g.id && !w.rigMode ? w : { ...w, rigMode: false, generatorId: next.id, params: next.id === g.id ? w.params : defaults(next), freeform: null, name: "" };
+    });
   const modeToggle =
-    category === "character" ? (
-      <div className="seg" role="group" aria-label="Character method">
-        <button className={!ws.rigMode ? "on" : ""} onClick={() => upd((w) => ({ ...w, rigMode: false }))}>Generator</button>
-        <button className={ws.rigMode ? "on" : ""} onClick={() => upd((w) => ({ ...w, rigMode: true }))} title="Skeleton rigs with shared clips and attachments">Rigged</button>
+    siblings.length > 1 || category === "character" ? (
+      <div className="seg" role="group" aria-label="Generator">
+        {siblings.map((x) => (
+          <button key={x.id} className={!ws.rigMode && x.id === g.id ? "on" : ""} onClick={() => pickGenerator(x.id)} title={x.description}>
+            {x.label}
+          </button>
+        ))}
+        {category === "character" && (
+          <button className={ws.rigMode ? "on" : ""} onClick={() => upd((w) => ({ ...w, rigMode: true }))} title="Skeleton rigs with shared clips and attachments">Rigged</button>
+        )}
       </div>
     ) : null;
 
@@ -146,6 +162,8 @@ export function Workspace(props: {
           sel={ws.rig}
           update={(fn) => upd((w) => ({ ...w, rig: fn(w.rig) }))}
           customClips={props.customClips ?? []}
+          customRigs={props.customRigs ?? []}
+          customAttachments={props.customAttachments ?? []}
           onSave={props.onSave}
           onSaveClip={props.onSaveClip ?? (() => {})}
           onError={props.onError}

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DEFAULT_KIT, newId } from "../core/kit";
 import { emptyProject, mergeProjects, PROJECT_FORMAT, PROJECT_VERSION, type ProjectFile } from "../core/project";
-import type { Clip } from "../core/rig";
+import type { Attachment, Clip, RigDef } from "../core/rig";
 import type { Asset, Sprite, StyleKit } from "../core/types";
 
 const PREFIX = "pixel-builder:v1:";
@@ -171,6 +171,9 @@ export interface ProjectApi {
   library: LibraryApi;
   /** Custom rig clips stored on the project (`ProjectFile.clips`, optional). */
   clips: Clip[];
+  /** Rigs and attachments stored on the project (e.g. created by agents via MCP). */
+  customRigs: RigDef[];
+  customAttachments: Attachment[];
   addClip: (c: Clip) => void;
   replaceProject: (p: ProjectFile) => void;
   mergeProject: (p: ProjectFile) => void;
@@ -235,6 +238,8 @@ export function useProject(): ProjectApi {
   };
 
   const clips = (project as unknown as { clips?: Clip[] }).clips ?? [];
+  const customRigs = project.rigs ?? [];
+  const customAttachments = project.attachments ?? [];
   const addClip = (c: Clip) =>
     setProject((p) => {
       const list = (p as unknown as { clips?: Clip[] }).clips ?? [];
@@ -246,6 +251,8 @@ export function useProject(): ProjectApi {
     kits,
     library,
     clips,
+    customRigs,
+    customAttachments,
     addClip,
     replaceProject: setProject,
     mergeProject: (incoming) => setProject((p) => mergeProjects(p, incoming)),

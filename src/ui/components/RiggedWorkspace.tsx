@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createAsset } from "../../core/asset";
 import { MATERIALS, type Material } from "../../core/palette";
-import { DIRS, renderRig, type Clip, type RigRecipe } from "../../core/rig";
+import { DIRS, renderRig, validateRig, type Attachment, type Clip, type RigDef, type RigRecipe } from "../../core/rig";
 import { ATTACHMENTS, CLIPS, RIGS, rigById, type RigFamily } from "../../core/rigs";
 import type { Asset, FrameSet, StyleKit } from "../../core/types";
 import { RigEditor } from "../rig/RigEditor";
@@ -86,18 +86,36 @@ export function RiggedWorkspace(props: {
   sel: RigSel;
   update: (fn: (s: RigSel) => RigSel) => void;
   customClips: Clip[];
+  /** Rigs and attachments saved in the project (e.g. created by agents via create_rig / create_attachment). */
+  customRigs?: RigDef[];
+  customAttachments?: Attachment[];
   onSave: (a: Asset) => void;
   onSaveClip: (c: Clip) => void;
   onError: (m: string) => void;
 }) {
   const { kit, pal, sel, update } = props;
-  const entry = rigById(sel.rigId) ?? RIGS[0];
+  const allRigs = useMemo<{ rig: RigDef; family: RigFamily | "custom" }[]>(
+    () => [...RIGS, ...(props.customRigs ?? []).filter((r) => !rigById(r.id)).map((rig) => ({ rig, family: "custom" as const }))],
+    [props.customRigs],
+  );
+  const entry = allRigs.find((r) => r.rig.id === sel.rigId) ?? allRigs[0];
   const rig = entry.rig;
   const family = entry.family;
+  const customRig = family === "custom";
   const [editing, setEditing] = useState(false);
 
-  const clipsAvail = useMemo(() => [...CLIPS.filter((c) => c.family === family).map((c) => ({ clip: c.clip, custom: false })), ...props.customClips.map((clip) => ({ clip, custom: true }))], [family, props.customClips]);
-  const attsAvail = ATTACHMENTS.filter((a) => a.family === family);
+  const clipsAvail = useMemo(
+    () => [...CLIPS.filter((c) => c.family === family || customRig).map((c) => ({ clip: c.clip, custom: false })), ...props.customClips.map((clip) => ({ clip, custom: true }))],
+    [family, customRig, props.customClips],
+  );
+  // registry attachments for this family, plus project attachments that fit this rig's joints
+  const attsAvail = useMemo(
+    () => [
+      ...ATTACHMENTS.filter((a) => a.family === family),
+      ...(props.customAttachments ?? []).filter((a) => !ATTACHMENTS.some((x) => x.attachment.id === a.id) && validateRig(rig, [a]).length === 0).map((attachment) => ({ attachment, family })),
+    ],
+    [family, rig, props.customAttachments],
+  );
   const selClips = sel.clips.length ? sel.clips : clipsAvail.slice(0, 1).map((c) => c.clip.id);
   const clips = useMemo(() => selClips.flatMap((id) => clipsAvail.find((c) => c.clip.id === id)?.clip ?? []), [selClips.join(","), clipsAvail]); // eslint-disable-line react-hooks/exhaustive-deps
   const attachments = useMemo(() => sel.attachments.flatMap((id) => attsAvail.find((a) => a.attachment.id === id)?.attachment ?? []), [sel.attachments, attsAvail]);
@@ -120,16 +138,17 @@ export function RiggedWorkspace(props: {
   const draft = useMemo<Asset | null>(() => {
     if (!gen.rows) return null;
     const recipe: RigRecipe = {
-      rig: rig.id,
+      // project-defined rigs/attachments are embedded so the asset re-renders without the project definitions
+      rig: customRig ? rig : rig.id,
       slots: sel.slots,
-      attachments: attachments.map((a) => a.id),
+      attachments: attachments.map((a) => (ATTACHMENTS.some((x) => x.attachment.id === a.id) ? a.id : a)),
       clips: clips.map((c) => (props.customClips.some((x) => x.id === c.id) ? c : c.id)),
     };
     return createAsset({ name, category: "character", kit, rows: gen.rows, fps: clips[0].fps, source: { kind: "rigged", rig: recipe } });
-  }, [gen.rows, rig.id, sel.slots, attachments, clips, props.customClips, name, kit]);
+  }, [gen.rows, rig, customRig, sel.slots, attachments, clips, props.customClips, name, kit]);
 
   const pickRig = (id: string) => update((s) => ({ ...s, rigId: id, slots: {}, attachments: [], clips: [] }));
-  const familyRigs = RIGS.filter((r) => r.family === family);
+  const familyRigs = allRigs.filter((r) => r.family === family);
 
   return (
     <div className="workspace">
@@ -138,8 +157,8 @@ export function RiggedWorkspace(props: {
           <h3 className="card-title">Rig</h3>
           <div className="rigw-slot">
             <label htmlFor="rig-family" className="dim">Family</label>
-            <select id="rig-family" value={family} onChange={(e) => pickRig(RIGS.find((r) => r.family === e.target.value)?.rig.id ?? sel.rigId)}>
-              {FAMILIES.filter((f) => RIGS.some((r) => r.family === f)).map((f) => (
+            <select id="rig-family" value={family} onChange={(e) => pickRig(allRigs.find((r) => r.family === e.target.value)?.rig.id ?? sel.rigId)}>
+              {[...FAMILIES, "custom" as const].filter((f) => allRigs.some((r) => r.family === f)).map((f) => (
                 <option key={f}>{f}</option>
               ))}
             </select>
