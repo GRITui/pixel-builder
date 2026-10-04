@@ -7,7 +7,7 @@
  * Each JSON object is one variant (merged over defaults); each variant becomes
  * one row containing every frame of every animation row.
  */
-import { KIT_PRESETS } from "../src/core/kit";
+import { ALL_KIT_PRESETS as KIT_PRESETS } from "../src/core/kit";
 import { GENERATORS } from "../src/core/generators";
 import { defaults } from "../src/core/generators/types";
 import { savePng } from "./sheet";

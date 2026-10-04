@@ -25,6 +25,10 @@ export const DIRS: Dir[] = ["down", "left", "right", "up"];
 /** All eight directions in document order; the diagonals are 3/4 views (`down-side`, `up-side`), mirrored for the left ones. */
 export const DIRS8: Dir[] = ["down", "down-right", "right", "up-right", "up", "up-left", "left", "down-left"];
 export type Directions = 4 | 8;
+/** Isometric rows are named by compass point: the 4-direction set is the diagonals, 8 adds the axes. */
+export const ISO_NAME: Record<Dir, string> = { down: "s", "down-right": "se", right: "e", "up-right": "ne", up: "n", "up-left": "nw", left: "w", "down-left": "sw" };
+export const ISO_DIRS4: Dir[] = ["down-right", "down-left", "up-right", "up-left"];
+export const ISO_DIRS8: Dir[] = ["down-right", "down-left", "up-right", "up-left", "down", "right", "up", "left"];
 /** Side-view (platformer) rigs draw only profile rows, whatever `directions` asks for. */
 export const SIDE_ONLY_RIGS = new Set(["humanoid-side"]);
 const SIDE_DIRS: Dir[] = ["right", "left"];
@@ -276,11 +280,12 @@ export function renderRigFrame(r: RigRender, dir: Dir, pose: Pose = {}): Sprite 
 /** Render clips x 4 (or 8) directions as animation rows named `<clip>-<dir>`. */
 export function renderRig(r: RigRender, clips: Clip[], opts: RenderOptions = {}): FrameSet[] {
   const rows: FrameSet[] = [];
-  const dirs = SIDE_ONLY_RIGS.has(r.rig.id) ? SIDE_DIRS : opts.directions === 8 ? DIRS8 : DIRS;
+  const iso = r.kit.camera === "iso" && !SIDE_ONLY_RIGS.has(r.rig.id);
+  const dirs = SIDE_ONLY_RIGS.has(r.rig.id) ? SIDE_DIRS : iso ? (opts.directions === 8 ? ISO_DIRS8 : ISO_DIRS4) : opts.directions === 8 ? DIRS8 : DIRS;
   for (const clip of clips)
     for (const dir of dirs) {
       const frames = clipFrames(r.kit.detail === "rich" && clip.rich ? { ...clip, frames: clip.rich } : clip, viewOf(dir));
-      rows.push({ name: `${clip.id}-${dir}`, frames: (frames.length ? frames : [{}]).map((pose) => renderRigFrame(r, dir, pose)) });
+      rows.push({ name: `${clip.id}-${iso ? ISO_NAME[dir] : dir}`, frames: (frames.length ? frames : [{}]).map((pose) => renderRigFrame(r, dir, pose)) });
     }
   // `pattern-<kind>[:slot]` attachments (rigged recipes) pattern the garment between neck and hip,
   // the same band the character generator uses

@@ -1,7 +1,7 @@
 // The interchange format shared by the web app (library export/import), the
 // CLI and the MCP server. One JSON file holds kits + assets; sprites store
 // palette indices, so a project re-colours itself when a kit changes.
-import { DEFAULT_KIT, KIT_PRESETS } from "./kit";
+import { ALL_KIT_PRESETS, DEFAULT_KIT } from "./kit";
 import { PALETTE_SIZE } from "./palette";
 import type { Attachment, Clip, RigDef } from "./rig";
 import type { Asset, Category, Sprite, StyleKit } from "./types";
@@ -23,7 +23,7 @@ export interface ProjectFile {
 }
 
 export function emptyProject(): ProjectFile {
-  return { format: PROJECT_FORMAT, version: PROJECT_VERSION, activeKitId: DEFAULT_KIT.id, kits: KIT_PRESETS.map((k) => ({ ...k })), assets: [] };
+  return { format: PROJECT_FORMAT, version: PROJECT_VERSION, activeKitId: DEFAULT_KIT.id, kits: ALL_KIT_PRESETS.map((k) => ({ ...k })), assets: [] };
 }
 
 /**
@@ -89,7 +89,7 @@ export function parseProject(json: string): { project: ProjectFile; warnings: st
     if (isKit(k)) kits.push({ ...DEFAULT_KIT, ...k, sizes: { ...DEFAULT_KIT.sizes, ...k.sizes }, rampOverrides: k.rampOverrides ?? {} });
     else warnings.push("Dropped an invalid kit");
   }
-  if (!kits.length) kits.push(...KIT_PRESETS.map((k) => ({ ...k })));
+  if (!kits.length) kits.push(...ALL_KIT_PRESETS.map((k) => ({ ...k })));
 
   const assets: Asset[] = [];
   for (const a of Array.isArray(raw.assets) ? raw.assets : []) {

@@ -1,7 +1,7 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { vibeKit } from "../../ai/client";
 import { generatorById, coerceParams, type GenResult } from "../../core/generators";
-import { KIT_PRESETS, resolveRamps } from "../../core/kit";
+import { ALL_KIT_PRESETS as KIT_PRESETS, resolveRamps } from "../../core/kit";
 import { MATERIALS, PALETTES, RAMP_LEN, type Material } from "../../core/palette";
 import type { LightDir, OutlineMode, StyleKit } from "../../core/types";
 import { paletteFor } from "../render";
