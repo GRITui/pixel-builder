@@ -61,9 +61,9 @@ describe("MCP server (in-memory transport)", () => {
 
   it("returns tool failures as isError results with the actionable message", async () => {
     const client = await connect();
-    const r = await client.callTool({ name: "generate_asset", arguments: { generator: "tre" } });
+    const r = await client.callTool({ name: "generate_asset", arguments: { generator: "enviroment" } });
     expect(r.isError).toBe(true);
-    expect((r.content as Content[])[0].text).toMatch(/Unknown generator 'tre'.*Did you mean 'environment' with params/);
+    expect((r.content as Content[])[0].text).toMatch(/Unknown generator .enviroment.*Did you mean .environment./);
     const bad = await client.callTool({ name: "get_asset", arguments: { id: "missing" } });
     expect(bad.isError).toBe(true);
   });

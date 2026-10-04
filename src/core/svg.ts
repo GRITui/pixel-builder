@@ -109,19 +109,28 @@ function layoutOf(rows: FrameSet[]): Layout {
   };
 }
 
-function runs(s: Sprite, pick: (p: number) => boolean): { x: number; y: number; w: number; idx: number }[] {
-  const out: { x: number; y: number; w: number; idx: number }[] = [];
-  for (let y = 0; y < s.h; y++) {
-    let x = 0;
-    while (x < s.w) {
-      const p = y * s.w + x, idx = s.data[p];
-      if (!idx || !pick(p)) { x++; continue; }
-      let e = x + 1;
-      while (e < s.w && s.data[y * s.w + e] === idx && pick(y * s.w + e)) e++;
-      out.push({ x, y, w: e - x, idx });
-      x = e;
+interface Box { x: number; y: number; w: number; h: number; idx: number }
+
+/** Greedy rectangles of equal palette index inside (x0,y0,cw,ch) of a sprite, limited to pixels `pick` allows. */
+function boxes(s: Sprite, pick: (p: number) => boolean, x0 = 0, y0 = 0, cw = s.w, ch = s.h): Box[] {
+  const out: Box[] = [];
+  const done = new Uint8Array(s.w * s.h);
+  const ok = (x: number, y: number, idx: number) => { const p = y * s.w + x; return !done[p] && s.data[p] === idx && pick(p); };
+  const x1 = Math.min(s.w, x0 + cw), y1 = Math.min(s.h, y0 + ch);
+  for (let y = y0; y < y1; y++)
+    for (let x = x0; x < x1; x++) {
+      const idx = s.data[y * s.w + x];
+      if (!idx || !ok(x, y, idx)) continue;
+      let w = 1;
+      while (x + w < x1 && ok(x + w, y, idx)) w++;
+      let h = 1;
+      grow: while (y + h < y1) {
+        for (let k = 0; k < w; k++) if (!ok(x + k, y + h, idx)) break grow;
+        h++;
+      }
+      for (let j = 0; j < h; j++) for (let k = 0; k < w; k++) done[(y + j) * s.w + x + k] = 1;
+      out.push({ x, y, w, h, idx });
     }
-  }
   return out;
 }
 
@@ -144,23 +153,58 @@ export function spriteSheetToSvg(input: SvgAssetInput & { kit: StyleKit }): stri
     return o && partIds.includes(o) ? o : "core";
   };
 
-  const rect = (x: number, y: number, w: number, idx: number) => {
-    const d = decodeIndex(idx)!;
-    return `<rect x="${x}" y="${y}" width="${w}" height="1" fill="${flat[idx]}" data-material="${d.mat}" data-level="${d.level}"/>`;
+  // fill / data-level live on a group per palette index; data-material on the layer (or part sub-group)
+  const levelGroups = (bs: Box[], dx = 0, dy = 0) => {
+    const by = new Map<number, Box[]>();
+    for (const q of bs) (by.get(q.idx) ?? by.set(q.idx, []).get(q.idx)!).push(q);
+    return [...by.entries()]
+      .sort((p, q) => p[0] - q[0])
+      .map(([idx, list]) => `<g data-level="${decodeIndex(idx)!.level}" fill="${flat[idx]}"><path d="${list.map((q) => `M${q.x - dx} ${q.y - dy}h${q.w}v${q.h}h-${q.w}z`).join("")}"/></g>`)
+      .join("");
   };
+  // Maps: tile-sized cells whose content (within one layer) repeats become <symbol>s reused with <use>.
+  const symbols: string[] = [];
+  const cellsOf = (layerKey: string, s: Sprite, pick: (p: number) => boolean) => {
+    const uses: string[] = [];
+    if (!input.tilemap || s.w <= tile && s.h <= tile) return { uses, skip: new Set<number>() };
+    const found: { cx: number; cy: number; key: string; body: string; bs: Box[] }[] = [];
+    for (let cy = 0; cy < s.h; cy += tile)
+      for (let cx = 0; cx < s.w; cx += tile) {
+        const bs = boxes(s, pick, cx, cy, tile, tile);
+        if (bs.length) found.push({ cx, cy, key: levelGroups(bs, cx, cy), body: "", bs });
+      }
+    const count = new Map<string, number>();
+    for (const c of found) count.set(c.key, (count.get(c.key) ?? 0) + 1);
+    const skip = new Set<number>();
+    for (const c of found) {
+      if ((count.get(c.key) ?? 0) < 2 || c.key.length < 120) continue;
+      let sym = symIds.get(layerKey + c.key);
+      if (!sym) {
+        sym = `pb-s${symIds.size}`;
+        symIds.set(layerKey + c.key, sym);
+        symbols.push(`<symbol id="${sym}" overflow="visible">${c.key}</symbol>`);
+      }
+      uses.push(`<use href="#${sym}" x="${c.cx}" y="${c.cy}"/>`);
+      for (let y = c.cy; y < Math.min(s.h, c.cy + tile); y++) for (let x = c.cx; x < Math.min(s.w, c.cx + tile); x++) skip.add(y * s.w + x);
+    }
+    return { uses, skip };
+  };
+  const symIds = new Map<string, string>();
   const frames = (layerId: string, pick: (ri: number, fi: number, p: number) => boolean) => {
     const g: string[] = [];
     rows.forEach((r, ri) =>
       r.frames.forEach((s, fi) => {
-        const rs = runs(s, (p) => pick(ri, fi, p));
-        if (!rs.length) return;
+        const base = (p: number) => pick(ri, fi, p);
+        const { uses, skip } = cellsOf(layerId, s, base);
+        const bs = boxes(s, (p) => base(p) && !skip.has(p));
+        if (!bs.length && !uses.length) return;
         const [ox, oy] = L.origin(ri, fi);
-        g.push(`<g id="${layerId}-frame-${ri}-${fi}" transform="translate(${ox},${oy})">${rs.map((q) => rect(q.x, q.y, q.w, q.idx)).join("")}</g>`);
+        g.push(`<g id="${layerId}-frame-${ri}-${fi}" transform="translate(${ox},${oy})">${uses.join("")}${levelGroups(bs)}</g>`);
       }),
     );
     return g.join("\n");
   };
-  const layer = (id: string, label: string, body: string) => `<g id="${id}" inkscape:label="${esc(label)}" inkscape:groupmode="layer">\n${body}\n</g>`;
+  const layer = (id: string, label: string, body: string, extra = "") => `<g id="${id}" inkscape:label="${esc(label)}" inkscape:groupmode="layer"${extra}>\n${body}\n</g>`;
   const hasMat = (ri: number, fi: number, p: number, m: Material) => decodeIndex(rows[ri].frames[fi].data[p])?.mat === m;
 
   const layers: string[] = [];
@@ -169,7 +213,7 @@ export function spriteSheetToSvg(input: SvgAssetInput & { kit: StyleKit }): stri
     for (const m of mats) {
       const id = `layer-${sid(mname(m))}`;
       layerNames.push(mname(m));
-      layers.push(layer(id, mname(m), frames(id, (ri, fi, p) => hasMat(ri, fi, p, m))));
+      layers.push(layer(id, mname(m), frames(id, (ri, fi, p) => hasMat(ri, fi, p, m)), ` data-material="${m}"`));
     }
   } else {
     for (const part of partIds as string[]) {
@@ -179,7 +223,7 @@ export function spriteSheetToSvg(input: SvgAssetInput & { kit: StyleKit }): stri
       for (const m of mats) {
         const sub = `${pid}-${sid(mname(m))}`;
         const body = frames(sub, (ri, fi, p) => hasMat(ri, fi, p, m) && ownerOf(ri, fi, p) === part);
-        if (body) subs.push(`<g id="${sub}" inkscape:label="${esc(mname(m))}">\n${body}\n</g>`);
+        if (body) subs.push(`<g id="${sub}" inkscape:label="${esc(mname(m))}" data-material="${m}">\n${body}\n</g>`);
       }
       layers.push(layer(pid, part, subs.join("\n")));
     }
@@ -188,24 +232,34 @@ export function spriteSheetToSvg(input: SvgAssetInput & { kit: StyleKit }): stri
   // ---- guides ----
   const gd: string[] = [];
   const stroke = (c: string, w: number, extra = "") => `fill="none" stroke="${c}" stroke-width="${w}" ${extra}`;
+  // the static frame furniture is identical for every frame of a size: define once, <use> per frame
+  const frameSyms = new Map<string, string>();
+  const frameSym = (w: number, h: number) => {
+    const key = `${w}x${h}`;
+    if (!frameSyms.has(key))
+      frameSyms.set(key,
+        `<symbol id="pb-gf-${key}" overflow="visible">` +
+        `<rect width="${w}" height="${h}" fill="url(#pb-px)"/><rect width="${w}" height="${h}" fill="url(#pb-tile)"/>` +
+        `<line x1="${w / 2}" y1="0" x2="${w / 2}" y2="${h}" stroke="#3498db" stroke-width="0.15" stroke-dasharray="1 0.5"/>` +
+        `<rect x="1" y="1" width="${Math.max(0, w - 2)}" height="${Math.max(0, h - 2)}" ${stroke("#e67e22", 0.15, 'stroke-dasharray="0.6 0.6"')}/>` +
+        `<rect width="${w}" height="${h}" ${stroke("#e84393", 0.3)}/></symbol>`);
+    return `<use href="#pb-gf-${key}"/>`;
+  };
   rows.forEach((r, ri) =>
     r.frames.forEach((s, fi) => {
       const [ox, oy] = L.origin(ri, fi);
-      const f: string[] = [];
-      f.push(`<rect width="${s.w}" height="${s.h}" fill="url(#pb-px)"/>`);
-      f.push(`<rect width="${s.w}" height="${s.h}" fill="url(#pb-tile)"/>`);
+      const f: string[] = [frameSym(s.w, s.h)];
       let maxY = -1;
       for (let p = 0; p < s.data.length; p++) if (s.data[p]) maxY = Math.max(maxY, Math.floor(p / s.w));
       if (maxY >= 0) f.push(`<line x1="0" y1="${maxY + 1}" x2="${s.w}" y2="${maxY + 1}" stroke="#2ecc71" stroke-width="0.25" stroke-dasharray="1 0.5"/>`);
-      f.push(`<line x1="${s.w / 2}" y1="0" x2="${s.w / 2}" y2="${s.h}" stroke="#3498db" stroke-width="0.15" stroke-dasharray="1 0.5"/>`);
-      f.push(`<rect x="1" y="1" width="${Math.max(0, s.w - 2)}" height="${Math.max(0, s.h - 2)}" ${stroke("#e67e22", 0.15, 'stroke-dasharray="0.6 0.6"')}/>`);
-      f.push(`<rect width="${s.w}" height="${s.h}" ${stroke("#e84393", 0.3)}/>`);
       f.push(`<text x="0" y="-1.2" font-size="3.2" font-family="monospace" fill="#e84393">${esc(`${r.name} ${fi}`)}</text>`);
       const J = rig?.joints[ri]?.[fi];
-      if (J)
-        for (const [id, [x, y]] of Object.entries(J))
-          f.push(`<path d="M${(x - 0.8).toFixed(2)} ${y.toFixed(2)}H${(x + 0.8).toFixed(2)}M${x.toFixed(2)} ${(y - 0.8).toFixed(2)}V${(y + 0.8).toFixed(2)}" ${stroke("#c0392b", 0.2)}/>` +
-            `<text x="${(x + 1).toFixed(2)}" y="${(y - 0.4).toFixed(2)}" font-size="1.6" font-family="monospace" fill="#c0392b" opacity="0.85">${esc(id)}</text>`);
+      if (J) {
+        const n = (v: number) => +v.toFixed(1);
+        f.push(`<g ${stroke("#c0392b", 0.2)} font-size="1.6" font-family="monospace" opacity="0.85">` +
+          Object.entries(J).map(([id, [x, y]]) =>
+            `<path d="M${n(x - 0.8)} ${n(y)}h1.6M${n(x)} ${n(y - 0.8)}v1.6"/><text x="${n(x + 1)}" y="${n(y - 0.4)}" fill="#c0392b" stroke="none">${esc(id)}</text>`).join("") + `</g>`);
+      }
       gd.push(`<g id="guide-frame-${ri}-${fi}" transform="translate(${ox},${oy})">${f.join("")}</g>`);
     }),
   );
@@ -213,6 +267,7 @@ export function spriteSheetToSvg(input: SvgAssetInput & { kit: StyleKit }): stri
     `<defs>` +
     `<pattern id="pb-px" width="1" height="1" patternUnits="userSpaceOnUse"><path shape-rendering="geometricPrecision" d="M1 0V1H0" fill="none" stroke="#000" stroke-width="0.04" opacity="0.2"/></pattern>` +
     `<pattern id="pb-tile" width="${tile}" height="${tile}" patternUnits="userSpaceOnUse"><path shape-rendering="geometricPrecision" d="M${tile} 0V${tile}H0" fill="none" stroke="#8e44ad" stroke-width="${+Math.max(0.12, L.width / 600).toFixed(2)}" opacity="0.75"/></pattern>` +
+    [...frameSyms.values(), ...symbols].join("") +
     `</defs>`;
 
   const legend: Record<string, string[]> = {};
@@ -298,6 +353,41 @@ function parseColor(v?: string): [number, number, number] | null {
 
 const rgbHex = ([r, g, b]: number[]) => "#" + [r, g, b].map((c) => c.toString(16).padStart(2, "0")).join("");
 
+/** Subpaths that are axis-aligned rectangles -> [x, y, w, h]; null if the path has anything else. */
+function pathRects(d: string): [number, number, number, number][] | null {
+  const out: [number, number, number, number][] = [];
+  let pts: [number, number][] = [];
+  let cx = 0, cy = 0, sx = 0, sy = 0, ok = true;
+  const flush = () => {
+    if (!pts.length) return;
+    const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+    const x = Math.min(...xs), y = Math.min(...ys), w = Math.max(...xs) - x, h = Math.max(...ys) - y;
+    if (pts.every((p) => (p[0] === x || p[0] === x + w) && (p[1] === y || p[1] === y + h))) out.push([x, y, w, h]);
+    else ok = false;
+    pts = [];
+  };
+  for (const m of d.matchAll(/([MmHhVvLlZz])([^MmHhVvLlZz]*)/g)) {
+    const c = m[1], n = (m[2].match(/-?\d*\.?\d+(?:e-?\d+)?/gi) ?? []).map(Number);
+    const rel = c === c.toLowerCase();
+    const U = c.toUpperCase();
+    if (U === "Z") { cx = sx; cy = sy; flush(); continue; }
+    const step = U === "H" || U === "V" ? 1 : 2;
+    if (!n.length) { ok = false; continue; }
+    for (let i = 0; i < n.length; i += step) {
+      const first = U === "M" && i === 0;
+      if (first) flush();
+      else if (!pts.length) pts = [[sx, sy]];
+      if (U === "M" || U === "L") { cx = rel ? cx + n[i] : n[i]; cy = rel ? cy + n[i + 1] : n[i + 1]; }
+      else if (U === "H") cx = rel ? cx + n[i] : n[i];
+      else cy = rel ? cy + n[i] : n[i];
+      if (first) { sx = cx; sy = cy; pts = [[cx, cy]]; }
+      else pts.push([cx, cy]);
+    }
+  }
+  flush();
+  return ok && out.length ? out : null;
+}
+
 /** Read a (pixel-builder or hand-edited) SVG back into frames. Guides and hidden layers are skipped. */
 export function svgToSprites(svg: string, kit: StyleKit): ParsedSvg {
   const notes: string[] = [];
@@ -306,7 +396,19 @@ export function svgToSprites(svg: string, kit: StyleKit): ParsedSvg {
   if (metaText) {
     try { meta = JSON.parse(unesc(metaText)); } catch { notes.push("metadata could not be parsed; frames were inferred from groups"); }
   }
-  const body = svg
+  // <use href="#pb-sN" x y/> of a pixel symbol: inline its content (inherits the surrounding material group)
+  const syms = new Map<string, string>();
+  for (const m of svg.matchAll(/<symbol\b([^>]*)>([\s\S]*?)<\/symbol\s*>/g)) {
+    const id = attrsOf(m[1]).id;
+    if (id?.startsWith("pb-s")) syms.set(id, m[2]);
+  }
+  const expanded = !syms.size ? svg : svg.replace(/<use\b([^>]*?)\/?>/g, (all, rest) => {
+    const a = attrsOf(rest);
+    const inner = syms.get((a.href ?? a["xlink:href"] ?? "").replace(/^#/, ""));
+    if (inner === undefined) return all;
+    return `<g transform="translate(${Number(a.x) || 0},${Number(a.y) || 0})${a.transform ? " " + a.transform : ""}">${inner}</g>`;
+  });
+  const body = expanded
     .replace(/<!--[\s\S]*?-->/g, "")
     .replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, "")
     .replace(/<(desc|metadata|title|defs|pattern|style|script|clipPath|mask)\b[\s\S]*?<\/\1\s*>/gi, "");
@@ -316,8 +418,8 @@ export function svgToSprites(svg: string, kit: StyleKit): ParsedSvg {
   const byHex = new Map<string, number>();
   flat.forEach((h, i) => { if (h && !byHex.has(h.toLowerCase())) byHex.set(h.toLowerCase(), i); });
 
-  interface G { tx: number; ty: number; hidden: boolean; guides: boolean; frame?: { key: string; bx: number; by: number } }
-  const stack: G[] = [{ tx: 0, ty: 0, hidden: false, guides: false }];
+  interface G { tx: number; ty: number; hidden: boolean; guides: boolean; inh: Record<string, string>; frame?: { key: string; bx: number; by: number } }
+  const stack: G[] = [{ tx: 0, ty: 0, hidden: false, guides: false, inh: {} }];
   const frames = new Map<string, { r: number; i: number; px: { x: number; y: number; idx: number }[] }>();
   const frameOf = (key: string) => {
     let f = frames.get(key);
@@ -328,7 +430,7 @@ export function svgToSprites(svg: string, kit: StyleKit): ParsedSvg {
     }
     return f;
   };
-  let skipped = 0;
+  let skipped = 0, skippedPaths = 0;
   for (const t of body.matchAll(/<(\/?)([a-zA-Z][\w:-]*)([^>]*?)(\/?)>/g)) {
     const [, close, tag, rest, selfClose] = t;
     const top = stack[stack.length - 1];
@@ -341,24 +443,29 @@ export function svgToSprites(svg: string, kit: StyleKit): ParsedSvg {
         hidden: top.hidden || /^none$/i.test(a.display ?? "") || /^(hidden|collapse)$/i.test(a.visibility ?? ""),
         guides: top.guides || a.id === "guides" || a["inkscape:label"] === "guides",
         frame: top.frame,
+        inh: { ...top.inh },
       };
+      for (const k of ["fill", "data-material", "data-level"]) if (a[k] !== undefined) g.inh[k] = a[k];
       const fm = /(?:^|-)frame-(\d+-\d+)$/.exec(a.id ?? "");
       if (fm && !top.frame) g.frame = { key: fm[1], bx: g.tx, by: g.ty };
       if (!selfClose) stack.push(g);
       continue;
     }
-    if (tag !== "rect" || close) continue;
+    if ((tag !== "rect" && tag !== "path") || close) continue;
     if (top.hidden || top.guides) continue;
-    const a = styleOf(attrsOf(rest));
+    const a = styleOf({ ...top.inh, ...attrsOf(rest) });
     if (/^none$/i.test(a.display ?? "") || /^(hidden|collapse)$/i.test(a.visibility ?? "")) continue;
     if (/^none$/i.test(a.fill ?? "") || Number(a.opacity ?? 1) < 0.5 || Number(a["fill-opacity"] ?? 1) < 0.5) continue;
     const [dx, dy] = translateOf(a.transform);
     const num = (v?: string) => Number.parseFloat(v ?? "0") || 0;
-    const w = Math.round(num(a.width)), h = Math.round(num(a.height));
-    if (w <= 0 || h <= 0) continue;
-    const ax = top.tx + dx + num(a.x), ay = top.ty + dy + num(a.y);
+    const geoms: [number, number, number, number][] = [];
+    if (tag === "rect") geoms.push([num(a.x), num(a.y), num(a.width), num(a.height)]);
+    else {
+      const r = pathRects(a.d ?? "");
+      if (!r) { skippedPaths++; continue; }
+      geoms.push(...r);
+    }
     const base = top.frame ?? { key: "0-0", bx: 0, by: 0 };
-    const x0 = Math.round(ax - base.bx), y0 = Math.round(ay - base.by);
 
     let idx = 0;
     const dm = a["data-material"] as Material | undefined;
@@ -369,8 +476,14 @@ export function svgToSprites(svg: string, kit: StyleKit): ParsedSvg {
     else if (dIdx) idx = dIdx;
     else { skipped++; continue; }
     const f = frameOf(base.key);
-    for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++) f.px.push({ x: x0 + xx, y: y0 + yy, idx });
+    for (const [gx, gy, gw, gh] of geoms) {
+      const w = Math.round(gw), h = Math.round(gh);
+      if (w <= 0 || h <= 0) continue;
+      const x0 = Math.round(top.tx + dx + gx - base.bx), y0 = Math.round(top.ty + dy + gy - base.by);
+      for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++) f.px.push({ x: x0 + xx, y: y0 + yy, idx });
+    }
   }
+  if (skippedPaths) notes.push(`${skippedPaths} path(s) skipped: only axis-aligned rectangles (M x y h w v h h -w z) are read as pixels`);
   if (skipped) notes.push(`${skipped} rect(s) without a usable fill or data-material were skipped`);
   if (!frames.size) throw new Error("The SVG has no visible pixel rects outside the guides layer. Pixels must be <rect> elements (keep them in the sprite layers, not in 'guides').");
 

@@ -265,6 +265,12 @@ export interface ExportOptions {
   rig?: RigSvgInfo;
 }
 
+/** True if an editable `<slug>.svg` already sits where exportAsset would put it. */
+export function svgExists(ws: Workspace, project: ProjectFile, asset: Asset, outDir?: string): boolean {
+  const dir = outDir ? resolve(outDir) : categoryDir(ws, asset.category);
+  return existsSync(join(dir, `${exportSlug(project, asset)}.svg`));
+}
+
 /** Write an asset's game-ready files. Returns absolute paths. */
 export function exportAsset(ws: Workspace, project: ProjectFile, asset: Asset, opts: ExportOptions = {}): ExportedFile[] {
   const format = opts.format ?? "png";
