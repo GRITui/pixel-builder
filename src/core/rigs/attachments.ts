@@ -3,7 +3,7 @@
 // (leather, metal, ...) so users recolour through the kit; volumes are lit, never hand-shaded.
 // Held items stand upright on the hand (a box can't tilt) and every part rides its joint,
 // so they follow every pose and mirror for "left" automatically.
-import type { Attachment, PartDef } from "../rig";
+import type { Attachment, Joint, PartDef, View } from "../rig";
 import type { Material } from "../palette";
 
 type Box = { id: string; joint: string; dx: number; dy: number; w: number; h: number; slot: Material; z: PartDef["z"]; tone?: number; views?: PartDef["views"] };
@@ -19,12 +19,12 @@ const headwear: Attachment[] = [
   {
     id: "ngob-hat",
     name: "Conical straw hat (non la)",
-    // a shallow, wide cone: stacked flattened discs shrinking to a low apex
+    // a modest cone that sits on the head: brim barely wider than the skull so it never reads as an umbrella
     parts: [
-      ell({ id: "hat-brim", joint: "head", dy: -3.2, rx: 11, ry: 2.8, slot: "sand", flat: 0.6, z: HZ }),
-      ell({ id: "hat-cone1", joint: "head", dy: -4.6, rx: 8.5, ry: 2.6, slot: "sand", flat: 0.45, z: HZ + 1 }),
-      ell({ id: "hat-cone2", joint: "head", dy: -6.2, rx: 5.5, ry: 2.2, slot: "sand", flat: 0.35, z: HZ + 2 }),
-      ell({ id: "hat-cone3", joint: "head", dy: -7.6, rx: 2.6, ry: 1.7, slot: "sand", flat: 0.2, z: HZ + 3 }),
+      ell({ id: "hat-brim", joint: "head", dy: -2.6, rx: 8.5, ry: 2.2, slot: "sand", flat: 0.6, z: HZ }),
+      ell({ id: "hat-cone1", joint: "head", dy: -3.7, rx: 6.6, ry: 2.2, slot: "sand", flat: 0.45, z: HZ + 1 }),
+      ell({ id: "hat-cone2", joint: "head", dy: -4.8, rx: 4.3, ry: 1.8, slot: "sand", flat: 0.35, z: HZ + 2 }),
+      ell({ id: "hat-cone3", joint: "head", dy: -5.7, rx: 2.1, ry: 1.3, slot: "sand", flat: 0.2, z: HZ + 3 }),
       box({ id: "hat-strap", joint: "head", dx: -0.5, dy: -1, w: 1, h: 4, slot: "cloth2", z: HZ - 1, views: ["down"] }),
     ],
   },
@@ -32,9 +32,9 @@ const headwear: Attachment[] = [
     id: "straw-hat",
     name: "Straw hat",
     parts: [
-      ell({ id: "hat-brim", joint: "head", dy: -3, rx: 10, ry: 2.4, slot: "sand", flat: 0.5, z: HZ }),
-      ell({ id: "hat-crown", joint: "head", dy: -5.3, rx: 5.8, ry: 3.6, slot: "sand", z: HZ + 1 }),
-      ell({ id: "hat-band", joint: "head", dy: -3.6, rx: 5.9, ry: 1.2, slot: "cloth2", flat: 0.5, z: HZ + 2 }),
+      ell({ id: "hat-brim", joint: "head", dy: -2.8, rx: 8.8, ry: 2.2, slot: "sand", flat: 0.5, z: HZ }),
+      ell({ id: "hat-crown", joint: "head", dy: -4.6, rx: 5.2, ry: 3.2, slot: "sand", z: HZ + 1 }),
+      ell({ id: "hat-band", joint: "head", dy: -3.2, rx: 5.3, ry: 1.1, slot: "cloth2", flat: 0.5, z: HZ + 2 }),
     ],
   },
   {
@@ -63,12 +63,12 @@ const headwear: Attachment[] = [
     id: "wizard-hat",
     name: "Wizard hat",
     parts: [
-      ell({ id: "hat-brim", joint: "head", dy: -3.5, rx: 10.5, ry: 2.2, slot: "cloth2", flat: 0.5, z: HZ }),
-      ell({ id: "hat-cone1", joint: "head", dy: -5, rx: 6, ry: 2.4, slot: "cloth2", z: HZ + 1 }),
-      ell({ id: "hat-cone2", joint: "head", dx: 0.3, dy: -6.5, rx: 4.2, ry: 2, slot: "cloth2", z: HZ + 2 }),
-      ell({ id: "hat-cone3", joint: "head", dx: 0.8, dy: -7.7, rx: 2.5, ry: 1.6, slot: "cloth2", z: HZ + 3 }),
-      ell({ id: "hat-tip", joint: "head", dx: 2, dy: -8.4, rx: 1.3, ry: 1.2, slot: "cloth2", tone: 1, z: HZ + 4 }),
-      ell({ id: "hat-band", joint: "head", dy: -4.2, rx: 6, ry: 1, slot: "gold", flat: 0.5, z: HZ + 5 }),
+      ell({ id: "hat-brim", joint: "head", dy: -3, rx: 9, ry: 2, slot: "cloth2", flat: 0.5, z: HZ }),
+      ell({ id: "hat-cone1", joint: "head", dy: -4.3, rx: 5.2, ry: 2.1, slot: "cloth2", z: HZ + 1 }),
+      ell({ id: "hat-cone2", joint: "head", dx: 0.3, dy: -5.6, rx: 3.6, ry: 1.8, slot: "cloth2", z: HZ + 2 }),
+      ell({ id: "hat-cone3", joint: "head", dx: 0.8, dy: -6.6, rx: 2.2, ry: 1.3, slot: "cloth2", z: HZ + 3 }),
+      ell({ id: "hat-tip", joint: "head", dx: 1.6, dy: -7.2, rx: 1.1, ry: 0.9, slot: "cloth2", tone: 1, z: HZ + 4 }),
+      ell({ id: "hat-band", joint: "head", dy: -3.8, rx: 5.2, ry: 0.9, slot: "gold", flat: 0.5, z: HZ + 5 }),
     ],
   },
   {
@@ -84,67 +84,100 @@ const headwear: Attachment[] = [
   },
 ];
 
+
+/**
+ * Held tools. The shaft is a limb handR -> toolTip, so a clip posing `toolTip`
+ * (and `bowLow`/`rodLine`) swings the tool; tips are absolute rests, tuned on the
+ * normal build (handR x 22.5 in front/back, 16 in profile). `toolButt` is the
+ * grip end behind the hand. In the up view the tool sits behind the body.
+ */
+const HAND_X = { down: 22.5, side: 16, up: 22.5 } as const;
+const HAND_Y = 24.5;
+type D = [number, number];
+const at = (dx: Partial<Record<View, D>> & { down: D }, base: Joint["rest"] | null = null): Joint["rest"] => {
+  const out = {} as Record<View, [number, number]>;
+  for (const v of ["down", "side", "up"] as View[]) {
+    const d = dx[v] ?? dx.down;
+    out[v] = [HAND_X[v] + d[0], HAND_Y + d[1]];
+  }
+  return base ?? out;
+};
+const tipJ = (tip: Partial<Record<View, D>> & { down: D }, butt?: Partial<Record<View, D>> & { down: D }): Joint[] => [
+  { id: "toolTip", parent: "handR", rest: at(tip) },
+  ...(butt ? [{ id: "toolButt", parent: "handR", rest: at(butt) }] : []),
+];
+const TZ: PartDef["z"] = { down: HELD, side: HELD, up: 1.6 };
+const shaft = (id: string, from: string, to: string, r: number, slot: Material, tone?: number): PartDef => ({ kind: "limb", id, from, to, r, slot, tone, z: TZ });
+const tipBox = (b: Omit<Box, "z" | "joint">): PartDef => box({ ...b, joint: "toolTip", z: { down: HELD + 0.1, side: HELD + 0.1, up: 1.7 } });
+const tipEll = (e: Omit<Ell, "z" | "joint">): PartDef => ell({ ...e, joint: "toolTip", z: { down: HELD + 0.1, side: HELD + 0.1, up: 1.7 } });
+
 const held: Attachment[] = [
   {
     id: "hoe",
     name: "Hoe",
+    joints: tipJ({ down: [1.5, -14], side: [3, -14] }, { down: [-0.5, 3], side: [-1, 3] }),
     parts: [
-      box({ id: "hoe-handle", joint: "handR", dx: -0.5, dy: -13, w: 1.5, h: 18, slot: "wood", z: HELD }),
-      box({ id: "hoe-blade", joint: "handR", dx: -0.5, dy: -14, w: 5, h: 3, slot: "metal", z: HELD + 0.1 }),
-      box({ id: "hoe-edge", joint: "handR", dx: 3.5, dy: -12, w: 1.5, h: 2, slot: "metal", tone: -1, z: HELD + 0.1 }),
+      shaft("hoe-handle", "toolButt", "toolTip", 0.8, "wood"),
+      tipBox({ id: "hoe-blade", dx: -1.5, dy: -1, w: 4, h: 2.5, slot: "metal" }),
+      tipBox({ id: "hoe-edge", dx: 1.5, dy: 1, w: 1.5, h: 2, slot: "metal", tone: -1 }),
     ],
   },
   {
     id: "sickle",
     name: "Sickle",
+    joints: tipJ({ down: [1.5, -8], side: [3, -8] }, { down: [0, 2], side: [-0.5, 2] }),
     parts: [
-      box({ id: "sickle-handle", joint: "handR", dx: -0.5, dy: -4, w: 1.5, h: 6, slot: "wood", z: HELD }),
-      box({ id: "sickle-blade", joint: "handR", dx: -0.5, dy: -7, w: 4, h: 2, slot: "metal", z: HELD + 0.1 }),
-      box({ id: "sickle-tip", joint: "handR", dx: 2.5, dy: -6, w: 1.5, h: 3, slot: "metal", tone: 1, z: HELD + 0.1 }),
+      shaft("sickle-handle", "toolButt", "toolTip", 0.8, "wood"),
+      tipBox({ id: "sickle-blade", dx: -0.5, dy: -1.5, w: 4, h: 1.5, slot: "metal" }),
+      tipBox({ id: "sickle-tip", dx: 2.5, dy: -0.5, w: 1.5, h: 2.5, slot: "metal", tone: 1 }),
     ],
   },
   {
     id: "sword",
     name: "Sword",
+    joints: tipJ({ down: [1.5, -15], side: [2.5, -15] }, { down: [0, 3], side: [0, 3] }),
     parts: [
-      box({ id: "sword-grip", joint: "handR", dx: -0.5, dy: -1.5, w: 1.5, h: 4, slot: "leather", z: HELD }),
-      box({ id: "sword-guard", joint: "handR", dx: -2.5, dy: -2.8, w: 5, h: 1.5, slot: "gold", z: HELD + 0.1 }),
-      box({ id: "sword-blade", joint: "handR", dx: -0.9, dy: -13.5, w: 2.4, h: 11, slot: "metal", z: HELD }),
-      box({ id: "sword-tip", joint: "handR", dx: -0.3, dy: -14.8, w: 1.2, h: 1.5, slot: "metal", tone: 1, z: HELD }),
+      shaft("sword-grip", "toolButt", "handR", 0.8, "leather"),
+      ell({ id: "sword-guard", joint: "handR", dy: -1.6, rx: 2.4, ry: 0.8, slot: "gold", z: { down: HELD + 0.1, side: HELD + 0.1, up: 1.7 } }),
+      shaft("sword-blade", "handR", "toolTip", 0.95, "metal"),
+      tipBox({ id: "sword-tip", dx: -0.3, dy: -1, w: 1.2, h: 1.5, slot: "metal", tone: 1 }),
     ],
   },
   {
     id: "staff",
     name: "Staff",
+    joints: tipJ({ down: [2, -19], side: [2.5, -19] }, { down: [-0.5, 5], side: [-0.5, 5] }),
     parts: [
-      box({ id: "staff-shaft", joint: "handR", dx: -0.7, dy: -17, w: 1.6, h: 24, slot: "wood", z: HELD }),
-      ell({ id: "staff-orb", joint: "handR", dy: -18.5, rx: 2.2, ry: 2.2, slot: "accent", z: HELD + 0.1 }),
-      box({ id: "staff-cap", joint: "handR", dx: -1.2, dy: -16.5, w: 2.6, h: 1.3, slot: "gold", z: HELD + 0.1 }),
+      shaft("staff-shaft", "toolButt", "toolTip", 0.85, "wood"),
+      tipEll({ id: "staff-orb", dy: -1.2, rx: 2.2, ry: 2.2, slot: "accent" }),
+      tipBox({ id: "staff-cap", dx: -1.2, dy: 0.3, w: 2.6, h: 1.3, slot: "gold" }),
     ],
   },
   {
     id: "bow",
     name: "Bow",
+    // the hand is the belly; both limbs sweep back toward the string
+    joints: [
+      { id: "toolTip", parent: "handR", rest: at({ down: [0.5, -9], side: [-2, -9] }) },
+      { id: "bowLow", parent: "handR", rest: at({ down: [0.5, 8], side: [-2, 8] }) },
+    ],
     parts: [
-      ell({ id: "bow-top", joint: "handR", dx: 0.2, dy: -8, rx: 1, ry: 2, slot: "wood", z: HELD }),
-      ell({ id: "bow-up", joint: "handR", dx: 1.4, dy: -4.5, rx: 1.1, ry: 2.4, slot: "wood", z: HELD }),
-      ell({ id: "bow-mid", joint: "handR", dx: 2, dy: -1, rx: 1.1, ry: 2.4, slot: "wood", z: HELD }),
-      ell({ id: "bow-low", joint: "handR", dx: 1.4, dy: 2.5, rx: 1.1, ry: 2.4, slot: "wood", z: HELD }),
-      ell({ id: "bow-bot", joint: "handR", dx: 0.2, dy: 6, rx: 1, ry: 2, slot: "wood", z: HELD }),
-      box({ id: "bow-string", joint: "handR", dx: -1.2, dy: -9, w: 1, h: 17, slot: "cloth2", tone: 2, z: HELD - 0.1 }),
+      shaft("bow-up", "handR", "toolTip", 0.9, "wood"),
+      shaft("bow-low", "handR", "bowLow", 0.9, "wood"),
+      { kind: "limb", id: "bow-string", from: "toolTip", to: "bowLow", r: 0.3, slot: "cloth2", tone: 2, z: { down: HELD - 0.1, side: HELD - 0.1, up: 1.5 } },
     ],
   },
   {
     id: "fishing-rod",
     name: "Fishing rod",
+    joints: [
+      ...tipJ({ down: [7, -13], side: [8, -12] }, { down: [-1, 2], side: [-1, 2] }),
+      { id: "rodLine", parent: "toolTip", rest: at({ down: [7.5, -1], side: [8.5, 0] }) },
+    ],
     parts: [
-      ell({ id: "rod-1", joint: "handR", dx: 0.5, dy: -1.5, rx: 1, ry: 2, slot: "wood", z: HELD }),
-      ell({ id: "rod-2", joint: "handR", dx: 2.2, dy: -5, rx: 1, ry: 2, slot: "wood", z: HELD }),
-      ell({ id: "rod-3", joint: "handR", dx: 4, dy: -8.5, rx: 1, ry: 2, slot: "wood", z: HELD }),
-      ell({ id: "rod-4", joint: "handR", dx: 5.8, dy: -12, rx: 1, ry: 2, slot: "wood", z: HELD }),
-      ell({ id: "rod-5", joint: "handR", dx: 7.4, dy: -15, rx: 0.9, ry: 1.6, slot: "wood", z: HELD }),
-      box({ id: "rod-line", joint: "handR", dx: 7.8, dy: -14, w: 1, h: 13, slot: "cloth2", tone: 2, z: HELD - 0.1 }),
-      box({ id: "rod-hook", joint: "handR", dx: 7.3, dy: -1.5, w: 2, h: 1.5, slot: "metal", z: HELD }),
+      shaft("rod-shaft", "toolButt", "toolTip", 0.8, "wood"),
+      { kind: "limb", id: "rod-line", from: "toolTip", to: "rodLine", r: 0.3, slot: "cloth2", tone: 2, z: { down: HELD - 0.1, side: HELD - 0.1, up: 1.5 } },
+      ell({ id: "rod-hook", joint: "rodLine", dy: 0.8, rx: 1, ry: 1, slot: "metal", z: { down: HELD, side: HELD, up: 1.6 } }),
     ],
   },
   {
@@ -175,14 +208,25 @@ const carried: Attachment[] = [
   {
     id: "shoulder-pole",
     name: "Shoulder pole with two baskets",
+    // bob joint under the chest: walk/carry clips lift the whole load 1px per step
+    joints: [{ id: "pole", parent: "chest", rest: [16, 18] }],
     parts: [
-      box({ id: "pole", joint: "chest", dx: -12.5, dy: -1.2, w: 25, h: 1.5, slot: "wood", z: BASKET_Z }),
-      box({ id: "pole-rope-l", joint: "chest", dx: -10.5, dy: 0.3, w: 1, h: 5, slot: "cloth2", z: BASKET_Z }),
-      box({ id: "pole-rope-r", joint: "chest", dx: 9.5, dy: 0.3, w: 1, h: 5, slot: "cloth2", z: BASKET_Z }),
-      ell({ id: "pole-basket-l", joint: "chest", dx: -10, dy: 7.5, rx: 3.8, ry: 2.8, slot: "leather", flat: 0.2, z: BASKET_Z }),
-      ell({ id: "pole-basket-r", joint: "chest", dx: 10, dy: 7.5, rx: 3.8, ry: 2.8, slot: "leather", flat: 0.2, z: BASKET_Z }),
-      box({ id: "pole-rim-l", joint: "chest", dx: -13.5, dy: 4.8, w: 7, h: 1.2, slot: "leather", tone: 1, z: BASKET_Z + 0.1 }),
-      box({ id: "pole-rim-r", joint: "chest", dx: 6.5, dy: 4.8, w: 7, h: 1.2, slot: "leather", tone: 1, z: BASKET_Z + 0.1 }),
+      // front/back: a wooden pole 3px wider than the shoulders, baskets hang from its ends on 1px cords
+      box({ id: "pole", joint: "pole", dx: -9, dy: -2, w: 18, h: 1.5, slot: "wood", z: BASKET_Z, views: ["down", "up"] }),
+      box({ id: "pole-cord-l", joint: "pole", dx: -8, dy: -0.5, w: 1, h: 5, slot: "cloth2", z: BASKET_Z, views: ["down", "up"] }),
+      box({ id: "pole-cord-r", joint: "pole", dx: 7, dy: -0.5, w: 1, h: 5, slot: "cloth2", z: BASKET_Z, views: ["down", "up"] }),
+      ell({ id: "pole-basket-l", joint: "pole", dx: -7.5, dy: 7.2, rx: 3.6, ry: 2.6, slot: "leather", flat: 0.2, z: BASKET_Z, views: ["down", "up"] }),
+      ell({ id: "pole-basket-r", joint: "pole", dx: 7.5, dy: 7.2, rx: 3.6, ry: 2.6, slot: "leather", flat: 0.2, z: BASKET_Z, views: ["down", "up"] }),
+      box({ id: "pole-rim-l", joint: "pole", dx: -11, dy: 4.6, w: 7, h: 1.2, slot: "leather", tone: 1, z: BASKET_Z + 0.1, views: ["down", "up"] }),
+      box({ id: "pole-rim-r", joint: "pole", dx: 4, dy: 4.6, w: 7, h: 1.2, slot: "leather", tone: 1, z: BASKET_Z + 0.1, views: ["down", "up"] }),
+      // profile: pole seen end-on over the shoulder, one basket in front, one behind
+      box({ id: "pole-s", joint: "pole", dx: -4, dy: -2, w: 8, h: 1.5, slot: "wood", z: BASKET_Z, views: ["side"] }),
+      box({ id: "pole-cord-sf", joint: "pole", dx: 3, dy: -0.5, w: 1, h: 5, slot: "cloth2", z: BASKET_Z + 0.2, views: ["side"] }),
+      box({ id: "pole-cord-sb", joint: "pole", dx: -4, dy: -0.5, w: 1, h: 5, slot: "cloth2", z: 1.4, views: ["side"] }),
+      ell({ id: "pole-basket-sf", joint: "pole", dx: 3.5, dy: 7.2, rx: 3.4, ry: 2.6, slot: "leather", flat: 0.2, z: BASKET_Z + 0.2, views: ["side"] }),
+      ell({ id: "pole-basket-sb", joint: "pole", dx: -3.5, dy: 7.2, rx: 3.4, ry: 2.6, slot: "leather", tone: -1, flat: 0.2, z: 1.4, views: ["side"] }),
+      box({ id: "pole-rim-sf", joint: "pole", dx: 0.5, dy: 4.6, w: 6, h: 1.2, slot: "leather", tone: 1, z: BASKET_Z + 0.3, views: ["side"] }),
+      box({ id: "pole-rim-sb", joint: "pole", dx: -6.5, dy: 4.6, w: 6, h: 1.2, slot: "leather", z: 1.5, views: ["side"] }),
     ],
   },
   {
