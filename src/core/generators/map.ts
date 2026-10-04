@@ -1,6 +1,8 @@
 import { rng, valueNoise, type Rng } from "../rng";
 import { emptyTileMap, ensureTile, renderTileMap } from "../tilemap";
 import type { StyleKit, TileMap } from "../types";
+import { animalGenerator } from "./animal";
+import { buildingGenerator } from "./building";
 import { environmentGenerator, treeHeight } from "./environment";
 import { colorIndex, decodeIndex } from "../palette";
 import { createSprite } from "../sprite";
@@ -46,8 +48,8 @@ const PROPS: Record<Biome, Weights> = {
   },
   // paddies stay clear of props; dry grass gets palms, bushes and tall grass
   "rice-village": {
-    grass: { palm: 4, bush: 3, "tall-grass": 3, flowers: 0.8, rock: 0.4, stump: 0.3 },
-    dirt: { rock: 0.5 },
+    grass: { palm: 4, bush: 4, "tall-grass": 3, flowers: 0.8, rock: 0.12 },
+    dirt: {},
   },
 };
 
@@ -118,17 +120,35 @@ function buildGround(biome: Biome, cols: number, rows: number, seed: number, r: 
         else if (n2(x / 4, y / 4) > 0.8) ground[at(x, y)] = "dirt";
       }
   } else if (biome === "rice-village") {
-    // rectangular paddies on both sides of the path, each kept one cell of bund away from path and each other
+    // 2-3 irregular paddies (noisy rounded rectangles), each ringed by a 1-tile dirt bund
     const taken = new Set(clear);
-    const attempts = Math.round((cols * rows) / 18);
-    for (let a = 0; a < attempts; a++) {
-      const w = r.int(4, Math.max(4, Math.min(9, Math.round(cols / 3)))), h = r.int(3, Math.max(3, Math.min(6, Math.round(rows / 3))));
-      const x0 = r.int(1, Math.max(1, cols - w - 1)), y0 = r.int(1, Math.max(1, rows - h - 1));
-      let ok = x0 + w < cols && y0 + h < rows;
-      for (let y = y0 - 1; ok && y <= y0 + h; y++) for (let x = x0 - 1; x <= x0 + w; x++) if (taken.has(at(x, y))) ok = false;
+    const want = cols * rows >= 500 ? 3 : 2;
+    const edge = valueNoise(seed ^ 0x2b1d, 16);
+    for (let a = 0, made = 0; a < 80 && made < want; a++) {
+      const w = r.int(6, Math.max(6, Math.round(cols / 2.5))), h = r.int(4, Math.max(4, Math.round(rows / 2.5)));
+      const x0 = r.int(2, Math.max(2, cols - w - 3)), y0 = r.int(2, Math.max(2, rows - h - 3));
+      const cells: number[] = [];
+      for (let y = y0; y < y0 + h; y++)
+        for (let x = x0; x < x0 + w; x++) {
+          const cx = (x + 0.5 - x0) / w * 2 - 1, cy = (y + 0.5 - y0) / h * 2 - 1;
+          const d = Math.pow(Math.abs(cx), 4) + Math.pow(Math.abs(cy), 4) + (edge(x / 2, y / 2) - 0.5) * 0.7;
+          if (d < 0.8) cells.push(at(x, y));
+        }
+      if (cells.length < 12) continue;
+      let ok = true;
+      for (const i of cells) {
+        const x = i % cols, y = Math.floor(i / cols);
+        for (let dy = -2; ok && dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) if (taken.has(at(Math.max(0, Math.min(cols - 1, x + dx)), Math.max(0, Math.min(rows - 1, y + dy))))) { ok = false; break; }
+      }
       if (!ok) continue;
-      for (let y = y0 - 1; y <= y0 + h; y++) for (let x = x0 - 1; x <= x0 + w; x++) taken.add(at(x, y));
-      for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) ground[at(x, y)] = "paddy";
+      made++;
+      for (const i of cells) { taken.add(i); ground[i] = "paddy"; }
+      for (const i of dilate(new Set(cells), cols, rows)) {
+        taken.add(i);
+        const x = i % cols, y = Math.floor(i / cols);
+        // bunds are 4-connected rings, no diagonal-only dirt
+        if (ground[i] !== "paddy" && (cells.includes(at(x, y - 1)) || cells.includes(at(x, y + 1)) || cells.includes(at(x - 1, y)) || cells.includes(at(x + 1, y)))) ground[i] = "dirt";
+      }
     }
   } else {
     const threshold = biome === "forest" ? 0.84 : biome === "winter" ? 0.78 : 0.8;
@@ -282,6 +302,44 @@ export const mapGenerator: Generator = {
     const clump = valueNoise((seed ^ 0xabc1) >>> 0, 16);
     const chance0 = BASE_CHANCE[biome] * density;
     const wide = kit.sizes.environment > T;
+    // rice-village: stilt houses beside the path (own rng so prop placement stays stable) and a few animals
+    const reserved = new Set<number>();
+    if (biome === "rice-village") {
+      const hr = rng(((seed >>> 0) ^ 0x51a7) >>> 0);
+      const spots: number[] = [];
+      for (let y = 2; y < rows; y++) for (let x = 1; x < cols - 1; x++) {
+        const i = y * cols + x;
+        if (ground[i] === "grass" && !path.has(i)) spots.push(i);
+      }
+      // prefer cells one step off the path
+      const near1 = dilate(path, cols, rows);
+      const cand = spots.filter((i) => near1.has(i));
+      for (let k = cand.length - 1; k > 0; k--) { const j = hr.int(0, k); [cand[k], cand[j]] = [cand[j], cand[k]]; }
+      const houses: number[] = [];
+      const nHouse = Math.max(2, Math.min(4, Math.round(cols / 8)));
+      const hv = ["", "-b"];
+      for (const i of cand) {
+        if (houses.length >= nHouse) break;
+        const x = i % cols, y = Math.floor(i / cols);
+        if (houses.some((h) => Math.abs((h % cols) - x) < 5 && Math.abs(Math.floor(h / cols) - y) < 3)) continue;
+        houses.push(i);
+      }
+      houses.forEach((i, n) => {
+        const sp = buildingGenerator.generate({ ...defaults(buildingGenerator), style: "stilt-house", access: n % 2 ? "ladder" : "stairs" }, kit, (seed + n * 7) >>> 0).rows[0].frames[0];
+        tm.deco[i] = ensureTile(tm, `stilt-house-${n}${hv[n % 2]}`, sp, true);
+        for (let dx = -1; dx <= 1; dx++) reserved.add(i + dx);
+        reserved.add(i - cols);
+      });
+      const animals = ["water-buffalo", "chicken", "chicken"];
+      const free = [...Array(cols * rows).keys()].filter((i) => ground[i] === "grass" && !reserved.has(i) && !path.has(i));
+      for (let n = 0; n < animals.length && free.length; n++) {
+        const i = free.splice(hr.int(0, free.length - 1), 1)[0];
+        const ar = animalGenerator.generate({ ...defaults(animalGenerator), species: animals[n] }, kit, (seed + n) >>> 0).rows;
+        const sp = (ar.find((x) => x.name === "idle-down") ?? ar[0]).frames[0];
+        tm.deco[i] = ensureTile(tm, `${animals[n]}-${n}`, sp, false);
+        reserved.add(i);
+      }
+    }
     const bigRowsOf = (kind: string) => Math.ceil(treeHeight(kit, kind) / T) - 1;
     for (let y = 0; y < rows; y++)
       for (let x = 0; x < cols; x++) {
@@ -289,7 +347,7 @@ export const mapGenerator: Generator = {
         const g = ground[i];
         // Always consume the same randomness per cell so edits to one rule don't reshuffle the whole map.
         const roll = r.next(), pickRoll = r.next(), vRoll = r.int(0, VARIANTS - 1);
-        if (g === "water" || path.has(i) || chance0 <= 0) continue;
+        if (g === "water" || path.has(i) || reserved.has(i) || chance0 <= 0) continue;
         const table = PROPS[biome][g];
         if (!table) continue;
         if (roll >= chance0 * (0.35 + 1.3 * clump(x / 3, y / 3))) continue;
