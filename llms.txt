@@ -33,3 +33,4 @@ The `ui` generator has an MMO HUD skin (`skin: mmo-gold|mmo-stone|mmo-dark`) wit
 ## Optional
 
 - [Repository](https://github.com/GRITui/pixel-builder)
+- Generator `foliage`: HD trees (params species oak|willow|maple-autumn|birch|fruit-tree|pine-hd|sakura, size small|medium|large, season spring|summer|fall|winter, leaf, accent, variant); rows idle + sway.
