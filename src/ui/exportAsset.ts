@@ -2,6 +2,9 @@
 import { createSprite, blit } from "../core/sprite";
 import type { Asset, StyleKit } from "../core/types";
 import { buildSpritesheet, canvasToBlob, downloadBlob, paletteFor, slug, spriteToCanvas } from "./render";
+import { materialLayers, writeAseprite } from "../core/aseprite";
+import { resolveRamps } from "../core/kit";
+import { flattenRamps } from "../core/palette";
 import { parseProject, serializeProject, type ProjectFile } from "../core/project";
 
 export const EXPORT_SCALES = [1, 2, 4, 8] as const;
@@ -47,6 +50,13 @@ export async function exportSpritesheet(asset: Asset, kit: StyleKit, scale: numb
     { blob: await canvasToBlob(canvas), name: png },
     { blob: jsonBlob(spritesheetJson(asset, png, frameW, frameH, scale)), name: `${base}-sheet@${scale}x.json` },
   ]);
+}
+
+/** Aseprite file: indexed with the kit palette, a layer per material, a tag per animation row. */
+export async function exportAseprite(asset: Asset, kit: StyleKit): Promise<void> {
+  const { layers, layerOf } = materialLayers(asset.rows);
+  const bytes = writeAseprite({ rows: asset.rows, palette: flattenRamps(resolveRamps(kit)), fps: asset.fps, layers, layerOf });
+  await downloadAll([{ blob: new Blob([bytes as BlobPart], { type: "application/octet-stream" }), name: `${slug(asset.name)}.aseprite` }]);
 }
 
 /**
