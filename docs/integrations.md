@@ -505,6 +505,8 @@ image-reading tool, since looking at the output is part of the workflow.
 
 ## Tool reference (same names in MCP and CLI)
 
+MMO HUD: `generate_asset` with `generator: "ui"` and `skin: "mmo-gold" | "mmo-stone" | "mmo-dark"` renders glossy bars and frames; kinds `unit-frame`, `minimap-frame`, `skill-bar`, `chat-panel`, `quest-tracker`, `tooltip`, `nameplate` and `damage-numbers` are new (see `docs/img/mmo-hud.png`). `skin` defaults to `wood`, which is unchanged.
+
 `get_style_guide`, `list_generators`, `generate_asset`, `generate_variations`,
 `paint_asset`, `edit_asset`, `edit_region` (change only a rect/cells region: your own legend `rows`, or a `prompt` for the server model when `ANTHROPIC_API_KEY` is set), `list_assets`, `get_asset`, `delete_asset`,
 `export_asset` (png, spritesheet, tiled, svg, aseprite, tiled-tileset, godot, unity, atlas), `import_image`, `import_svg`, `list_kits`, `create_kit`, `update_kit` (refuses `locked` kits; fork with `create_kit`),

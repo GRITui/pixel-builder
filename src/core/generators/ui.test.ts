@@ -1,4 +1,6 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import { glyph } from "../font";
 import { KIT_PRESETS } from "../kit";
 import { decodeIndex, PALETTE_SIZE } from "../palette";
 import { rng } from "../rng";
@@ -138,5 +140,93 @@ describe("weather icons keep falling pieces apart from the cloud", () => {
         const top = rows.indexOf(true), bottom = rows.lastIndexOf(true);
         expect(rows.slice(top, bottom + 1).includes(false)).toBe(true);
       }
+  });
+});
+
+describe("MMO UI skins", () => {
+  const OLD_KINDS = ["button", "panel", "slot", "bar", "icon-frame", "cursor", "tab", "checkbox", "dialog-arrow", "clock", "time-panel", "weather-icon", "season-icon", "date-panel"];
+  const NEW_KINDS = ["unit-frame", "minimap-frame", "skill-bar", "chat-panel", "quest-tracker", "tooltip", "nameplate", "damage-numbers"];
+  const SKINS = ["mmo-gold", "mmo-stone", "mmo-dark"];
+  const frames = (r: ReturnType<typeof gen>) => r.rows.flatMap((x) => x.frames);
+  type FR = { x: number; y: number; w: number; h: number };
+
+  it("default (wood) output of every existing kind is byte-identical to before skins existed", () => {
+    const h = createHash("sha1");
+    for (const k of OLD_KINDS)
+      for (const style of ["bevel", "ornate"])
+        for (const kit of KIT_PRESETS.slice(0, 2))
+          for (const row of gen(k, { style }, kit, 3).rows) for (const f of row.frames) h.update(Buffer.from(f.data)).update(`${f.w}x${f.h}`);
+    expect(h.digest("hex")).toBe("28682c6cd01f652041984fe4ae8d1ed2983dd580");
+  });
+
+  it("new kinds are registered and every kind x skin x kit renders valid, deterministic sprites", () => {
+    for (const k of NEW_KINDS) expect(UI_KINDS).toContain(k);
+    for (const kit of KIT_PRESETS)
+      for (const kind of NEW_KINDS)
+        for (const skin of SKINS) {
+          const a = gen(kind, { skin }, kit, 5), b = gen(kind, { skin }, kit, 5);
+          expect(a).toEqual(b);
+          for (const f of frames(a)) {
+            expect(f.w).toBeGreaterThan(4);
+            expect(f.data).toHaveLength(f.w * f.h);
+            expect(valid(f)).toBe(true);
+            expect(f.data.some(Boolean)).toBe(true);
+          }
+        }
+  });
+
+  it("expected sizes and rows", () => {
+    expect([first(gen("unit-frame")).w, first(gen("unit-frame")).h]).toEqual([80, 30]);
+    expect(first(gen("unit-frame", { width: 100 })).w).toBe(100);
+    expect([first(gen("minimap-frame")).w, first(gen("minimap-frame")).h]).toEqual([44, 44]);
+    expect(first(gen("minimap-frame", { shape: "square", width: 60 })).w).toBe(60);
+    const sb = gen("skill-bar", { slots: 5 });
+    expect(sb.rows.map((r) => r.name)).toEqual(["bar", "sweep"]);
+    expect(first(sb).w).toBe(6 + 5 * 20 + 4 * 2);
+    expect(sb.rows[1].frames).toHaveLength(9);
+    const chat = first(gen("chat-panel", { width: 120, height: 64 }));
+    expect([chat.w, chat.h]).toEqual([120, 64]);
+    expect(gen("damage-numbers").rows[0].frames).toHaveLength(4);
+    expect(first(gen("damage-numbers", { crit: true })).h).toBeGreaterThan(first(gen("damage-numbers")).h);
+  });
+
+  it("cooldown sweeps grow monotonically; params change the picture", () => {
+    const sweep = gen("skill-bar").rows[1].frames;
+    const changed = (s: Sprite) => s.data.reduce((a, v, i) => a + (v !== sweep[0].data[i] ? 1 : 0), 0);
+    const counts = sweep.map(changed);
+    for (let i = 1; i < counts.length; i++) expect(counts[i]).toBeGreaterThanOrEqual(counts[i - 1]);
+    expect(counts[8]).toBeGreaterThan(counts[1]);
+    expect(first(gen("skill-bar", { cooldown: 5 }))).not.toEqual(first(gen("skill-bar", { cooldown: 0 })));
+    expect(first(gen("unit-frame", { hp: 20 }))).not.toEqual(first(gen("unit-frame", { hp: 90 })));
+    expect(first(gen("unit-frame", { portrait: "hero" }))).not.toEqual(first(gen("unit-frame", { portrait: "none" })));
+    expect(first(gen("damage-numbers", { tone: "red" }))).not.toEqual(first(gen("damage-numbers", { tone: "yellow" })));
+  });
+
+  it("skins re-skin the existing bar/panel/button/slot kinds", () => {
+    for (const kind of ["bar", "panel", "button", "slot", "icon-frame"]) {
+      const wood = first(gen(kind));
+      for (const skin of SKINS) {
+        const s = first(gen(kind, { skin }));
+        expect(valid(s)).toBe(true);
+        expect(s).not.toEqual(wood);
+      }
+    }
+    const bar = gen("bar", { skin: "mmo-gold", width: 48, height: 8 });
+    expect(bar.rows.map((r) => r.name)).toEqual(["frame", "fill"]);
+    const rect = (bar.meta as { fillRect: FR }).fillRect;
+    expect(bar.rows[1].frames[0].data.filter(Boolean)).toHaveLength(rect.w * rect.h);
+  });
+
+  it("glossy fill is brighter on the shine row than on the belly", () => {
+    const r = gen("bar", { skin: "mmo-gold", width: 48, height: 10, accent: "cloth2" });
+    const rect = (r.meta as { fillRect: FR }).fillRect;
+    const mid = rect.x + (rect.w >> 1);
+    expect(level(r.rows[1].frames[0], mid, rect.y + 1)).toBeGreaterThan(level(r.rows[1].frames[0], mid, rect.y + rect.h - 1));
+  });
+
+  it("font additions leave existing glyphs unchanged", () => {
+    const h = createHash("sha1").update(JSON.stringify([..."0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ:/-. "].map((c) => glyph(c)))).digest("hex");
+    expect(h).toBe("c3c5fc370bf6ee9ac3bcb7c9b17831ff7cc08030");
+    for (const ch of "+=>%!,()?") expect(glyph(ch).flat().some(Boolean)).toBe(true);
   });
 });
