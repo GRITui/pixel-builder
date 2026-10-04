@@ -201,6 +201,37 @@ export const mapGenerator: Generator = {
       const rr = r.next(), rv = r.int(1, VARIANTS - 1);
       const v = rr < 0.4 ? 0 : (rv + Math.floor(vNoise(x / 2, y / 2) * VARIANTS)) % VARIANTS;
       if (g === "water") { tm.ground[i] = groundTile(g, 0); continue; }
+      if (path.has(i) && g === PATH_GROUND[biome]) {
+        // path cell: ragged border of the neighbouring ground on sides that touch non-path land
+        const nb = (dx: number, dy: number): Ground | null => {
+          const xx = x + dx, yy = y + dy;
+          if (xx < 0 || yy < 0 || xx >= cols || yy >= rows) return null;
+          const j = yy * cols + xx;
+          return path.has(j) || ground[j] === "water" ? null : ground[j];
+        };
+        const sides = [nb(0, -1), nb(1, 0), nb(0, 1), nb(-1, 0)];
+        let emask = 0;
+        let nground: Ground | null = null;
+        sides.forEach((sg, k) => { if (sg) { emask |= 1 << k; nground ??= sg; } });
+        const diag: [number, number, number][] = [[-1, -1, 16], [1, -1, 32], [1, 1, 64], [-1, 1, 128]];
+        const covered = [(1 | 8), (1 | 2), (4 | 2), (4 | 8)];
+        diag.forEach(([dx, dy, bit], k) => {
+          if (emask & covered[k]) return;
+          const dg = nb(dx, dy);
+          if (dg && !path.has((y + dy) * cols + x) ) { emask |= bit; nground ??= dg; }
+        });
+        if (emask) {
+          const sv = v % 2;
+          const name = `${g}-edge-${emask}-${nground}${sv ? "b" : ""}`;
+          let idx = tileCache.get(name);
+          if (idx === undefined) {
+            idx = ensureTile(tm, name, pathEdgeTile(baseSprite(g, sv), baseSprite(nground!, sv), emask), false);
+            tileCache.set(name, idx);
+          }
+          tm.ground[i] = idx;
+          continue;
+        }
+      }
       // 4-neighbour water mask (N,E,S,W) plus diagonal notches for corners not already covered
       let mask = (isWater(x, y - 1) ? 1 : 0) | (isWater(x + 1, y) ? 2 : 0) | (isWater(x, y + 1) ? 4 : 0) | (isWater(x - 1, y) ? 8 : 0);
       if (!(mask & 1) && !(mask & 8) && isWater(x - 1, y - 1)) mask |= 16;
@@ -309,6 +340,46 @@ function shoreTile(land: Sprite, water: Sprite, mask: number): Sprite {
     set(cx, cy, foam);
     set(cx + sx, cy, foam);
     set(cx, cy + sy, foam);
+  };
+  if (mask & 16) notch(0, 0, 1, 1);
+  if (mask & 32) notch(T - 1, 0, -1, 1);
+  if (mask & 64) notch(T - 1, T - 1, -1, -1);
+  if (mask & 128) notch(0, T - 1, 1, -1);
+  return out;
+}
+
+/**
+ * Path tile whose non-path sides fray into the neighbouring ground: a ragged 1-2px border
+ * (depth depends only on the position along the edge so adjacent edge tiles line up),
+ * rounded outer corners where two sides meet and a small notch for diagonal-only neighbours.
+ * mask bits as shoreTile.
+ */
+function pathEdgeTile(pathSp: Sprite, ground: Sprite, mask: number): Sprite {
+  const T = pathSp.w;
+  const out = createSprite(T, T);
+  for (let i = 0; i < pathSp.data.length; i++) out.data[i] = pathSp.data[i];
+  const set = (x: number, y: number) => { if (x >= 0 && y >= 0 && x < T && y < T) out.data[y * T + x] = ground.data[y * T + x]; };
+  const depth = (i: number, side: number) => {
+    const h = Math.imul(i + 1 + side * 31, 2654435761) >>> 0;
+    return 1 + ((h >>> 13) % 5 < 2 ? 1 : 0) + (T >= 24 && (h >>> 7) % 7 === 0 ? 1 : 0);
+  };
+  const N = mask & 1, E = mask & 2, S = mask & 4, W = mask & 8;
+  for (let i = 0; i < T; i++) {
+    if (N) for (let d = 0; d < depth(i, 0); d++) set(i, d);
+    if (S) for (let d = 0; d < depth(i, 2); d++) set(i, T - 1 - d);
+    if (W) for (let d = 0; d < depth(i, 3); d++) set(d, i);
+    if (E) for (let d = 0; d < depth(i, 1); d++) set(T - 1 - d, i);
+  }
+  const corner = (cx: number, cy: number, sx: number, sy: number) => {
+    for (let dy = 0; dy < 4; dy++)
+      for (let dx = 0; dx < 4; dx++) if (dx + dy <= 3 - (T < 12 ? 1 : 0)) set(cx + sx * dx, cy + sy * dy);
+  };
+  if (N && W) corner(0, 0, 1, 1);
+  if (N && E) corner(T - 1, 0, -1, 1);
+  if (S && E) corner(T - 1, T - 1, -1, -1);
+  if (S && W) corner(0, T - 1, 1, -1);
+  const notch = (cx: number, cy: number, sx: number, sy: number) => {
+    set(cx, cy); set(cx + sx, cy); set(cx, cy + sy);
   };
   if (mask & 16) notch(0, 0, 1, 1);
   if (mask & 32) notch(T - 1, 0, -1, 1);

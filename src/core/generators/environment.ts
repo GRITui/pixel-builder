@@ -121,44 +121,69 @@ function pine(c: Ctx) {
 
 function palm(c: Ctx) {
   const { P, S, k, r, G, R1 } = c;
+  const ls = P.lightSide || 1;
   const cx = S / 2;
   const lean = (c.v % 2 ? 1 : -1) * 3 * k;
   const x0 = cx - 2 * k, y0 = G - 1;
-  const x2 = cx + 2 * k + lean, y2 = Yu(c, 47);
+  const x2 = cx + 2 * k + lean, y2 = Yu(c, 45);
   const x1 = cx - 4 * k + lean * 0.3, y1 = Yu(c, 26);
   const tw = R1(4);
-  for (let t = 0; t <= 1.0001; t += 1 / 150) {
+  // segmented trunk: alternating tone rings every ~2px of arc, slightly tapering
+  let prevY = -1, ring = 0;
+  for (let t = 0; t <= 1.0001; t += 1 / 200) {
     const x = (1 - t) ** 2 * x0 + 2 * (1 - t) * t * x1 + t * t * x2;
-    const y = (1 - t) ** 2 * y0 + 2 * (1 - t) * t * y1 + t * t * y2;
-    P.cylinder(Math.round(x - tw / 2), Math.round(y), tw, 1, c.trunk, { tone: Math.floor(t * 14) % 2 ? -1 : 0 });
+    const y = Math.round((1 - t) ** 2 * y0 + 2 * (1 - t) * t * y1 + t * t * y2);
+    if (y === prevY) continue;
+    prevY = y;
+    ring++;
+    const w = Math.max(2, Math.round(tw * (1 - 0.2 * t)));
+    P.cylinder(Math.round(x - w / 2), y, w, 1, c.trunk, { tone: Math.floor(ring / Math.max(1, Math.round(1.5 * k + 0.5))) % 2 ? -1 : 0 });
   }
   P.box(Math.round(x0 - tw / 2) - 1, G - R1(3), tw + 2, R1(3), c.trunk, [0, 0, 1], { tone: -1 });
   const hx = x2, hy = y2;
-  // [angle, length, droop, tone]: back fronds first (darker), then the front ones
-  const fronds: [number, number, number, number][] =
+  // [angle deg, length, droop, back]: back fronds first, then the front ones
+  const fronds: [number, number, number, boolean][] =
     k < 1
-      ? [[-90, 9, 2, -1], [-150, 11, 5, 0], [-30, 11, 5, 0], [176, 10, 7, 0], [4, 10, 7, 0]]
+      ? [[-100, 8, 2, true], [-150, 10, 5, false], [-30, 10, 5, false], [178, 9, 7, false], [2, 9, 7, false]]
       : [
-          [-100, 10, 3, -1], [-68, 10, 4, -1], [-150, 13, 7, -1], [-30, 13, 7, -1],
-          [-125, 14, 8, 0], [-52, 14, 8, 0], [172, 13, 11, 0], [8, 13, 11, 0],
+          [-100, 8, 3, true], [-78, 8, 3, true], [-145, 13, 8, true], [-35, 13, 8, true],
+          [-165, 13, 10, false], [-15, 13, 10, false], [150, 11, 12, false], [30, 11, 12, false],
         ];
-  for (const [deg, len, droop, tone] of fronds) {
+  const nF = c.v % 3 === 0 ? fronds.length - 1 : fronds.length;
+  // coconuts hang under the crown, behind the front fronds
+  const cr = Math.max(1, 1.8 * k);
+  P.ellipse(hx - 1.6 * k, hy + 2.2 * k, cr, cr, c.trunk, { tone: -1 });
+  P.ellipse(hx + 1.6 * k, hy + 2.4 * k, cr, cr, c.trunk, { tone: -1 });
+  if (k >= 1) P.ellipse(hx, hy + 3.8 * k, cr, cr, c.trunk, { tone: -1 });
+  for (const [deg, len, droop, back] of fronds.slice(0, nF)) {
     const a = (deg * Math.PI) / 180 + (r.next() - 0.5) * 0.12;
-    const Ln = len * 1.3 * k;
-    for (let s = 0; s <= Ln; s += Math.max(0.7, k * 0.7)) {
-      const f = s / Ln;
-      const px = hx + Math.cos(a) * s;
-      const py = hy + Math.sin(a) * s + f * f * droop * k;
-      const w = Math.max(0.9, (2.2 - 1.3 * f) * k);
-      P.ellipse(px, py, w, Math.max(0.8, w * 0.65), c.foliage, { tone });
+    const Ln = len * 1.5 * k;
+    const steps = Math.max(4, Math.round(Ln / 1.2));
+    const pts: { x: number; y: number; w: number }[] = [];
+    for (let i = 0; i <= steps; i++) {
+      const f = i / steps;
+      pts.push({
+        x: hx + Math.cos(a) * Ln * f,
+        y: hy + Math.sin(a) * Ln * f + f * f * droop * k,
+        w: Math.max(0.5, (3 * Math.sin(Math.PI * Math.min(1, f * 0.85 + 0.12)) + 0.4) * k * (back ? 0.85 : 1)),
+      });
     }
+    const dark = back ? -2 : -1;
+    for (let i = 0; i < steps; i++) {
+      const A = pts[i], B = pts[i + 1];
+      // upper edge faces the light, underside faces down and away from it
+      P.poly([[A.x, A.y - A.w], [B.x, B.y - B.w], [B.x, B.y + 0.2], [A.x, A.y + 0.2]], c.foliage, [ls * 0.5, -0.7, 0.6], { tone: back ? -1 : 0 });
+      P.poly([[A.x, A.y], [B.x, B.y], [B.x, B.y + B.w], [A.x, A.y + A.w]], c.foliage, [-ls * 0.3, 0.8, 0.4], { tone: dark });
+    }
+    // lighter rim along the top edge
+    if (!back && k >= 0.9) for (let i = 1; i < steps - 1; i += 2) P.px(pts[i].x, pts[i].y - pts[i].w, c.foliage, 4);
   }
-  P.ellipse(hx - 1.5 * k, hy + 2.5 * k, 1.8 * k, 1.8 * k, c.trunk, { tone: -1 });
-  P.ellipse(hx + 1.5 * k, hy + 3 * k, 1.8 * k, 1.8 * k, c.trunk, { tone: -1 });
+  P.ellipse(hx, hy + 0.5 * k, 2 * k, 1.6 * k, c.foliage, { tone: 0 });
 }
 
 function deadTree(c: Ctx) {
   const { P, S, k, r, G, R1 } = c;
+  const ls = P.lightSide || 1;
   const cx = S / 2;
   const top = Math.round(Yu(c, 58));
   const phase = c.v * 1.3;
@@ -170,22 +195,36 @@ function deadTree(c: Ctx) {
     P.cylinder(Math.round(xAt(y) - w / 2), y, w, 1, c.trunk);
   }
   P.box(Math.round(cx - R1(4)) - 1, G - R1(3), R1(8) + 2, R1(3), c.trunk, [0, 0, 1], { tone: -1 });
-  const branch = (fromY: number, dx: number, dy: number, fork: boolean) => {
+  // limb: thick (2px) near the trunk, 1px toward the tip, shadow on the side away from the light
+  const limb = (x0: number, y0: number, x1: number, y1: number, thick: number) => {
+    const n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0), 1);
+    for (let i = 0; i <= n; i++) {
+      const f = i / n;
+      const x = Math.round(x0 + (x1 - x0) * f), y = Math.round(y0 + (y1 - y0) * f);
+      const wide = thick >= 2 && f < 0.55;
+      P.px(x, y, c.trunk, 3);
+      if (wide) {
+        if (Math.abs(x1 - x0) < Math.abs(y1 - y0)) P.px(x - ls, y, c.trunk, 1);
+        else P.px(x, y + 1, c.trunk, 1);
+      }
+    }
+  };
+  const branch = (fromY: number, dx: number, dy: number, fork: boolean, thick = 2) => {
     const x0 = Math.round(xAt(fromY)), y0 = Math.round(fromY);
     const x1 = Math.round(x0 + dx * k), y1 = Math.round(y0 + dy * k);
-    if (k >= 1) P.line(x0, y0 + 1, x1, y1 + 1, c.trunk, 1);
-    P.line(x0, y0, x1, y1, c.trunk, k >= 1 ? 2 : 1);
+    limb(x0, y0, x1, y1, thick);
     if (fork) {
-      const mx = Math.round((x0 + x1) / 2), my = Math.round((y0 + y1) / 2);
-      const fx = Math.round(mx + Math.sign(dx) * 4 * k), fy = Math.round(my - 7 * k);
-      P.line(mx, my, fx, fy, c.trunk, k >= 1 ? 2 : 1);
+      const f = 0.45;
+      const mx = Math.round(x0 + (x1 - x0) * f), my = Math.round(y0 + (y1 - y0) * f);
+      limb(mx, my, Math.round(mx + Math.sign(dx) * 5 * k), Math.round(my - 7 * k), thick);
+      // twig off the main limb tip
+      limb(x1, y1, Math.round(x1 - Math.sign(dx) * 2 * k), Math.round(y1 - 4 * k), 1);
     }
-    if (k >= 1) P.px(x1, y1 - 1, c.trunk, 3);
   };
   branch(Yu(c, 38), -10 + r.int(-1, 1), -13, true);
   branch(Yu(c, 28), 9 + r.int(-1, 1), -10, c.v % 2 === 0);
-  branch(Yu(c, 47), 6, -7, false);
-  branch(Yu(c, 20), -7, -5, false);
+  branch(Yu(c, 47), 6, -7, k >= 1 && c.v % 3 === 0, 2);
+  if (k >= 1) branch(Yu(c, 20), -7, -5, false, 1);
   P.px(Math.round(cx), Math.round(Yu(c, 14)), c.trunk, 0); // knot hole
 }
 

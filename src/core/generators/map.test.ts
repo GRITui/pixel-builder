@@ -154,6 +154,16 @@ describe("map generator", () => {
     }
   });
 
+  it("adds ragged path edge tiles that are opaque and tile-sized", () => {
+    const tm = tilemap({ biome: "meadow", path: true, cols: 28, rows: 20 }, 8);
+    const edges = tm.tiles.filter((t) => /-edge-\d+/.test(t.name));
+    expect(edges.length).toBeGreaterThan(0);
+    for (const t of edges) {
+      expect([t.sprite.w, t.sprite.h]).toEqual([kit.sizes.tile, kit.sizes.tile]);
+      expect(t.sprite.data.every((v) => v !== 0)).toBe(true);
+    }
+  });
+
   it("adds shore transition tiles where land meets water", () => {
     const tm = tilemap({ biome: "island", cols: 24, rows: 24 }, 3);
     expect(count(tm, (n) => /-shore-\d+/.test(n))).toBeGreaterThan(0);
