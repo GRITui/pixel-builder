@@ -7,9 +7,9 @@ import { HUMANOID_RIGS } from "./humanoid";
 import { HUMANOID_JOINTS } from "./joints";
 
 const COUNTS: Record<string, [number, number]> = {
-  idle: [2, 4], walk: [4, 4], run: [6, 6], attack: [4, 4], farm: [4, 4], carry: [4, 4], sit: [1, 2],
+  idle: [2, 4], walk: [4, 4], run: [6, 6], attack: [4, 4], farm: [4, 4], carry: [4, 4], sit: [1, 2], chop: [5, 5], water: [5, 5], mine: [6, 6], fish: [6, 6],
 };
-const TOOL_JOINTS = ["toolTip", "pole"];
+const TOOL_JOINTS = ["toolTip", "pole", "rodLine"];
 const rigs: RigDef[] = [EXAMPLE_RIG, ...HUMANOID_RIGS];
 
 describe("humanoid clips", () => {

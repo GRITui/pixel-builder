@@ -8,7 +8,15 @@ import { num, PAINT, str, type Generator, type Params } from "./types";
 export const OBJECT_KINDS = [
   "chest", "chest-open", "barrel", "crate", "potion", "sword", "axe", "shield", "bow", "coin", "key",
   "torch", "sign", "pot", "gem", "scroll", "heart", "bomb", "book", "mushroom-item", "apple",
+  "hoe", "watering-can", "tool-axe", "pickaxe", "sickle", "hammer", "fishing-rod", "seed-bag",
 ] as const;
+
+/**
+ * Farming tool kinds: rows `icon` (1 frame) and `use` (effect frames on the same canvas, to overlay
+ * on a map tile). `tool-axe` is the existing `axe` drawing plus a `use` row; `axe` itself is untouched.
+ */
+export const TOOL_KINDS = ["hoe", "watering-can", "tool-axe", "pickaxe", "sickle", "hammer", "fishing-rod", "seed-bag"] as const;
+const USE_FRAMES = 4;
 
 /** Choices for `main` / `accent`: "natural" keeps each kind's own colours, or re-skin with any paint material. */
 const OBJECT_MATS: string[] = ["natural", ...PAINT];
@@ -36,6 +44,14 @@ const NATURAL: Record<string, [Material, Material]> = {
   book: ["cloth2", "gold"],
   "mushroom-item": ["cloth2", "sand"],
   apple: ["cloth2", "foliage"],
+  hoe: ["metal", "wood"],
+  "watering-can": ["water", "metal"],
+  "tool-axe": ["metal", "wood"],
+  pickaxe: ["metal", "wood"],
+  sickle: ["metal", "wood"],
+  hammer: ["metal", "wood"],
+  "fishing-rod": ["wood", "cloth2"],
+  "seed-bag": ["leather", "sand"],
 };
 
 /** Painter wrapper that takes coordinates on a 16px design grid and scales them to the kit's object size. */
@@ -459,15 +475,220 @@ function apple({ d, m, a, v }: Ctx) {
   if (v % 2 === 1) d.px(10, 11, m, 0);
 }
 
+// ---------------------------------------------------------------- farming tools (icons)
+/** Two-pixel-wide diagonal handle: lit stroke on the light side, shade stroke opposite. */
+function stick(d: D, x0: number, y0: number, x1: number, y1: number, m: Material, side: number) {
+  const o = side > 0 ? -1 : 1;
+  d.line(x0, y0, x1, y1, m, 3);
+  d.line(x0 + o, y0, x1 + o, y1, m, 1);
+}
+
+function hoe({ d, m, a, side }: Ctx) {
+  stick(d, 3, 14, 10, 5, a, side);
+  d.poly([[8, 3], [12, 2], [14, 5], [14, 10], [12, 11], [11, 7], [9, 6]], m, [0.2, -0.2, 1]);
+  d.rect(9, 3, 3, 1, m, 4);
+  d.line(13, 6, 13, 9, m, 2);
+}
+
+function wateringCan({ d, m, a, v }: Ctx) {
+  // handle arcs over the top, body is a lit cylinder, spout climbs to a rose
+  d.line(4, 8, 5, 4, a, 2); d.line(5, 4, 9, 4, a, 2); d.line(9, 4, 10, 8, a, 2);
+  d.column(2, 9, (i) => (i === 0 || i === 8 ? [8, 14] : [7, 14]), m);
+  d.rect(3, 7, 7, 1, m, 4);
+  d.rect(3, 8, 7, 1, a, 2);
+  d.line(10, 12, 13, 7, a, 3);
+  d.line(9, 12, 12, 7, a, 1);
+  d.ell(13, 6, 1.9, 1.5, a, 0.4);
+  d.hpx(4, 10, m, 4); d.hpx(4, 11, m, 4);
+  if (v % 2 === 1) d.rect(4, 12, 5, 1, a, 2);
+}
+
+function pickaxe({ d, m, a, side }: Ctx) {
+  stick(d, 4, 14, 9, 5, a, side);
+  d.poly([[2, 7], [4, 3], [9, 2], [13, 3], [14, 7], [12, 8], [11, 5], [9, 4], [5, 5], [3, 8]], m, [0.1, -0.3, 1]);
+  d.rect(5, 3, 5, 1, m, 4);
+  d.px(2, 7, m, 2); d.px(14, 7, m, 2);
+  d.rect(8, 4, 2, 2, a, 2);
+}
+
+function sickle({ d, m, a, side }: Ctx) {
+  stick(d, 3, 14, 7, 8, a, side);
+  d.poly([[6, 9], [6, 6], [8, 3], [12, 1], [15, 2], [15, 4], [12, 3], [10, 5], [9, 8], [9, 9]], m, [0.2, -0.3, 1]);
+  d.px(13, 2, m, 4); d.px(9, 4, m, 4);
+  d.line(10, 4, 14, 3, m, 2);
+}
+
+function hammer({ d, m, a, side }: Ctx) {
+  stick(d, 3, 14, 9, 6, a, side);
+  d.box(6, 2, 9, 5, m, [0, -0.2, 1]);
+  d.rect(6, 2, 9, 1, m, 4);
+  d.rect(6, 6, 9, 1, m, 1);
+  d.rect(13, 3, 2, 3, m, 2);
+  d.hpx(7, 3, m, 4);
+}
+
+function fishingRod({ d, m, a }: Ctx) {
+  d.line(2, 14, 13, 2, m, 3);
+  d.line(3, 14, 14, 2, m, 1);
+  d.ell(5.5, 11, 2, 2, "metal", 0.3);
+  d.px(5, 10, "metal", 4);
+  // line drops from the tip to a small hook
+  d.line(14, 3, 14, 11, a, 3);
+  d.px(13, 12, "metal", 4); d.px(13, 13, "metal", 3); d.px(14, 13, "metal", 2);
+  d.px(12, 12, "metal", 3);
+}
+
+function seedBag({ d, m, a, v }: Ctx) {
+  d.ell(8, 10, 5.6, 4.8, m, 0.1);
+  d.poly([[6, 3], [10, 3], [11, 6], [5, 6]], m, [0, -0.2, 1], 1);
+  d.rect(4, 6, 8, 1, a, 3); // tie
+  d.px(6, 2, m, 3); d.px(9, 2, m, 3); d.rect(6, 3, 4, 1, m, 2);
+  // label with a sprout
+  d.ell(8, 10.5, 2.6, 2.4, a, 0.5);
+  d.px(8, 11, "foliage", 3); d.px(8, 10, "foliage", 4);
+  d.px(7, 9, "foliage", 4); d.px(9, 9, "foliage", 3);
+  d.hpx(4, 9, m, 4);
+  if (v % 2 === 1) d.px(3, 13, a, 3);
+}
+
+// ---------------------------------------------------------------- tool use effects (`use` row)
+/** 1x2 particle, bright on top. */
+function drop(d: D, x: number, y: number, m: Material, hi = 4, lo = 3) {
+  d.px(x, y, m, hi);
+  d.px(x, y + 1, m, lo);
+}
+/** 2x2 chunk with a lit corner and a shaded one. */
+function chunk(d: D, x: number, y: number, m: Material, hi = 4, mid = 3, lo = 1) {
+  d.px(x, y, m, hi); d.px(x + 1, y, m, mid);
+  d.px(x, y + 1, m, mid); d.px(x + 1, y + 1, m, lo);
+}
+const ease = (t: number) => t * t;
+
+function useWateringCan({ d, f }: Ctx) {
+  // three drops leave the rose at top-left and arc down; staggered so the stream loops
+  for (let i = 0; i < 3; i++) {
+    const t = ((f + i * (USE_FRAMES / 3)) / USE_FRAMES) % 1;
+    drop(d, Math.round(2 + t * 9), Math.round(3 + ease(t) * 9), "water");
+  }
+  for (const t of [0.15, 0.55]) d.px(Math.round(2 + ((f / USE_FRAMES + t) % 1) * 8), 12 + (f % 2), "water", 3);
+}
+
+function useAxe({ d, f }: Ctx) {
+  // wood chips burst from the cut and fall
+  const chips: [number, number][] = [[-1, -1.2], [1.2, -1], [-1.5, -0.2], [1.6, -0.3], [0.2, -1.6]];
+  chips.forEach(([vx, vy], i) => {
+    const t = f + 1;
+    const x = 8 + vx * t * 1.7, y = 9 + vy * t * 1.7 + 0.45 * t * t;
+    if (f === USE_FRAMES - 1 && i % 2) return;
+    d.rect(Math.round(x), Math.round(y), 2, 1, "wood", i % 2 ? 4 : 3);
+    d.px(Math.round(x), Math.round(y) + 1, "wood", 2);
+  });
+  if (f === 0) { d.px(8, 8, "sand", 4); d.px(9, 9, "sand", 4); d.px(7, 9, "sand", 4); }
+}
+
+function sparkStar(d: D, x: number, y: number, r: number) {
+  d.px(x, y, "gold", 4);
+  for (let i = 1; i <= r; i++) {
+    d.px(x - i, y, "gold", i === 1 ? 4 : 3); d.px(x + i, y, "gold", i === 1 ? 4 : 3);
+    d.px(x, y - i, "gold", i === 1 ? 4 : 3); d.px(x, y + i, "gold", i === 1 ? 4 : 3);
+  }
+}
+
+function usePickaxe({ d, f }: Ctx) {
+  // flash on impact, then rock chips and sparks fly out
+  const hit = 8, base = 11;
+  if (f === 0) { sparkStar(d, hit, base - 1, 2); return; }
+  const dirs: [number, number][] = [[-2.2, -1.6], [2.2, -1.8], [-1.2, -2.6], [1.4, -2.8], [-3, -0.6], [3, -0.8]];
+  dirs.forEach(([vx, vy], i) => {
+    const t = f;
+    const x = hit + vx * t * 1.3, y = base - 1 + vy * t * 1.3 + 0.55 * t * t;
+    if (i < 4) chunk(d, Math.round(x), Math.round(y), "stone", 4, 4, 2);
+    else { d.px(Math.round(x), Math.round(y), "gold", 4); d.px(Math.round(x - Math.sign(vx)), Math.round(y + 1), "gold", 3); }
+  });
+}
+
+function useHammer({ d, f }: Ctx) {
+  // shock line on the strike, sparks thrown sideways
+  const hit = 8, base = 11;
+  if (f === 0) { sparkStar(d, hit, base - 1, 3); return; }
+  for (const s of [-1, 1]) {
+    const x = hit + s * (2 + f * 2), y = base - 1 - Math.round(f * 1.2) + Math.round(f * f * 0.25);
+    d.px(x, y, "gold", 4); d.px(x - s, y + 1, "gold", 3);
+  }
+  const w = 2 + f * 2;
+  d.rect(hit - w, base + 1, w * 2 + 1, 1, "sand", 3);
+  d.px(hit - w, base, "sand", 2); d.px(hit + w, base, "sand", 2);
+  if (f < 3) d.px(hit, base - 2 - f, "metal", 4);
+}
+
+function useHoe({ d, f }: Ctx) {
+  // soil clods kicked up from the furrow
+  const clods: [number, number][] = [[-1.6, -2.4], [1.3, -3], [2.6, -1.8], [-2.8, -1.4]];
+  d.rect(5 - (f > 1 ? 1 : 0), 13, 7 + (f > 1 ? 2 : 0), 1, "dirt", 2);
+  if (f === 0) d.rect(6, 12, 4, 1, "dirt", 3);
+  clods.forEach(([vx, vy], i) => {
+    const t = f + 0.6;
+    const x = 8 + vx * t * 1.2, y = 12 + vy * t * 1.2 + 0.95 * t * t;
+    if (y > 13) return;
+    chunk(d, Math.round(x), Math.round(y), "dirt", 4, 3, 1);
+    if (i === 0 && f < 3) d.px(Math.round(x) + 2, Math.round(y) + 1, "dirt", 3);
+  });
+}
+
+function useSickle({ d, f }: Ctx) {
+  // cut grass blades fly off along the sweep
+  const blades: [number, number][] = [[-1.5, -1.8], [1.8, -2], [0.2, -2.6], [2.6, -0.8]];
+  blades.forEach(([vx, vy], i) => {
+    const t = f + 1;
+    const x = 7 + vx * t * 1.5, y = 11 + vy * t * 1.4 + 0.5 * t * t;
+    const lean = vx < 0 ? -1 : 1;
+    const gx = Math.round(x), gy = Math.round(y);
+    d.px(gx, gy, "foliage", 4); d.px(gx + lean, gy + 1, "foliage", 3); d.px(gx + lean * 2, gy + 2, "foliage", i % 2 ? 2 : 3);
+  });
+  d.rect(5, 14, 6, 1, "foliage", 2);
+}
+
+function useFishingRod({ d, f }: Ctx) {
+  // bobber splash: an expanding ring then drops that fall back
+  const cx = 8, cy = 11;
+  const rx = [2, 3.5, 5, 6][f], ry = [0.8, 1.4, 2, 2.4][f];
+  for (let a = 0; a < 24; a++) {
+    const t = (a / 24) * Math.PI * 2;
+    d.px(Math.round(cx + Math.cos(t) * rx), Math.round(cy + Math.sin(t) * ry), "water", f === 3 ? 3 : 4);
+  }
+  if (f < 3) {
+    const h = [3, 5, 3][f];
+    drop(d, cx - 1, cy - h, "water"); drop(d, cx + 2, cy - h + 1, "water");
+    if (f === 1) drop(d, cx, cy - 7, "water");
+  }
+}
+
+function useSeedBag({ d, f }: Ctx) {
+  // seeds scatter downward and settle in the soil
+  [4, 7, 10, 13].forEach((x, i) => {
+    const y = 2 + ((f + i) % USE_FRAMES) * 3 + (i % 2);
+    d.px(x, y, "sand", 4); d.px(x, y + 1, "leather", 3);
+  });
+  d.rect(2, 14, 12, 1, "dirt", 2);
+  if (f === USE_FRAMES - 1) { d.px(5, 13, "sand", 4); d.px(11, 13, "sand", 4); }
+}
+
 type Draw = (c: Ctx) => void;
+
+const EFFECT: Record<string, Draw> = {
+  hoe: useHoe, "watering-can": useWateringCan, "tool-axe": useAxe, pickaxe: usePickaxe,
+  sickle: useSickle, hammer: useHammer, "fishing-rod": useFishingRod, "seed-bag": useSeedBag,
+};
+
 const DRAW: Record<string, Draw> = {
   chest, "chest-open": chestOpen, barrel, crate, potion, sword, axe, shield, bow, coin, key,
   torch, sign, pot, gem, scroll, heart, bomb, book, "mushroom-item": mushroom, apple,
+  hoe, "watering-can": wateringCan, "tool-axe": axe, pickaxe, sickle, hammer, "fishing-rod": fishingRod, "seed-bag": seedBag,
 };
 const FRAMES: Record<string, number> = { coin: 4, torch: 4, gem: 4 };
 const FPS: Record<string, number> = { coin: 8, torch: 8, gem: 6 };
 
-function drawObject(kind: string, p: Params, kit: StyleKit, seed: number, frame: number): Sprite {
+function drawObject(kind: string, p: Params, kit: StyleKit, seed: number, frame: number, effect = false): Sprite {
   const d = new D(kit.sizes.object, kit);
   const [nm, na] = NATURAL[kind] ?? NATURAL.chest;
   const main = str(p, "main"), acc = str(p, "accent");
@@ -476,8 +697,13 @@ function drawObject(kind: string, p: Params, kit: StyleKit, seed: number, frame:
     d, m: main === "natural" ? nm : (main as Material), a: acc === "natural" ? na : (acc as Material), v: variant, f: frame,
     r: rng(seed * 31 + variant), side: d.P.lightSide,
   };
-  (DRAW[kind] ?? chest)(ctx);
-  return finalize(d.sprite(), kit);
+  (effect ? EFFECT[kind] : DRAW[kind] ?? chest)(ctx);
+  if (effect) {
+    // flying particles may leave the canvas: keep the 1px transparent margin
+    const n = d.size;
+    d.P.erase(0, 0, n, 1); d.P.erase(0, n - 1, n, 1); d.P.erase(0, 0, 1, n); d.P.erase(n - 1, 0, 1, n);
+  }
+  return finalize(d.sprite(), kit, effect ? { outline: false } : {});
 }
 
 export const objectGenerator: Generator = {
@@ -485,7 +711,7 @@ export const objectGenerator: Generator = {
   category: "object",
   label: "Object / Item",
   description:
-    "Props and items drawn at 16px: chest, chest-open, barrel, crate, potion, sword, axe, shield, bow, coin (spins), key, torch (flickers), sign, pot, gem (sparkles), scroll, heart, bomb, book, mushroom-item, apple. main/accent re-skin the item ('natural' keeps its own colours); variant 0-9 changes details.",
+    "Props and items drawn at 16px: chest, chest-open, barrel, crate, potion, sword, axe, shield, bow, coin (spins), key, torch (flickers), sign, pot, gem (sparkles), scroll, heart, bomb, book, mushroom-item, apple; farming tools hoe, watering-can, tool-axe, pickaxe, sickle, hammer, fishing-rod, seed-bag (rows icon + use effect: drops, chips, sparks, clods, grass, splash, seeds). main/accent re-skin the item ('natural' keeps its own colours); variant 0-9 changes details.",
   params: [
     { key: "kind", label: "Kind", type: "select", options: [...OBJECT_KINDS], default: "chest" },
     { key: "main", label: "Main material", type: "select", options: OBJECT_MATS, default: "natural" },
@@ -494,6 +720,10 @@ export const objectGenerator: Generator = {
   ],
   generate(p, kit, seed) {
     const kind = (OBJECT_KINDS as readonly string[]).includes(str(p, "kind")) ? str(p, "kind") : "chest";
+    if ((TOOL_KINDS as readonly string[]).includes(kind)) {
+      const use = Array.from({ length: USE_FRAMES }, (_, f) => drawObject(kind, p, kit, seed, f, true));
+      return { rows: [{ name: "icon", frames: [drawObject(kind, p, kit, seed, 0)] }, { name: "use", frames: use }], fps: 8 };
+    }
     const n = FRAMES[kind] ?? 1;
     const frames = Array.from({ length: n }, (_, f) => drawObject(kind, p, kit, seed, f));
     const rows: FrameSet[] = [{ name: "idle", frames }];

@@ -167,4 +167,126 @@ const SIT: Clip = {
   },
 };
 
-export const HUMANOID_CLIPS: Clip[] = [IDLE, WALK, RUN, ATTACK, FARM, CARRY, SIT];
+// ---- chop (axe): ready / raise over the shoulder / strike down to the side / hold / recover ----
+const CHOP: Clip = {
+  id: "chop",
+  fps: 6,
+  frames: {
+    side: [
+      p({ chest: [0, 0], handR: [0, -1], handL: [0, -1], toolTip: [0, 0] }),
+      p({ hip: [-1, 0], chest: [-1, 0], elbowR: [-1, -3], handR: [-2, -6], handL: [-2, -5], toolTip: [-7, -4] }),
+      p({ hip: [1, 1], footL: [-1, -1], footR: [-1, -1], chest: [3, 2], elbowR: [2, 0], handR: [4, 3], handL: [4, 3], toolTip: [7, 8] }),
+      p({ hip: [1, 1], footL: [-1, -1], footR: [-1, -1], chest: [3, 3], elbowR: [2, 1], handR: [4, 4], handL: [4, 4], toolTip: [8, 9] }),
+      p({ chest: [1, 0], handR: [1, -2], handL: [1, -2], toolTip: [3, 2] }),
+    ],
+    down: [
+      p({ handR: [0, -1], handL: [0, -1] }),
+      p({ chest: [0, -1], elbowR: [1, -3], handR: [1, -6], handL: [0, -5], toolTip: [3, -4] }),
+      p({ hip: [0, 1], footL: [0, -1], footR: [0, -1], chest: [0, 2], elbowR: [-1, 1], handR: [-2, 4], handL: [-1, 3], toolTip: [-3, 6] }),
+      p({ hip: [0, 1], footL: [0, -1], footR: [0, -1], chest: [0, 2], handR: [-2, 4], handL: [-1, 3], toolTip: [-3, 7] }),
+      p({ handR: [0, -1], handL: [0, -1], toolTip: [0, 1] }),
+    ],
+    up: [
+      p({ handR: [0, -1], handL: [0, -1] }),
+      p({ chest: [0, -1], elbowR: [1, -3], handR: [1, -6], handL: [0, -5], toolTip: [3, -4] }),
+      p({ hip: [0, 1], footL: [0, -1], footR: [0, -1], chest: [0, 2], elbowR: [-1, 1], handR: [-2, 3], handL: [-1, 3], toolTip: [-3, 6] }),
+      p({ hip: [0, 1], footL: [0, -1], footR: [0, -1], chest: [0, 2], handR: [-2, 3], handL: [-1, 3], toolTip: [-3, 7] }),
+      p({ handR: [0, -1], handL: [0, -1], toolTip: [0, 1] }),
+    ],
+  },
+};
+
+// ---- water (watering can): hold forward / tilt / pour / pour / level again; `toolTip` is the rose ----
+const WATER: Clip = {
+  id: "water",
+  fps: 4,
+  frames: {
+    side: [
+      p({ chest: [0, 0], elbowR: [1, -1], handR: [2, -2], toolTip: [0, 0] }),
+      p({ chest: [1, 0], elbowR: [1, -1], handR: [3, -3], toolTip: [1, 2] }),
+      p({ chest: [1, 0], elbowR: [2, -1], handR: [3, -3], toolTip: [2, 6] }),
+      p({ chest: [1, 1], elbowR: [2, -1], handR: [3, -3], toolTip: [2, 7] }),
+      p({ chest: [0, 0], elbowR: [1, -1], handR: [2, -2], toolTip: [0, 1] }),
+    ],
+    down: [
+      p({ elbowR: [0, -1], handR: [0, -2], toolTip: [0, 0] }),
+      p({ elbowR: [0, -1], handR: [0, -3], toolTip: [0, 2] }),
+      p({ chest: [0, 1], elbowR: [0, -1], handR: [0, -3], toolTip: [1, 6] }),
+      p({ chest: [0, 1], elbowR: [0, -1], handR: [0, -3], toolTip: [1, 7] }),
+      p({ elbowR: [0, -1], handR: [0, -2], toolTip: [0, 1] }),
+    ],
+    up: [
+      p({ elbowR: [0, -1], handR: [0, -2], toolTip: [0, 0] }),
+      p({ elbowR: [0, -1], handR: [0, -3], toolTip: [0, 2] }),
+      p({ chest: [0, 1], elbowR: [0, -1], handR: [0, -3], toolTip: [1, 6] }),
+      p({ chest: [0, 1], elbowR: [0, -1], handR: [0, -3], toolTip: [1, 7] }),
+      p({ elbowR: [0, -1], handR: [0, -2], toolTip: [0, 1] }),
+    ],
+  },
+};
+
+// ---- mine (pickaxe): both hands high over the head, then straight down, rebound ----
+const MINE: Clip = {
+  id: "mine",
+  fps: 6,
+  frames: {
+    side: [
+      p({ chest: [0, 0], handR: [0, -1], handL: [0, -1] }),
+      p({ chest: [-1, -1], elbowR: [-1, -4], handR: [-1, -6], handL: [-1, -6], toolTip: [-5, -4] }),
+      p({ chest: [-1, -1], elbowR: [-1, -4], handR: [0, -6], handL: [0, -6], toolTip: [-3, -6] }),
+      p({ hip: [1, 2], footL: [-1, -2], footR: [-1, -2], chest: [2, 3], elbowR: [2, 1], handR: [4, 4], handL: [4, 4], toolTip: [5, 9] }),
+      p({ hip: [1, 1], footL: [-1, -1], footR: [-1, -1], chest: [2, 2], handR: [3, 2], handL: [3, 2], toolTip: [4, 5] }),
+      p({ chest: [0, 0], handR: [0, -1], handL: [0, -1], toolTip: [1, 0] }),
+    ],
+    down: [
+      p({ handR: [0, -1], handL: [0, -1] }),
+      p({ chest: [0, -1], elbowR: [1, -4], handR: [1, -6], handL: [0, -6], toolTip: [1, -4] }),
+      p({ chest: [0, -1], elbowR: [1, -4], handR: [1, -6], handL: [0, -6], toolTip: [1, -5] }),
+      p({ hip: [0, 2], footL: [0, -2], footR: [0, -2], chest: [0, 3], elbowR: [-1, 1], handR: [-1, 5], handL: [-1, 4], toolTip: [-2, 8] }),
+      p({ hip: [0, 1], footL: [0, -1], footR: [0, -1], chest: [0, 2], handR: [-1, 2], handL: [-1, 2], toolTip: [-1, 4] }),
+      p({ handR: [0, -1], handL: [0, -1] }),
+    ],
+    up: [
+      p({ handR: [0, -1], handL: [0, -1] }),
+      p({ chest: [0, -1], elbowR: [1, -4], handR: [1, -6], handL: [0, -6], toolTip: [1, -4] }),
+      p({ chest: [0, -1], elbowR: [1, -4], handR: [1, -6], handL: [0, -6], toolTip: [1, -5] }),
+      p({ hip: [0, 2], footL: [0, -2], footR: [0, -2], chest: [0, 3], elbowR: [-1, 1], handR: [-1, 4], handL: [-1, 4], toolTip: [-2, 8] }),
+      p({ hip: [0, 1], footL: [0, -1], footR: [0, -1], chest: [0, 2], handR: [-1, 2], handL: [-1, 2], toolTip: [-1, 4] }),
+      p({ handR: [0, -1], handL: [0, -1] }),
+    ],
+  },
+};
+
+// ---- fish (fishing rod): ready / rod back / cast forward / wait, bobbing line ----
+const FISH: Clip = {
+  id: "fish",
+  fps: 4,
+  frames: {
+    side: [
+      p({ chest: [0, 0], handR: [0, -1], handL: [0, 0] }),
+      p({ chest: [-1, 0], elbowR: [-1, -2], handR: [-2, -3], toolTip: [-8, -2], rodLine: [-4, 3] }),
+      p({ chest: [1, 1], elbowR: [1, 0], handR: [3, 1], toolTip: [7, 4], rodLine: [3, 9] }),
+      p({ chest: [1, 0], elbowR: [1, -1], handR: [2, -1], toolTip: [4, 1], rodLine: [1, 7] }),
+      p({ chest: [1, 0], elbowR: [1, -1], handR: [2, -1], toolTip: [4, 1], rodLine: [2, 8] }),
+      p({ chest: [1, 0], elbowR: [1, -1], handR: [2, -2], toolTip: [4, 0], rodLine: [1, 7] }),
+    ],
+    down: [
+      p({ handR: [0, -1] }),
+      p({ elbowR: [1, -2], handR: [1, -3], toolTip: [-1, -2], rodLine: [-2, 2] }),
+      p({ chest: [0, 1], elbowR: [0, 0], handR: [0, 1], toolTip: [2, 4], rodLine: [3, 8] }),
+      p({ elbowR: [0, -1], handR: [0, -1], toolTip: [1, 1], rodLine: [2, 6] }),
+      p({ elbowR: [0, -1], handR: [0, -1], toolTip: [1, 1], rodLine: [2, 7] }),
+      p({ elbowR: [0, -1], handR: [0, -2], toolTip: [1, 0], rodLine: [2, 6] }),
+    ],
+    up: [
+      p({ handR: [0, -1] }),
+      p({ elbowR: [1, -2], handR: [1, -3], toolTip: [-1, -2], rodLine: [-2, 2] }),
+      p({ chest: [0, 1], elbowR: [0, 0], handR: [0, 1], toolTip: [2, 4], rodLine: [3, 8] }),
+      p({ elbowR: [0, -1], handR: [0, -1], toolTip: [1, 1], rodLine: [2, 6] }),
+      p({ elbowR: [0, -1], handR: [0, -1], toolTip: [1, 1], rodLine: [2, 7] }),
+      p({ elbowR: [0, -1], handR: [0, -2], toolTip: [1, 0], rodLine: [2, 6] }),
+    ],
+  },
+};
+
+export const HUMANOID_CLIPS: Clip[] = [IDLE, WALK, RUN, ATTACK, FARM, CARRY, SIT, CHOP, WATER, MINE, FISH];
