@@ -8,3 +8,4 @@ dist-node
 scripts/*-tmp.ts
 scripts/ad[0-9]-*
 scripts/qa[0-9]-*
+.claude/worktrees/
