@@ -18,6 +18,7 @@ export function createAsset(a: {
     name: a.name,
     category: a.category,
     kitId: a.kit.id,
+    kitVersion: a.kit.version ?? 1,
     rows: a.rows,
     fps: a.fps ?? 6,
     source: a.source,

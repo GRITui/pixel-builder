@@ -46,6 +46,10 @@ export interface StyleKit {
   detail?: DetailLevel;
   /** Free-text art direction used by the AI ("cozy, chunky, SNES-era"). */
   vibe: string;
+  /** House style: edits are refused; fork it (create_kit / Duplicate) to change anything. */
+  locked?: boolean;
+  /** Bumped on every change (missing = 1). Assets record the version they were made with (`Asset.kitVersion`). */
+  version?: number;
 }
 
 export interface FrameSet {
@@ -59,6 +63,8 @@ export interface Asset {
   name: string;
   category: Category;
   kitId: string;
+  /** `StyleKit.version` at creation / last rerender (missing = 1). Older than the kit's = stale. */
+  kitVersion?: number;
   /** One or more animation rows; static assets have a single row with one frame. */
   rows: FrameSet[];
   fps: number;

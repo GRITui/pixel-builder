@@ -278,9 +278,9 @@ optional unless marked *; `kit_id` defaults to the active kit.
 | `import_svg` | path*, name, category, replace_id, kit_id | asset summary, preview (layered SVG back into the kit) |
 | `list_kits` | — | kits (id, name, active) |
 | `create_kit` | name*, base_kit_id, changes (partial StyleKit) | kit |
-| `update_kit` | kit_id*, changes* | kit |
+| `update_kit` | kit_id*, changes* | kit (refused when the kit is `locked`; version bumped) |
 | `set_active_kit` | kit_id* | kit |
-| `rerender_assets` | ids, kit_id | re-generated procedural and rigged assets (consistency after a kit change) |
+| `rerender_assets` | ids, kit_id, stale_only | re-generated procedural and rigged assets (consistency after a kit change) |
 | `list_rigs` / `list_clips` / `list_attachments` | family | rigs / clips / attachments (registry first, then project-defined), with family |
 | `generate_rigged` | rig*, slots, attachments[], clips[] (default walk, idle), directions (4 or 8, default 4), name, kit_id, save (true) | character asset (rows `<clip>-<dir>`; 8 adds down-right, up-right, up-left, down-left), spritesheet files, preview |
 | `attach` | id*, add[], remove[] | re-rendered rigged asset, files, preview |

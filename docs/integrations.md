@@ -38,6 +38,13 @@ The project is `<ws>/pixel-builder.json`; exports go to `<ws>/<folder>/`
 Relative workspace paths resolve against the server's working directory, which
 GUI apps do not control, so in global configs use an absolute `<GAME>/pixel-assets`.
 
+**Shared team library.** The workspace may instead be a URL,
+`--workspace https://pixel.internal/api/projects/team` (or `PIXEL_BUILDER_WORKSPACE`). The project is then
+read and written through the server API with ETag/If-Match (a concurrent change makes the tool fail with
+a 409 message and overwrites nothing). Set `PIXEL_BUILDER_TOKEN` when the server runs `AUTH=token`.
+Exports still land in a local folder: `--out-dir <dir>` or env `PIXEL_BUILDER_OUT_DIR` (default `./pixel-assets`).
+Deployment and setup: [`deploy.md`](deploy.md).
+
 **Notes**
 
 - Don't launch the stdio server with plain `npm run mcp`: npm prints a banner
@@ -500,8 +507,8 @@ image-reading tool, since looking at the output is part of the workflow.
 
 `get_style_guide`, `list_generators`, `generate_asset`, `generate_variations`,
 `paint_asset`, `edit_asset`, `edit_region` (change only a rect/cells region: your own legend `rows`, or a `prompt` for the server model when `ANTHROPIC_API_KEY` is set), `list_assets`, `get_asset`, `delete_asset`,
-`export_asset` (png, spritesheet, tiled, svg, aseprite, tiled-tileset, godot, unity, atlas), `import_image`, `import_svg`, `list_kits`, `create_kit`, `update_kit`,
-`set_active_kit`, `rerender_assets`, `list_rigs`, `list_clips`, `list_attachments`,
+`export_asset` (png, spritesheet, tiled, svg, aseprite, tiled-tileset, godot, unity, atlas), `import_image`, `import_svg`, `list_kits`, `create_kit`, `update_kit` (refuses `locked` kits; fork with `create_kit`),
+`set_active_kit`, `rerender_assets` (`stale_only`), `list_rigs`, `list_clips`, `list_attachments`,
 `generate_rigged` (`directions: 4|8`; 8 adds 3/4 diagonal rows), `attach`, `create_rig`, `create_clip`, `create_attachment`, `generate_pack` (whole starter set in one call, e.g. `farming-v1`). `export_asset format=svg` writes a layered SVG (layer per material, per part for rigged assets, locked `guides` layer);
 `export_asset format=aseprite` writes `<slug>.aseprite` (see section 14). `import_svg` reads it back: edit by layer, keep `data-material` attrs or use kit colours, the guides layer is ignored. MCP also exposes the resources
 `pixel-builder://project`, `pixel-builder://style-guide` and the prompt

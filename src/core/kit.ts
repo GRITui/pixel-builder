@@ -106,6 +106,14 @@ export function proportions(kit: StyleKit) {
   };
 }
 
+/** Fork of a kit: a new unlocked kit at version 1. */
+export function forkKit(src: StyleKit, name: string): StyleKit {
+  const { locked: _l, version: _v, ...rest } = JSON.parse(JSON.stringify(src)) as StyleKit;
+  return { ...rest, id: newId("kit"), name };
+}
+
+export const kitVersion = (k: StyleKit): number => k.version ?? 1;
+
 export function newId(prefix = "id"): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }

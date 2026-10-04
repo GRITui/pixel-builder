@@ -28,7 +28,7 @@ hand-write PNGs or invent colours.
 | Tool | Use it to |
 |---|---|
 | `get_style_guide` | read the kit (vibe, light, outline, sizes), the **legend** and painting rules. Call first. |
-| `list_kits` / `create_kit` / `update_kit` / `set_active_kit` | pick or shape the kit to the game's vibe. Presets: `kit-default`, `kit-gameboy`, `kit-neon`, and the HD pair `kit-hd` / `kit-hd-rich` (every size 1.5x: 48px characters, 24px tiles; pick it for richer pixels, keep one kit per game) |
+| `list_kits` / `create_kit` / `update_kit` / `set_active_kit` | pick or shape the kit to the game's vibe. Kits can be `locked` (house style): `update_kit` refuses them, so fork with `create_kit base_kit_id=<locked>` and edit the copy. Kits carry a `version` (bumped by `update_kit`); assets record `kitVersion`, and `list_assets` flags `stale` ones. Presets: `kit-default`, `kit-gameboy`, `kit-neon`, and the HD pair `kit-hd` / `kit-hd-rich` (every size 1.5x: 48px characters, 24px tiles; pick it for richer pixels, keep one kit per game) |
 | `list_generators` | see generators and their params (authoritative list) |
 | `generate_asset` | procedural asset; saves + exports PNG by default |
 | `generate_variations` | contact sheet of 1-12 seeds or param sets (not saved) |
@@ -39,7 +39,7 @@ hand-write PNGs or invent colours.
 | `export_asset` | `png`, `spritesheet`, `tiled` (maps), `svg` (layered, see below), `aseprite` (see below) or, for `tileset` assets, `tiled-tileset` / `godot` / `unity` / `atlas` (engine autotile files, see reference) |
 | `import_image` | quantise an existing PNG to the kit palette |
 | `import_svg` | read a layered SVG back (new asset, or `replace_id` to retexture an existing one): edit by layer, keep `data-material`/`data-level` or use kit colours, the `guides` layer is ignored |
-| `rerender_assets` | regenerate procedural and rigged assets after a kit change |
+| `rerender_assets` | regenerate procedural and rigged assets after a kit change (`stale_only` = only assets made with an older kit version) |
 | `list_rigs` / `list_clips` / `list_attachments` | rigs, animation clips and accessories (with family); ids for `generate_rigged` |
 | `generate_rigged` | animated character: rig + `slots` + `attachments` + `clips` -> walk/idle rows in 4 directions (`directions: 8` adds the 3/4 diagonals down-right, up-right, up-left, down-left), exported as a spritesheet |
 | `attach` | add/remove attachments (hat, tool) on a saved rigged asset; re-renders every frame |
@@ -263,6 +263,11 @@ Assets live in a workspace directory (`--workspace <dir>`, else env
 `PIXEL_BUILDER_WORKSPACE`, else `./pixel-assets`). The project is
 `<workspace>/pixel-builder.json`; exports are in `<workspace>/<category folder>/`
 (`characters/`, `buildings/`, `environments/`, `objects/`, `ui/`, `maps/`).
+Team setups: `--workspace` / `PIXEL_BUILDER_WORKSPACE` may also be a URL
+`http(s)://host/api/projects/<id>` of a shared pixel-builder server; the project is then
+loaded and saved through its API (token in env `PIXEL_BUILDER_TOKEN`) while exports still
+go to a local folder (`--out-dir <dir>` or env `PIXEL_BUILDER_OUT_DIR`, default `./pixel-assets`).
+See `docs/deploy.md`.
 Copy or point the game at those files. MCP also exposes the resources
 `pixel-builder://project` and `pixel-builder://style-guide`, and a prompt
 `asset_pack` (`game`, `count`) that walks through a starter pack, and `design_creature` (`description`, `family?`) for authoring a rigged creature.

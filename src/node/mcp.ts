@@ -8,7 +8,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { TOOLS, ToolError, callTool, callToolAsync, type ToolDef, type ToolResult } from "./tools";
-import { Workspace, serializeProjectCompact } from "./workspace";
+import { type Workspace, serializeProjectCompact } from "./workspace";
 
 export const VERSION = "0.1.0";
 export const DEFAULT_HTTP_PORT = 8788;
@@ -98,13 +98,19 @@ export function createMcpServer(ws: Workspace): McpServer {
     "project",
     "pixel-builder://project",
     { title: "Project file", description: "The workspace project (kits + assets) as pixel-builder/project JSON, the same format the web app imports and exports.", mimeType: "application/json" },
-    async (uri) => ({ contents: [{ uri: uri.href, mimeType: "application/json", text: serializeProjectCompact(ws.load()) }] }),
+    async (uri) => {
+      await ws.pull();
+      return { contents: [{ uri: uri.href, mimeType: "application/json", text: serializeProjectCompact(ws.load()) }] };
+    },
   );
   server.registerResource(
     "style-guide",
     "pixel-builder://style-guide",
     { title: "Style guide", description: "Style guide of the active kit: look settings, palette legend for painting and the painting rules.", mimeType: "text/markdown" },
-    async (uri) => ({ contents: [{ uri: uri.href, mimeType: "text/markdown", text: callTool(ws, "get_style_guide", {}).text ?? "" }] }),
+    async (uri) => {
+      await ws.pull();
+      return { contents: [{ uri: uri.href, mimeType: "text/markdown", text: callTool(ws, "get_style_guide", {}).text ?? "" }] };
+    },
   );
 
   server.registerPrompt(

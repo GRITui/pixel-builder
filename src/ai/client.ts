@@ -1,5 +1,6 @@
 // Browser client for the Pixel Builder API (server/). Same-origin `/api/*`
 // (Vite proxies it in dev). The API key only ever lives on the server.
+import { authHeaders } from "../ui/remote";
 import { finalize } from "../core/enforce";
 import { coerceParams, type Generator, type Params } from "../core/generators/types";
 import type { Attachment, Clip, RigDef } from "../core/rig";
@@ -33,7 +34,7 @@ async function request<T>(path: string, init: { method: "GET" | "POST"; body?: u
   try {
     res = await fetch(path, {
       method: init.method,
-      headers: init.body === undefined ? undefined : { "content-type": "application/json" },
+      headers: { ...authHeaders(), ...(init.body === undefined ? {} : { "content-type": "application/json" }) },
       body: init.body === undefined ? undefined : JSON.stringify(init.body),
       signal: AbortSignal.timeout(init.timeoutMs),
     });

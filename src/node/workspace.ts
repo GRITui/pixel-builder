@@ -72,6 +72,14 @@ export class Workspace {
     return join(this.dir, PROJECT_FILENAME);
   }
 
+  /** Remote workspaces fetch the project before a tool runs and write it back after; locally both are no-ops. */
+  async pull(): Promise<void> {}
+  async push(): Promise<void> {}
+  /** Run one tool call; remote workspaces serialise calls so pull/run/push never interleave. */
+  exclusive<T>(fn: () => Promise<T>): Promise<T> {
+    return fn();
+  }
+
   /** Read the project file; a missing file is an empty project (nothing is written until `save`). */
   load(): ProjectFile {
     this.warnings = [];

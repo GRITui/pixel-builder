@@ -1,7 +1,7 @@
 // App state hooks persisted to localStorage (`pixel-builder:v1:*`).
 // Every storage access is wrapped in try/catch and tolerates missing / corrupt data.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { DEFAULT_KIT, newId } from "../core/kit";
+import { DEFAULT_KIT, forkKit, newId } from "../core/kit";
 import { emptyProject, mergeProjects, PROJECT_FORMAT, PROJECT_VERSION, type ProjectFile } from "../core/project";
 import type { Attachment, Clip, RigDef } from "../core/rig";
 import type { Asset, Sprite, StyleKit } from "../core/types";
@@ -207,11 +207,19 @@ export function useProject(): ProjectApi {
     kits: project.kits,
     active,
     setActive: (id) => setProject((p) => (p.kits.some((k) => k.id === id) ? { ...p, activeKitId: id } : p)),
-    upsert: (kit) => setKits((ks) => (ks.some((k) => k.id === kit.id) ? ks.map((k) => (k.id === kit.id ? kit : k)) : [...ks, kit])),
+    // locked kits refuse edits; changed kits get their version bumped so stale assets can be found
+    upsert: (kit) =>
+      setKits((ks) => {
+        const cur = ks.find((k) => k.id === kit.id);
+        if (!cur) return [...ks, kit];
+        if (cur.locked) return ks;
+        const changed = JSON.stringify({ ...cur, version: 0 }) !== JSON.stringify({ ...kit, version: 0 });
+        return ks.map((k) => (k.id === kit.id ? (changed ? { ...kit, version: (cur.version ?? 1) + 1 } : kit) : k));
+      }),
     duplicate: (id) => {
       const src = project.kits.find((k) => k.id === id);
       if (!src) return null;
-      const copy: StyleKit = { ...JSON.parse(JSON.stringify(src)), id: newId("kit"), name: `${src.name} copy` };
+      const copy = forkKit(src, `${src.name} copy`);
       setProject((p) => ({ ...p, kits: [...p.kits, copy], activeKitId: copy.id }));
       return copy;
     },

@@ -134,11 +134,11 @@ export function KitEditor(props: {
       onClose={close}
       footer={
         <>
-          <span className="dim grow">{dirty ? "Unsaved changes" : "All changes saved"}</span>
+          <span className="dim grow">{active.locked ? "Locked house style: use Duplicate to make an editable copy" : dirty ? "Unsaved changes" : "All changes saved"}</span>
           <button disabled={!dirty} onClick={() => setDraft(active)}>
             Revert
           </button>
-          <button className="primary" disabled={!dirty} onClick={() => props.onSave(draft)}>
+          <button className="primary" disabled={!dirty || !!active.locked} onClick={() => props.onSave(draft)}>
             Save kit
           </button>
           <button onClick={close}>Close</button>
@@ -156,7 +156,7 @@ export function KitEditor(props: {
               ))}
             </select>
             <button onClick={guard(() => props.onDuplicate(active.id))}>Duplicate</button>
-            <button className="danger-text" disabled={props.kits.length <= 1} onClick={guard(() => window.confirm(`Delete kit “${active.name}”?`) && props.onDelete(active.id))}>
+            <button className="danger-text" disabled={props.kits.length <= 1 || !!active.locked} onClick={guard(() => window.confirm(`Delete kit “${active.name}”?`) && props.onDelete(active.id))}>
               Delete
             </button>
             {missingPresets.length > 0 && (

@@ -124,7 +124,13 @@ export function callTool(ws: Workspace, name: string, raw: unknown): ToolResult 
 /** Like callTool, but also runs tools that call the model (edit_region with `prompt`). */
 export async function callToolAsync(ws: Workspace, name: string, raw: unknown): Promise<ToolResult> {
   const tool = findTool(name);
-  return withWarnings(ws, await tool.run(ws, parseInput(tool, raw)));
+  const input = parseInput(tool, raw);
+  return ws.exclusive(async () => {
+    await ws.pull();
+    const result = withWarnings(ws, await tool.run(ws, input));
+    await ws.push();
+    return result;
+  });
 }
 
 // ---------- helpers ----------
@@ -215,6 +221,12 @@ interface AssetSummary {
   files: string[];
 }
 
+/** True if the asset was made with an older version of its kit than the kit now has. */
+function isStale(project: ReturnType<Workspace["load"]>, a: Asset): boolean {
+  const k = project.kits.find((x) => x.id === a.kitId);
+  return !!k && (a.kitVersion ?? 1) < (k.version ?? 1);
+}
+
 function summarize(ws: Workspace, project: ReturnType<Workspace["load"]>, a: Asset): AssetSummary {
   const f = a.rows[0].frames[0];
   return {
@@ -222,6 +234,7 @@ function summarize(ws: Workspace, project: ReturnType<Workspace["load"]>, a: Ass
     name: a.name,
     category: a.category,
     kit_id: a.kitId,
+    ...(isStale(project, a) ? { stale: true } : {}),
     width: f.w,
     height: f.h,
     rows: a.rows.map((r) => ({ name: r.name, frames: r.frames.length })),
@@ -286,6 +299,8 @@ function kitSummary(kit: StyleKit, active: boolean) {
     palette: kit.paletteId,
     light: kit.lightDir,
     outline: kit.outline,
+    ...(kit.locked ? { locked: true } : {}),
+    version: kit.version ?? 1,
     shade_steps: kit.shadeSteps,
     dither: kit.dither,
     ambient: kit.ambient,
@@ -918,6 +933,7 @@ const kitChanges = z
     ambient: z.number().min(0).max(1),
     sizes: z.object({ character: size, building: size, environment: size, object: size, ui: size, tile: size }).partial().strict(),
     vibe: z.string().max(500).describe("Free-text art direction."),
+    locked: z.boolean().describe("Mark as house style: update_kit then refuses it; fork it with create_kit to change anything."),
   })
   .partial()
   .strict();
@@ -950,7 +966,8 @@ const createKit = defineTool({
   run(ws, i) {
     const project = ws.load();
     const base = getKit(project, i.base_kit_id);
-    const kit = { ...applyChanges(base, i.changes ?? {}), id: newId("kit"), name: i.name };
+    const { locked: _l, version: _v, ...baseRest } = base;
+    const kit = { ...applyChanges(baseRest as StyleKit, i.changes ?? {}), id: newId("kit"), name: i.name };
     project.kits.push(kit);
     ws.save(project);
     return { data: { kit, note: `Created from '${base.id}'. Use set_active_kit to make it the default, or pass kit_id to tools.` } };
@@ -966,7 +983,8 @@ const updateKit = defineTool({
   run(ws, i) {
     const project = ws.load();
     const kit = getKit(project, i.kit_id);
-    const next = { ...applyChanges(kit, i.changes), id: kit.id };
+    if (kit.locked) throw new ToolError(`Kit '${kit.id}' is locked (house style) and cannot be changed. Fork it: create_kit with base_kit_id '${kit.id}' and your changes, then use the copy.`);
+    const next = { ...applyChanges(kit, i.changes), id: kit.id, version: (kit.version ?? 1) + 1 };
     project.kits = project.kits.map((k) => (k.id === kit.id ? next : k));
     ws.save(project);
     const used = project.assets.filter((a) => a.kitId === kit.id);
@@ -1003,10 +1021,10 @@ const rerenderAssets = defineTool({
   title: "Rerender assets",
   description:
     "Re-run the generator (or rig recipe, for rigged assets) of procedural/rigged assets with the current kit settings (after update_kit) so everything stays consistent, and re-export their files. Default: all procedural assets, each with its own kit; pass kit_id to move them to another kit. Hand-painted/imported assets are skipped.",
-  shape: { ids: z.array(z.string()).optional().describe("Asset ids or names. Default: every procedural asset."), kit_id: kitIdField.describe("Re-render with this kit and move the assets to it. Default: each asset's own kit.") },
+  shape: { ids: z.array(z.string()).optional().describe("Asset ids or names. Default: every procedural asset."), kit_id: kitIdField.describe("Re-render with this kit and move the assets to it. Default: each asset's own kit."), stale_only: z.boolean().optional().describe("Only assets made with an older version of their kit (see `stale` in list_assets).") },
   run(ws, i) {
     const project = ws.load();
-    const targets = i.ids ? i.ids.map((id) => findAsset(project, id)) : project.assets.filter((a) => a.source.kind === "procedural" || a.source.kind === "rigged");
+    const targets = (i.ids ? i.ids.map((id) => findAsset(project, id)) : project.assets.filter((a) => a.source.kind === "procedural" || a.source.kind === "rigged")).filter((a) => !i.stale_only || isStale(project, a));
     const forced = i.kit_id ? getKit(project, i.kit_id) : undefined;
     const done: AssetSummary[] = [];
     const skipped: { id: string; name: string; reason: string }[] = [];
@@ -1019,6 +1037,7 @@ const rerenderAssets = defineTool({
         a.rows = res.rows;
         a.fps = res.fps;
         a.kitId = kit.id;
+        a.kitVersion = kit.version ?? 1;
         a.updatedAt = Date.now();
         ws.save(project);
         exportAsset(ws, project, a);
@@ -1038,6 +1057,7 @@ const rerenderAssets = defineTool({
       a.tilemap = res.tilemap;
       if (res.meta) a.meta = { ...a.meta, ...res.meta };
       a.kitId = kit.id;
+      a.kitVersion = kit.version ?? 1;
       a.updatedAt = Date.now();
       ws.save(project); // keep progress if a later generator throws
       exportAsset(ws, project, a);
