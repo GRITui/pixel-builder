@@ -85,14 +85,31 @@ describe("environment generator", () => {
       }
   });
 
-  it("animates only the water tile", () => {
+  it("animates only the water and paddy tiles", () => {
     const water = gen("water-tile");
     expect(water.rows[0].frames.length).toBeGreaterThanOrEqual(3);
     expect(water.rows[0].frames.length).toBeLessThanOrEqual(4);
     expect(water.fps).toBeGreaterThanOrEqual(3);
     expect(water.fps).toBeLessThanOrEqual(5);
     expect(water.rows[0].frames[0].data).not.toEqual(water.rows[0].frames[1].data);
-    for (const k of TILE_KINDS.filter((k) => k !== "water-tile")) expect(gen(k).rows[0].frames).toHaveLength(1);
+    for (const k of TILE_KINDS.filter((k) => k !== "water-tile" && k !== "paddy-tile")) expect(gen(k).rows[0].frames).toHaveLength(1);
+  });
+
+  it("paddy-tile is an opaque animated tile with seedlings, and wraps", () => {
+    for (let i = 0; i < KIT_PRESETS.length; i++) {
+      const kit = KIT_PRESETS[i];
+      const { rows, fps } = gen("paddy-tile", i);
+      expect(fps).toBeGreaterThanOrEqual(2);
+      const frames = rows[0].frames;
+      expect(frames.length).toBeGreaterThanOrEqual(3);
+      for (const f of frames) {
+        expect(f.w).toBe(kit.sizes.tile);
+        expect(f.h).toBe(kit.sizes.tile);
+        expect(f.data.every((v) => v !== 0)).toBe(true);
+        expect(f.data.some((v) => decodeIndex(v)?.mat === "grass")).toBe(true);
+      }
+      expect(frames[0].data).not.toEqual(frames[1].data);
+    }
   });
 
   it("is deterministic per seed and varies with seed", () => {

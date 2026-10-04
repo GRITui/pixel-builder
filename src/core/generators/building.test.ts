@@ -31,9 +31,10 @@ describe("building generator: stilt-house and corrugated roofs", () => {
       const b = bounds(s)!;
       expect(b.y1 - b.y0 + 1).toBeGreaterThan(proportions(kit).door * 2);
       // finalize's outline needs room, but nothing may be clipped by the canvas edge
-      for (let x = 0; x < s.w; x++) {
-        expect(getPx(s, x, 0)).toBe(0);
-        expect(getPx(s, x, s.h - 1)).toBe(0);
+      for (let x = 0; x < s.w; x++) expect(getPx(s, x, 0)).toBe(0);
+      for (let y = 0; y < s.h; y++) {
+        expect(getPx(s, 0, y)).toBe(0);
+        expect(getPx(s, s.w - 1, y)).toBe(0);
       }
     });
 

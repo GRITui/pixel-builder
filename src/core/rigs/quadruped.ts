@@ -93,7 +93,7 @@ function build(s: Spec): RigDef {
 
   // neck + head
   add(
-    { id: "neck", kind: "limb", from: "body", to: "head", r: s.neckR, slot: "coat", z: { down: 3, side: 3, up: 1 }, views: ["side", "up"] },
+    { id: "neck", kind: "limb", from: "body", to: "head", r: s.neckR, slot: "coat", tone: -1, z: { down: 3, side: 3, up: 1 }, views: ["side", "up"] },
     { id: "head", kind: "ellipse", joint: "head", rx: s.headRx, ry: s.headRy, slot: "coat", z: { down: 4, side: 4, up: 1 } },
     { id: "headFront", kind: "ellipse", joint: "head", rx: hr + 0.6, ry: s.headRx * 0.95, slot: "coat", z: 4, views: ["down"] },
     { id: "snout", kind: "ellipse", joint: "jaw", rx: s.snoutRx, ry: s.snoutRy, slot: "muzzle", tone: 1, z: 5, views: ["side"] },
@@ -107,7 +107,7 @@ function build(s: Spec): RigDef {
     const er = e === "flop" ? [1.3, 2.6] : e === "point" ? [1.2, 2.4] : [1.6, 1.6];
     const ey = e === "flop" ? 0 : -s.headRy;
     add(
-      { id: "earNear", kind: "ellipse", joint: "head", dx: -s.headRx * 0.45, dy: ey + (e === "flop" ? 1 : 0), rx: er[0], ry: er[1], slot: "coat", tone: -1, z: 6, views: ["side"] },
+      { id: "earNear", kind: "ellipse", joint: "head", dx: -s.headRx * 0.6, dy: ey + (e === "flop" ? 1 : 0), rx: er[0], ry: er[1], slot: "coat", tone: -1, z: 6, views: ["side"] },
       { id: "earL", kind: "ellipse", joint: "head", dx: -(hr * 0.75), dy: e === "flop" ? 0.5 : -s.headRx * 0.7, rx: er[0], ry: er[1], slot: "coat", tone: -1, z: 6, views: ["down", "up"] },
       { id: "earR", kind: "ellipse", joint: "head", dx: hr * 0.75, dy: e === "flop" ? 0.5 : -s.headRx * 0.7, rx: er[0], ry: er[1], slot: "coat", tone: -1, z: 6, views: ["down", "up"] },
     );
@@ -122,7 +122,7 @@ function build(s: Spec): RigDef {
   }
   // eyes: a single ink pixel (box w=1 stays 1px at any kit size)
   add(
-    { id: "eye", kind: "box", joint: "head", dx: s.headRx * 0.35, dy: -s.headRy * 0.3, w: 1, h: 1, slot: "ink", tone: -4, z: 9, views: ["side"] },
+    { id: "eye", kind: "box", joint: "head", dx: s.headRx * 0.1, dy: -s.headRy * 0.25, w: 1, h: 1, slot: "ink", tone: -4, z: 9, views: ["side"] },
     { id: "eyeL", kind: "box", joint: "head", dx: -hr * 0.5, dy: -1, w: 1, h: 1, slot: "ink", tone: -4, z: 9, views: ["down"] },
     { id: "eyeR", kind: "box", joint: "head", dx: hr * 0.5, dy: -1, w: 1, h: 1, slot: "ink", tone: -4, z: 9, views: ["down"] },
     { id: "nose", kind: "box", joint: "jaw", dx: s.snoutRx - 1, dy: -s.snoutRy * 0.5, w: 1, h: 1, slot: "ink", tone: -4, z: 9, views: ["side"] },
@@ -137,7 +137,7 @@ function build(s: Spec): RigDef {
 const SPECIES: Spec[] = [
   { id: "quadruped-water-buffalo", name: "Water buffalo", coat: "stone", accent: "sand",
     by: 16, bodyRx: 9.2, bodyRy: 5, legR: 2.1, hoof: true,
-    neck: [7.5, -0.5], head: [5, 3.2], headRx: 4.4, headRy: 3.5, snoutDx: 2.8, snoutRx: 2.8, snoutRy: 2.6, neckR: 3.1,
+    neck: [7, 0], head: [4.5, 3], headRx: 5, headRy: 4.2, snoutDx: 2.6, snoutRx: 2.8, snoutRy: 2.8, neckR: 3.1,
     ears: "flop", horns: true, tail: "whip" },
   { id: "quadruped-dog", name: "Dog", coat: "sand", accent: "leather",
     by: 20, bodyRx: 6.8, bodyRy: 3.8, legR: 1.5, hoof: false,

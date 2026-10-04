@@ -178,4 +178,13 @@ describe("map generator", () => {
       expect(performance.now() - t0).toBeLessThan(200);
     }
   });
+
+  it("rice-village has paddies and a path, no deco on paddies, deterministic", () => {
+    const tm = tilemap({ biome: "rice-village", cols: 28, rows: 20, path: true }, 3);
+    expect(count(tm, (n) => n.startsWith("paddy"))).toBeGreaterThan(20);
+    expect(count(tm, (n) => n.startsWith("dirt"))).toBeGreaterThan(10);
+    for (let i = 0; i < tm.deco.length; i++) if (tm.deco[i] >= 0) expect(nameAt(tm, "ground", i).startsWith("paddy")).toBe(false);
+    expect(decoCount(tm)).toBeGreaterThan(0);
+    expect(tilemap({ biome: "rice-village" }, 9).ground).toEqual(tilemap({ biome: "rice-village" }, 9).ground);
+  });
 });
