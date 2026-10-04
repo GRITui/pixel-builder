@@ -60,6 +60,7 @@ biggest consistency win: pick palette + outline + light, then size the sprites.
 | `character` | character | top-down RPG humanoid or slime, 4-direction x 4-frame walk | `archetype`, `build`, `skin`, `hair`, `hair_style`, `top`, `bottom`, `boots`, `headwear`, `weapon`, `accent_mat`, `cape` |
 | `building` | building | 3/4 view cottage / shop / tower / keep / barn | `style`, `wall`, `roof`, `roof_style`, `floors` 1-3, `width`, `lit_windows`, `chimney`, `trim` |
 | `environment` | environment | trees, bushes, rocks, flowers, crystals, and seamless ground tiles (`water-tile` animates) | `kind`, `foliage`, `trunk`, `stone`, `accent`, `variant` 0-9 |
+| `tileset` | environment | autotile atlas between two ground terrains: `wang16` (2-corner Wang, index = NE*1+SE*2+SW*4+NW*8, upper corner = bit set) or `blob47` (47-tile blob, N=1 NE=2 E=4 SE=8 S=16 SW=32 W=64 NW=128, ascending, slot 47 = plain lower); `meta.tileset.tiles` lists masks | `lower`, `upper` (any `<x>-tile` terrain: grass, dirt, sand, water, snow, paddy, tilled-soil...), `layout`, `variant` 0-9 |
 | `object` | object | 16px items and props (chest, barrel, potion, sword, coin, torch, gem, ...) | `kind`, `main`, `accent` (`natural` = the item's own colours, or any material to re-skin), `variant` |
 | `ui` | ui | button (normal/hover/pressed), panel (9-slice), slot, bar (frame/fill), icon-frame, cursor, tab, checkbox, dialog-arrow | `kind`, `material`, `accent`, `width`, `height`, `style` |
 | `map` | map | procedural tile map from the kit's tiles and props | `biome` (meadow/forest/island/desert/winter), `cols`, `rows`, `density`, `path` |
@@ -84,7 +85,7 @@ icon) use `paint_asset`, and keep it in the same sizes and materials.
   animations by row, nineSlice meta); maps also get `<slug>.tiled.json` (a
   Tiled-compatible map) with `<slug>.tileset.png` / `<slug>.deco.png`.
 - `export_asset` `format`: `png` (static image, or spritesheet if animated),
-  `spritesheet` (always PNG + JSON), `tiled` (maps only). `scale` is an integer
+  `spritesheet` (always PNG + JSON), `tiled` (maps only), and for `tileset` assets `tiled-tileset` (`.tsj` + wangset), `godot` (`.tres` TileSet with terrain + peering bits), `unity` (`.rules.json`: slice rects + neighbour rules) and `atlas` (`.atlas.json` index); all write `<slug>.png` too. `scale` is an integer
   upscale (1-16, nearest-neighbour); for engines, prefer 1x and scale in the
   engine. `out_dir` overrides the folder.
 - Tools that take an asset `id` also accept its exact name if unambiguous.

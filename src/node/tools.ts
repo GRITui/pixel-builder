@@ -597,10 +597,10 @@ const exportAssetTool = defineTool({
   name: "export_asset",
   title: "Export asset",
   description:
-    "Write game-ready files for an asset. 'png' = image (animated assets become a spritesheet + .json metadata; maps also get .tiled.json + tilesets); 'spritesheet' = always sheet + .json; 'tiled' = map only; 'svg' = layered vector (a layer per material, per part for rigged assets, plus a locked 'guides' layer with pixel/tile grid, ground line, frame labels, joints) that opens in Inkscape/Figma and comes back with import_svg. Default folder: <workspace>/<category>s/ (characters/, buildings/, environments/, objects/, maps/ - and ui/ for UI assets, not uis/).",
+    "Write game-ready files for an asset. 'png' = image (animated assets become a spritesheet + .json metadata; maps also get .tiled.json + tilesets); 'spritesheet' = always sheet + .json; 'tiled' = map only; 'svg' = layered vector (a layer per material, per part for rigged assets, plus a locked 'guides' layer with pixel/tile grid, ground line, frame labels, joints) that opens in Inkscape/Figma and comes back with import_svg. Autotile assets (generator 'tileset') also export 'tiled-tileset' (.tsj with a wangset), 'godot' (.tres TileSet with terrain + peering bits), 'unity' (PNG + .rules.json slice rects and neighbour rules) and 'atlas' (PNG + .atlas.json index); each writes <slug>.png beside it. Default folder: <workspace>/<category>s/ (characters/, buildings/, environments/, objects/, maps/ - and ui/ for UI assets, not uis/).",
   shape: {
     id: z.string().describe("Asset id (or exact name)."),
-    format: z.enum(["png", "spritesheet", "tiled", "svg"]).default("png"),
+    format: z.enum(["png", "spritesheet", "tiled", "svg", "tiled-tileset", "godot", "unity", "atlas"]).default("png"),
     scale: z.number().int().min(1).max(16).default(1).describe("Integer upscale of the PNG (nearest neighbour); ignored for svg."),
     out_dir: z.string().optional().describe("Output folder (relative to the current directory). Default: <workspace>/<category>s/ (ui/ for UI assets)."),
   },

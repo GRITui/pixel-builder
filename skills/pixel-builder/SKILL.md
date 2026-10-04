@@ -35,7 +35,7 @@ hand-write PNGs or invent colours.
 | `paint_asset` | new asset from legend rows (what generators can't do) |
 | `edit_asset` | fix pixels or replace a frame of an existing asset |
 | `list_assets` / `get_asset` / `delete_asset` | manage the library |
-| `export_asset` | `png`, `spritesheet`, `tiled` (maps) or `svg` (layered, see below) |
+| `export_asset` | `png`, `spritesheet`, `tiled` (maps), `svg` (layered, see below) or, for `tileset` assets, `tiled-tileset` / `godot` / `unity` / `atlas` (engine autotile files, see reference) |
 | `import_image` | quantise an existing PNG to the kit palette |
 | `import_svg` | read a layered SVG back (new asset, or `replace_id` to retexture an existing one): edit by layer, keep `data-material`/`data-level` or use kit colours, the `guides` layer is ignored |
 | `rerender_assets` | regenerate procedural and rigged assets after a kit change |
