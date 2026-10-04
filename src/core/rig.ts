@@ -262,7 +262,8 @@ export function renderRigFrame(r: RigRender, dir: Dir, pose: Pose = {}): Sprite 
       }
     }
   }
-  if (kit.detail === "rich") richShade(P, { rig, parts, slots, J, view, flip, size });
+  // rich shade passes know the three base views; 3/4 diagonals use the side-view passes
+  if (kit.detail === "rich") richShade(P, { rig, parts, slots, J, view: view === "down" || view === "up" ? view : "side", flip, size });
   return finalize(P.toSprite(), kit);
 }
 
