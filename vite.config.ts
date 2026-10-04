@@ -7,5 +7,6 @@ export default defineConfig({
     port: 5173,
     proxy: { "/api": "http://localhost:8787" },
   },
-  test: { environment: "node" },
+  // agent worktrees hold full repo copies; never collect their tests
+  test: { environment: "node", exclude: ["**/node_modules/**", "**/dist/**", ".claude/**"] },
 } as any);
