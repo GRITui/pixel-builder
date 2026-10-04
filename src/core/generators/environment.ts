@@ -634,7 +634,7 @@ function soilTile(T: number, r: Rng, kind: (typeof SOIL_TILE_KINDS)[number], fla
     for (let x = 0; x < T; x++) {
       const q = row(y);
       if (kind === "tilled-soil-tile") put(x, y, "dirt", [2, 2, 1, 0][q]);
-      else if (kind === "watered-soil-tile") put(x, y, "dirt", [1, 1, 0, 0][q]);
+      else if (kind === "watered-soil-tile") put(x, y, "dirt", (flat ? [1, 1, 1, 0] : [1, 1, 0, 0])[q]);
       else if (kind === "dried-soil-tile") put(x, y, "dirt", [4, 4, 3, 3][q]);
       else put(x, y, "ui", [4, 4, 3, 3][q]);
     }
@@ -642,6 +642,8 @@ function soilTile(T: number, r: Rng, kind: (typeof SOIL_TILE_KINDS)[number], fla
     scatter(n, "dirt", 3, [0]);
     if (!flat) scatter(n, "dirt", 1, [0, 1]);
   } else if (kind === "watered-soil-tile") {
+    // few tones: dithered mid-tone on the lit ridges so wet soil is not a solid dark slab
+    if (flat) for (let y = 0; y < T; y++) for (let x = 0; x < T; x++) if (row(y) < 2 && (x + y) % 2 === 0) put(x, y, "dirt", 2);
     // wet sheen: short glints on the lit ridge, a darker dirt crumb or two
     for (let i = 0; i < Math.max(2, T / 4); i++) {
       const x = r.int(0, T - 1), y = r.int(0, Math.floor(T / 4) - 1) * 4;
@@ -789,7 +791,11 @@ function treeRows(c: Ctx, raw: Sprite, kit: StyleKit, kind: string, cuttable: bo
     { dx: 0, dy: 0, w: 2, t: 4, lv: true },
   ];
   const chop = plan.map((f, i) => {
-    const s = fin(shake(wound(raw, f.w), cutY, f.dx, f.dy, G * 0.55), kit);
+    const wounded = wound(raw, f.w);
+    let s = fin(shake(wounded, cutY, f.dx, f.dy, G * 0.55), kit);
+    // a sway that would push the crown onto the canvas edge is dropped
+    const eb = bounds(s), rb = bounds(fin(raw, kit));
+    if (eb && rb && ((eb.x1 === s.w - 1 && rb.x1 < s.w - 1) || (eb.x0 === 0 && rb.x0 > 0))) s = fin(shake(wounded, cutY, 0, f.dy, G * 0.55), kit);
     stamp(s, chipsA, f.t);
     if (f.lv) stamp(s, leaves, f.t - 0.6 + i * 0.3);
     return s;
@@ -810,16 +816,22 @@ function treeRows(c: Ctx, raw: Sprite, kit: StyleKit, kind: string, cuttable: bo
     [10, 34, 62, 90, 90].forEach((deg, i) => {
       const p = deg / 90;
       const th = (deg * Math.PI) / 180;
-      const sc = 0.92 + (sFit - 0.92) * p;
+      const sc0 = 0.92 + (sFit - 0.92) * p;
       const px = bx + (3 - bx) * Math.sqrt(p);
-      const lift = hw * sc * Math.sin(th) * 0.7;
-      const rot = warp(crown, (x, y) => {
-        const xr = (x + 0.5 - px) / sc, hr = (cutY - (y + 0.5) - lift) / sc;
-        const u = xr * Math.cos(th) - hr * Math.sin(th);
-        const h = xr * Math.sin(th) + hr * Math.cos(th);
-        const sy = cutY - h;
-        return sy >= cutY ? null : [bx + u, sy];
-      });
+      // shrink the lying crown until it clears the canvas edges (1px margin), so no frame is cut flat
+      let rot = crown;
+      for (let sc = sc0; sc > 0.3; sc *= 0.95) {
+        const lift = hw * sc * Math.sin(th) * 0.7;
+        rot = warp(crown, (x, y) => {
+          const xr = (x + 0.5 - px) / sc, hr = (cutY - (y + 0.5) - lift) / sc;
+          const u = xr * Math.cos(th) - hr * Math.sin(th);
+          const h = xr * Math.sin(th) + hr * Math.cos(th);
+          const sy = cutY - h;
+          return sy >= cutY ? null : [bx + u, sy];
+        });
+        const rb = bounds(rot);
+        if (!rb || (rb.x0 >= 2 && rb.x1 <= raw.w - 3 && rb.y0 >= 2)) break;
+      }
       if (i === 4) for (let y = 0; y < rot.h; y++) for (let x = 0; x < rot.w; x++) if ((x + y) % 2) rot.data[y * rot.w + x] = 0;
       for (let j = 0; j < stumpCut.data.length; j++) if (stumpCut.data[j]) rot.data[j] = stumpCut.data[j];
       fall.push(fin(rot, kit));
@@ -1019,6 +1031,19 @@ function generateEnvironment(p: Params, kit: StyleKit, seed: number, idleOnly: b
     else (PROPS[kind as (typeof PROP_KINDS)[number]] ?? oak)(ctx);
     const raw = ctx.P.toSprite();
     const rows: FrameSet[] = [{ name: "idle", frames: [finalize(raw, kit)] }, ...(idleOnly ? [] : propRows(ctx, raw, kit, kind, bool(p, "cuttable"), mixed))];
+    for (const row of rows.slice(1)) for (const f of row.frames) keepMargin(f, rows[0].frames[0]);
     return { rows, fps: rows.length > 1 ? 8 : 1 };
   }
+}
+
+/** Animation debris/sway may not reach an edge the idle frame leaves free: drop those border pixels. */
+function keepMargin(f: Sprite, idle: Sprite) {
+  const ib = bounds(idle);
+  if (!ib) return;
+  const clear = (x: number, y: number) => { f.data[y * f.w + x] = 0; };
+  for (let i = 0; i < f.h; i++) {
+    if (ib.x0 > 0) clear(0, i);
+    if (ib.x1 < f.w - 1) clear(f.w - 1, i);
+  }
+  for (let i = 0; i < f.w; i++) if (ib.y0 > 0) clear(i, 0);
 }
