@@ -47,6 +47,25 @@ characters, buildings, maps, environment, objects and UI all generated from one
 If you need a change in a shared file, **don't edit it** — describe the change
 in your final report and work around it locally.
 
+## Team
+
+Planning, contracts and integration: the lead session (Opus 5.5). Builders and
+reviewers are custom agents in `.claude/agents/` (Sonnet 5.5, low effort):
+
+| Agent | Role | Lanes / phase |
+|---|---|---|
+| `generator-artist` | procedural pixel-art generators, visual iteration | A (environment + map), B (objects + UI) |
+| `ai-engineer` | Claude API server, prompts, schemas, browser client | C |
+| `frontend-engineer` | React app shell, kit editor, library, export | D |
+| `editor-engineer` | pixel editor, map editor, image import | E |
+| `integrations-engineer` | headless workspace, MCP server, CLI | F |
+| `devrel-writer` | AGENTS.md, SKILL.md, per-tool setup docs/configs | G |
+| `art-director` | read-only visual + consistency critique | after A/B |
+| `qa-verifier` | read-only end-to-end verification | after integration |
+
+Flow: build lanes A-G in parallel -> integrate -> `art-director` + `qa-verifier`
+review -> fix round -> ship.
+
 ## Lanes
 
 Each lane owns only the files listed. Stubs already exist for every owned file
@@ -194,6 +213,75 @@ Owns: `src/ui/PixelEditor.tsx`, `src/ui/MapEditor.tsx`,
   kit + custom), crop-to-content toggle, preview original vs result, options
   "remove background" (treat the corner colour as transparent), "outline"
   (finalize), then `onImport(createAsset({... source: { kind: "import" } }))`.
+
+### Lane F — Headless + MCP server + CLI (agent interop)
+Owns: `src/node/**` (create it: `png.ts`, `workspace.ts`, `tools.ts`,
+`mcp.ts`, `cli.ts`, `*.test.ts`), `bin/**`, and only the `bin`, `scripts`
+(add `cli`, `mcp`, `build:node`) and `files` fields of `package.json`.
+
+- Implements the **Agent tool contract** below once in `tools.ts`; `mcp.ts`
+  (MCP SDK `McpServer.registerTool`, stdio by default, `--http [--port 8788]`
+  for Streamable HTTP on 127.0.0.1) and `cli.ts` (`pixel-builder <command>
+  --flag value ... [--json]`, `pixel-builder mcp [--http]`) are adapters.
+- Workspace: `--workspace <dir>` > `PIXEL_BUILDER_WORKSPACE` > `./pixel-assets`.
+  `<ws>/pixel-builder.json` is a `ProjectFile` (`src/core/project.ts`).
+  Exports go to `<ws>/<category>s/<slug>.png` (+ `<slug>.json` sheet meta for
+  animated assets, `<slug>.tiled.json` for maps). `generate_asset` and
+  `paint_asset` auto-export.
+- `png.ts`: encode sprite(s) -> PNG (scale, spritesheet) and decode PNG
+  (8-bit, colour types 0/2/3/4/6, non-interlaced; clear error otherwise).
+- Build: `build:node` bundles `src/node/cli.ts` to `dist-node/cli.mjs` with
+  esbuild (already present via vite), packages external, shebang;
+  `bin/pixel-builder.mjs` runs it. `npm run mcp` = stdio server via tsx.
+
+### Lane G — Agent docs, skills and tool configs
+Owns: `AGENTS.md`, `llms.txt`, `docs/integrations.md`,
+`skills/pixel-builder/**` (portable skill: `SKILL.md` + optional
+`reference.md`), `.claude/skills/pixel-builder/**` (same skill for Claude
+Code in this repo), `.mcp.json`, `.cursor/mcp.json`, `.vscode/mcp.json`,
+`.gemini/settings.json`, and any other per-tool project config you verify.
+
+- `docs/integrations.md`: setup for **Claude Code** (`claude mcp add` +
+  `.mcp.json` + skill install), **Hermes Agent** (`~/.hermes/config.yaml`
+  `mcp_servers` + skill install), **Claude Desktop**, **Cursor**, **Codex
+  CLI**, **Gemini CLI**, **VS Code / GitHub Copilot**, **Windsurf**, **Cline**,
+  **Zed**, **OpenAI Agents SDK**, remote clients (ChatGPT developer mode etc.)
+  via the HTTP transport, and "any agent with a shell" via the CLI. Each with
+  a verified snippet + source URL + a check step.
+- `SKILL.md`: when to use; the vibe-code workflow (kit from the game's vibe
+  -> generate with generators -> look at previews -> variations -> hand-paint
+  only what generators can't, with the legend -> export into the game);
+  consistency rules; tool/command cheat-sheet.
+- `AGENTS.md`: for agents *working on this repo* (build/test commands,
+  architecture, ownership, consistency rules) + pointer to the skill for
+  agents *using* the tool.
+
+### Agent tool contract (Lanes F and G)
+Same names in MCP (tool names) and CLI (kebab-case commands). All inputs are
+optional unless marked *; `kit_id` defaults to the active kit.
+
+| Tool | Input | Output |
+|---|---|---|
+| `get_style_guide` | kit_id, materials[] | kit summary (vibe, light, outline, shade steps, sizes), palette legend text, painting rules |
+| `list_generators` | category | generators with param specs |
+| `generate_asset` | generator*, params, seed, kit_id, name, save (true) | asset summary, exported file paths, preview image |
+| `generate_variations` | generator*, count (1-12), params, vary ("seed" \| "params"), kit_id | contact-sheet image + [{seed, params}] (not saved) |
+| `paint_asset` | name*, category*, width*, height*, frames* (string[][] of legend rows; one inner array per frame), row_names, fps, outline (true), cleanup (true), kit_id | asset summary, files, preview |
+| `edit_asset` | id*, row, frame, pixels [{x,y,char}], rows (replace frame), name, tags | asset summary, preview |
+| `list_assets` | category, query | summaries |
+| `get_asset` | id*, include_pixels (false) | summary, preview, legend rows if asked |
+| `delete_asset` | id* | ok |
+| `export_asset` | id*, format (png \| spritesheet \| tiled), scale (1), out_dir | file paths |
+| `import_image` | path* (PNG), width*, height*, category*, name, remove_background, crop, outline | asset summary, preview |
+| `list_kits` | — | kits (id, name, active) |
+| `create_kit` | name*, base_kit_id, changes (partial StyleKit) | kit |
+| `update_kit` | kit_id*, changes* | kit |
+| `set_active_kit` | kit_id* | kit |
+| `rerender_assets` | ids, kit_id | re-generated procedural assets (consistency after a kit change) |
+
+MCP also exposes resources `pixel-builder://project` (the project JSON) and
+`pixel-builder://style-guide`, and a prompt `asset_pack` (args: `game`,
+`count`) that walks an agent through building a consistent starter pack.
 
 ## Rules for every lane
 

@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "pixel-builder": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["tsx", "src/node/cli.ts", "mcp"],
+      "env": {
+        "PIXEL_BUILDER_WORKSPACE": "./pixel-assets"
+      }
+    }
+  }
+}

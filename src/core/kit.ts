@@ -11,7 +11,7 @@ export const DEFAULT_KIT: StyleKit = {
   shadeSteps: 4,
   dither: false,
   ambient: 0.25,
-  sizes: { character: 32, building: 64, environment: 32, object: 16, ui: 16, tile: 16 },
+  sizes: { character: 32, building: 96, environment: 32, object: 16, ui: 16, tile: 16 },
   vibe: "Cozy top-down fantasy RPG, chunky readable silhouettes, warm lighting, SNES-era charm.",
 };
 
@@ -26,7 +26,7 @@ export const KIT_PRESETS: StyleKit[] = [
     shadeSteps: 3,
     dither: true,
     ambient: 0.1,
-    sizes: { character: 16, building: 48, environment: 16, object: 16, ui: 16, tile: 16 },
+    sizes: { character: 16, building: 64, environment: 16, object: 16, ui: 16, tile: 16 },
     vibe: "Classic 4-tone handheld game, tiny sprites, strong black outlines, dithered shading.",
   },
   {
@@ -56,6 +56,26 @@ export function lightVector(dir: LightDir): [number, number, number] {
     dir === "top-left" ? [-0.55, -0.6, 0.58] : dir === "top-right" ? [0.55, -0.6, 0.58] : [0, -0.75, 0.66];
   const n = Math.hypot(...v);
   return [v[0] / n, v[1] / n, v[2] / n];
+}
+
+/**
+ * World-scale contract. Every generator sizes its subject from the kit's
+ * character size so separately generated assets sit in one world: a door is
+ * a little taller than a person, a mature tree about twice as tall, a storey
+ * a bit taller than the door. Canvas sizes (kit.sizes) are only the frames.
+ */
+export function proportions(kit: StyleKit) {
+  const c = kit.sizes.character;
+  return {
+    /** Standing character height, head to feet (the humanoid fills ~84% of its canvas). */
+    figure: Math.round(c * 0.84),
+    door: Math.round(c * 0.92),
+    doorW: Math.max(3, Math.round(c * 0.5)),
+    window: Math.max(2, Math.round(c * 0.28)),
+    story: Math.round(c * 1.15),
+    tree: Math.round(c * 1.9),
+    tile: kit.sizes.tile,
+  };
 }
 
 export function newId(prefix = "id"): string {

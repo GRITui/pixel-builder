@@ -1,6 +1,7 @@
 import { finalize } from "../enforce";
 import { Painter } from "../painter";
 import type { Material } from "../palette";
+import { proportions } from "../kit";
 import { rng, type Rng } from "../rng";
 import { bool, mat, num, str, type Generator } from "./types";
 
@@ -51,7 +52,7 @@ export const buildingGenerator: Generator = {
     const r = rng(seed);
     const S = kit.sizes.building;
     const k = S / 64;
-    const P = new Painter(S, S, kit);
+    const pr = proportions(kit);
     const style = str(p, "style");
     const wall = mat(p, "wall"), roof = mat(p, "roof"), trim = mat(p, "trim");
     let roofStyle = str(p, "roof_style");
@@ -60,14 +61,16 @@ export const buildingGenerator: Generator = {
     const widthFrac = tower ? 0.42 : str(p, "width") === "narrow" ? 0.55 : str(p, "width") === "wide" ? 0.9 : 0.72;
     const ww = Math.round((S - 6) * widthFrac);
     const wx = Math.round((S - ww) / 2);
-    const storyH = Math.round((tower ? 13 : 14) * k);
-    const wh = Math.min(S - Math.round(20 * k), storyH * floors + (tower ? Math.round(10 * k) : 0));
-    const baseY = S - 2;
-    const wy = baseY - wh;
+    const storyH = pr.story;
+    const wh = storyH * floors + (tower ? Math.round(storyH * 0.4) : 0);
     if (tower && roofStyle === "gable") roofStyle = "spire";
-
     const over = Math.max(1, Math.round(3 * k));
-    const rh = Math.round((roofStyle === "flat" ? 4 : tower ? 22 : 18) * k);
+    const rh = roofStyle === "flat" ? Math.max(3, Math.round(4 * k)) : Math.round(Math.min(ww * (tower ? 0.9 : 0.36), storyH * (tower ? 1.4 : 0.8)));
+    // The canvas is kit.sizes.building wide; it grows taller when floors + roof need the room.
+    const H = Math.max(S, wh + rh + Math.round(14 * k) + 4);
+    const P = new Painter(S, H, kit);
+    const baseY = H - 2;
+    const wy = baseY - wh;
     const rx0 = wx - over, rx1 = wx + ww + over;
     // a dome sits behind the facade, so it is painted first and the walls cover its lower half
     if (roofStyle === "dome") P.ellipse((rx0 + rx1) / 2, wy + 1, (rx1 - rx0) / 2, rh, roof);
@@ -85,8 +88,8 @@ export const buildingGenerator: Generator = {
     }
 
     // door
-    const dw = Math.max(3, Math.round((style === "barn" ? 14 : 7) * k));
-    const dh = Math.max(4, Math.round((style === "barn" ? 12 : 10) * k));
+    const dw = style === "barn" ? Math.round(pr.doorW * 1.7) : pr.doorW;
+    const dh = style === "barn" ? Math.round(pr.door * 1.05) : pr.door;
     const dx = Math.round(S / 2 - dw / 2) + (style === "shop" ? -Math.round(ww / 5) : 0);
     P.box(dx - 1, baseY - dh - 1, dw + 2, dh + 1, trim, [0, 0, 1], { tone: -1 });
     P.box(dx, baseY - dh, dw, dh, trim, [0, 0, 1]);
@@ -95,7 +98,7 @@ export const buildingGenerator: Generator = {
     if (style === "barn") P.line(dx, baseY - dh, dx + dw - 1, baseY - 1, trim, 1), P.line(dx + dw - 1, baseY - dh, dx, baseY - 1, trim, 1);
 
     // windows
-    const winW = Math.max(2, Math.round(6 * k)), winH = Math.max(2, Math.round(6 * k));
+    const winW = pr.window, winH = Math.round(pr.window * 1.15);
     const lit = bool(p, "lit_windows");
     const drawWindow = (x: number, y: number) => {
       P.box(x - 1, y - 1, winW + 2, winH + 2, trim, [0, -0.3, 1]);
@@ -108,15 +111,16 @@ export const buildingGenerator: Generator = {
     for (let f = 0; f < floors; f++) {
       const y = baseY - storyH * (f + 1) + Math.round(3 * k);
       if (f === 0 && !tower) {
-        const slots = style === "shop" ? [S / 2 + ww / 5] : ww > 30 * k ? [wx + ww * 0.2, wx + ww * 0.8 - winW] : [];
-        for (const sx of slots) if (Math.abs(sx - dx) > dw) drawWindow(Math.round(sx), y + Math.round(1 * k));
+        // one window centred in each wall span left/right of the door, if it fits with a margin
+        const spans: [number, number][] = [[wx + 2, dx - 2], [dx + dw + 2, wx + ww - 2]];
+        for (const [a, b] of spans) if (b - a >= winW + 4) drawWindow(Math.round((a + b - winW) / 2), y + Math.round(1 * k));
         if (style === "shop") {
           // awning + sign
           const ay = baseY - dh - Math.round(5 * k);
           for (let xx = wx - 1; xx < wx + ww + 1; xx++) P.box(xx, ay, 1, Math.round(4 * k), ((xx - wx) >> 2) % 2 ? "cloth2" : "ui", [0, -0.6, 0.8]);
           P.box(S / 2 - Math.round(8 * k), ay - Math.round(6 * k), Math.round(16 * k), Math.round(5 * k), "wood", [0, 0, 1]);
         }
-      } else {
+      } else if (!(tower && f === 0)) {
         const n = tower ? 1 : Math.max(1, Math.floor(ww / (12 * k)));
         for (let i = 0; i < n; i++) drawWindow(Math.round(wx + ((i + 0.5) * ww) / n - winW / 2), y);
       }
@@ -128,10 +132,13 @@ export const buildingGenerator: Generator = {
       // lower slope faces viewer, upper slope faces sky (lighter)
       P.poly([[rx0, wy + 1], [rx1, wy + 1], [rx1 - inset, wy - rh], [rx0 + inset, wy - rh]], roof, [0, -0.35, 0.95]);
       P.poly([[rx0 + inset, wy - rh], [rx1 - inset, wy - rh], [rx1 - inset - 1, wy - rh - Math.round(3 * k)], [rx0 + inset + 1, wy - rh - Math.round(3 * k)]], roof, [0, -1, 0.3]);
-      for (let yy = wy - rh + 3; yy <= wy; yy += 3) {
+      // staggered shingle courses: a dark seam per course with gaps, offset every other row
+      const tileW = Math.max(3, Math.round(5 * k));
+      for (let yy = wy - rh + 3, row = 0; yy <= wy; yy += 3, row++) {
         const t = (wy - yy) / rh;
-        const a = rx0 + inset * t, b = rx1 - inset * t;
-        P.box(Math.ceil(a), yy, Math.floor(b - a), 1, roof, [0, 0.2, 1], { tone: -1 });
+        const a = Math.ceil(rx0 + inset * t), b = Math.floor(rx1 - inset * t);
+        P.box(a, yy, b - a, 1, roof, [0, 0.2, 1], { tone: -1 });
+        for (let xx = a + (row % 2 ? Math.floor(tileW / 2) : 0); xx < b; xx += tileW) P.box(xx, yy - 2, 1, 2, roof, [0, 0.2, 1], { tone: -1 });
       }
       if (roofStyle === "gable") {
         P.box(rx0, wy - rh, 1, rh + 2, roof, [-1, 0, 0.4]);
@@ -146,6 +153,7 @@ export const buildingGenerator: Generator = {
       cone(P, (rx0 + rx1) / 2, wy + 2, (rx1 - rx0) / 2, rh + Math.round(8 * k), roof);
       P.px(Math.round((rx0 + rx1) / 2), wy - rh - Math.round(9 * k), "gold", 4);
     }
+    if (roofStyle === "gable" || roofStyle === "hip") P.box(wx, wy + 1, ww, Math.max(1, Math.round(2 * k)), wall, [0, 1, 0.3], { tone: -1 });
     if (bool(p, "chimney") && !tower && roofStyle !== "dome" && roofStyle !== "spire") {
       const cw = Math.max(2, Math.round(5 * k));
       const cx = Math.round(wx + ww * 0.72);

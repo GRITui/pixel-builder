@@ -14,6 +14,8 @@ export interface ShapeOpts {
 
 const BAYER4 = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map((v) => (v + 0.5) / 16);
 
+export const DITHER_MIN_SIZE = 24;
+
 /** Ramp levels used for each shade-step setting, darkest first. */
 const LEVELS: Record<number, number[]> = {
   2: [1, 3],
@@ -188,11 +190,30 @@ export class Painter {
     return this.mat[y * this.w + x] >= 0;
   }
 
+  /**
+   * Dither is for blending a changing light value, not for flat faces: a wall
+   * whose constant light sits near a shade boundary would otherwise turn into
+   * a full checkerboard. A pixel counts as on a gradient when a lit neighbour
+   * of the same material falls in a different shade band.
+   */
+  private onGradient(x: number, y: number, S: number): boolean {
+    const i = y * this.w + x;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx, ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= this.w || ny >= this.h) continue;
+      const j = ny * this.w + nx;
+      if (this.mat[j] === this.mat[i] && this.fixed[j] < 0 && Math.floor(this.light[j] * S) !== Math.floor(this.light[i] * S)) return true;
+    }
+    return false;
+  }
+
   /** Quantise lighting into palette indices using the kit's shade steps and dithering. */
   toSprite(): Sprite {
     const s = createSprite(this.w, this.h);
     const levels = LEVELS[Math.max(2, Math.min(5, Math.round(this.kit.shadeSteps)))];
     const S = levels.length;
+    // Ordered dither only reads as a gradient on larger surfaces; on small sprites it is just noise.
+    const dither = this.kit.dither && Math.min(this.w, this.h) >= DITHER_MIN_SIZE;
     for (let y = 0; y < this.h; y++)
       for (let x = 0; x < this.w; x++) {
         const i = y * this.w + x;
@@ -204,7 +225,7 @@ export class Painter {
           level = this.fixed[i];
         } else {
           let q = this.light[i] * S;
-          if (this.kit.dither) q += (BAYER4[(y & 3) * 4 + (x & 3)] - 0.5) * 0.6;
+          if (dither && this.onGradient(x, y, S)) q += (BAYER4[(y & 3) * 4 + (x & 3)] - 0.5) * 0.6;
           level = levels[Math.max(0, Math.min(S - 1, Math.floor(q)))];
         }
         s.data[i] = colorIndex(m, Math.max(0, Math.min(4, level + this.tone[i])));

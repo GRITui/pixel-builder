@@ -7,3 +7,5 @@ See `docs/BUILD_PLAN.md` for architecture, the consistency model and file owners
 - Preview a generator without a browser: `npx tsx scripts/preview.ts <id> out.png '[{}]'`.
 - Sprites store palette *indices* (`colorIndex(material, level)`), never colours.
 - Volumes are drawn with the lit `Painter`; every prop goes through `finalize`.
+
+@AGENTS.md

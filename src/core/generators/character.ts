@@ -1,7 +1,7 @@
 import { finalize } from "../enforce";
 import { Painter } from "../painter";
 import type { Material } from "../palette";
-import { rng } from "../rng";
+import { rng, type Rng } from "../rng";
 import type { FrameSet, Sprite, StyleKit } from "../types";
 import { bool, mat, PAINT, str, type Generator, type Params } from "./types";
 
@@ -10,10 +10,27 @@ const DIRS: Dir[] = ["down", "left", "right", "up"];
 const SKINS: Material[] = ["skin", "sand", "wood", "stone", "foliage", "metal", "accent"];
 
 /**
+ * Small seeded details layered on top of the explicit params, so "same params,
+ * new seed" gives a sibling character rather than an identical copy. Picked
+ * once per asset so every direction and frame agrees.
+ */
+interface Traits {
+  fringe: -1 | 0 | 1;
+  wideEyes: boolean;
+  blush: boolean;
+  collar: boolean;
+  beltTone: number;
+}
+
+function rollTraits(r: Rng): Traits {
+  return { fringe: r.pick([-1, 0, 1] as const), wideEyes: r.chance(0.4), blush: r.chance(0.3), collar: r.chance(0.4), beltTone: r.pick([0, -1, 1]) };
+}
+
+/**
  * Top-down "chibi" RPG character with a 4-direction, 4-frame walk cycle.
  * All coordinates are authored on a 32px grid and scaled to the kit size.
  */
-function drawHumanoid(p: Params, kit: StyleKit, dir: Dir, frame: number, size: number): Sprite {
+function drawHumanoid(p: Params, kit: StyleKit, dir: Dir, frame: number, size: number, t: Traits): Sprite {
   const P = new Painter(size, size, kit);
   const k = size / 32;
   const u = (v: number) => Math.round(v * k);
@@ -67,7 +84,8 @@ function drawHumanoid(p: Params, kit: StyleKit, dir: Dir, frame: number, size: n
   const torsoX = 16 - (side ? tw * 0.4 : tw / 2);
   const torsoW = side ? tw * 0.8 : tw;
   P.cylinder(X(torsoX, torsoW), u(17) + oy, us(torsoW), us(8), top);
-  P.rect(X(torsoX, torsoW), u(23) + oy, us(torsoW), us(1), mat(p, "boots"), 2); // belt
+  P.rect(X(torsoX, torsoW), u(23) + oy, us(torsoW), us(1), mat(p, "boots"), 2 + t.beltTone); // belt
+  if (t.collar && dir !== "up") P.box(X(torsoX + 1, torsoW - 2), u(17) + oy, us(torsoW - 2), us(1), mat(p, "accent_mat"), [0, -0.5, 0.8]);
   if (!side && dir === "down") P.px(u(16), u(23) + oy, "gold", 3); // buckle
 
   // --- arms ---
@@ -96,8 +114,8 @@ function drawHumanoid(p: Params, kit: StyleKit, dir: Dir, frame: number, size: n
       hairCut(9, hy - 2, 5, 7); // back of head
     } else {
       P.ellipse(CX(16), (hy - 2) * k + oy, 7.4 * k, 5 * k, hair);
-      P.erase(u(11), u(hy) + oy, us(10), us(4)); // forehead/face window
-      P.ellipse(CX(16), (hy + 1) * k + oy, 6 * k, 4.6 * k, skin);
+      P.erase(u(11 + t.fringe), u(hy) + oy, us(10), us(4)); // forehead/face window (fringe parts left/centre/right)
+      P.ellipse(CX(16 + t.fringe * 0.5), (hy + 1) * k + oy, 6 * k, 4.6 * k, skin);
       hairCut(9, hy - 1, 2, 5);
       hairCut(21, hy - 1, 2, 5);
     }
@@ -117,13 +135,19 @@ function drawHumanoid(p: Params, kit: StyleKit, dir: Dir, frame: number, size: n
   }
 
   // --- face ---
-  if (dir === "down") {
-    P.rect(u(13), u(hy + 1) + oy, us(1), us(2), "ink", 0);
-    P.rect(u(18), u(hy + 1) + oy, us(1), us(2), "ink", 0);
-    if (k >= 1) P.px(u(16), u(hy + 4) + oy, skin, 1);
-  } else if (side) {
-    P.rect(X(19, 1), u(hy + 1) + oy, us(1), us(2), "ink", 0);
-  }
+  const ex = t.wideEyes ? 1 : 0;
+  const drawFace = () => {
+    if (dir === "down") {
+      P.rect(u(13 - ex), u(hy + 1) + oy, us(1), us(2), "ink", 0);
+      P.rect(u(18 + ex), u(hy + 1) + oy, us(1), us(2), "ink", 0);
+      if (k >= 1) P.px(u(16), u(hy + 4) + oy, skin, 1);
+      if (t.blush && k >= 1) P.px(u(12 - ex), u(hy + 3) + oy, "cloth2", 3), P.px(u(19 + ex), u(hy + 3) + oy, "cloth2", 3);
+    } else if (side) {
+      P.rect(X(19, 1), u(hy + 1) + oy, us(1), us(2), "ink", 0);
+      if (t.blush && k >= 1) P.px(X(20), u(hy + 3) + oy, "cloth2", 3);
+    }
+  };
+  drawFace();
 
   // --- headwear ---
   const hm = mat(p, "accent_mat");
@@ -134,8 +158,16 @@ function drawHumanoid(p: Params, kit: StyleKit, dir: Dir, frame: number, size: n
     if (side) P.ellipse(CX(19), (hy + 1.5) * k + oy, 3.5 * k, 3.5 * k, skin), P.rect(X(19, 1), u(hy + 1) + oy, us(1), us(2), "ink", 0);
   } else if (hat === "hood") {
     P.ellipse(CX(16), (hy - 0.5) * k + oy, 8.2 * k, 7.2 * k, hm);
-    if (dir === "down") P.ellipse(CX(16), (hy + 1.5) * k + oy, 5.5 * k, 4.6 * k, "ink", { tone: 1 }), P.px(u(13), u(hy + 1) + oy, "gold", 4), P.px(u(18), u(hy + 1) + oy, "gold", 4);
-    if (side) P.ellipse(CX(19.5), (hy + 1.5) * k + oy, 3 * k, 4 * k, "ink", { tone: 1 }), P.px(X(20), u(hy + 1) + oy, "gold", 4);
+    // face opening: a rim of shadow inside the hood, then the face itself so it stays readable at 1x
+    if (dir === "down") {
+      P.ellipse(CX(16), (hy + 1.5) * k + oy, 5.6 * k, 4.8 * k, hm, { tone: -2 });
+      P.ellipse(CX(16), (hy + 1.8) * k + oy, 4.6 * k, 3.9 * k, skin, { tone: -1 });
+    }
+    if (side) {
+      P.ellipse(CX(19.5), (hy + 1.5) * k + oy, 3.2 * k, 4.2 * k, hm, { tone: -2 });
+      P.ellipse(CX(19.8), (hy + 1.8) * k + oy, 2.4 * k, 3.3 * k, skin, { tone: -1 });
+    }
+    drawFace();
   } else if (hat === "wizard") {
     P.ellipse(CX(16), (hy - 3.5) * k + oy, 9.5 * k, 2 * k, hm, { flat: 0.4 });
     P.poly([[CX(10), (hy - 4) * k + oy], [CX(22), (hy - 4) * k + oy], [CX(side ? 12 : 18), (hy - 13) * k + oy]], hm, [0.3, -0.3, 0.9]);
@@ -169,7 +201,7 @@ function drawHumanoid(p: Params, kit: StyleKit, dir: Dir, frame: number, size: n
   return finalize(P.toSprite(), kit);
 }
 
-function drawSlime(p: Params, kit: StyleKit, dir: Dir, frame: number, size: number): Sprite {
+function drawSlime(p: Params, kit: StyleKit, dir: Dir, frame: number, size: number, _t: Traits): Sprite {
   const P = new Painter(size, size, kit);
   const k = size / 32;
   const body = mat(p, "skin");
@@ -206,10 +238,10 @@ export const characterGenerator: Generator = {
     { key: "cape", label: "Cape", type: "bool", default: false },
   ],
   generate(p, kit, seed) {
-    void rng(seed); // characters are fully parametric; seed kept for API symmetry
+    const traits = rollTraits(rng(seed));
     const size = kit.sizes.character;
     const draw = str(p, "archetype") === "slime" ? drawSlime : drawHumanoid;
-    const rows: FrameSet[] = DIRS.map((d) => ({ name: `walk-${d}`, frames: [0, 1, 2, 3].map((f) => draw(p, kit, d, f, size)) }));
+    const rows: FrameSet[] = DIRS.map((d) => ({ name: `walk-${d}`, frames: [0, 1, 2, 3].map((f) => draw(p, kit, d, f, size, traits)) }));
     return { rows, fps: 6 };
   },
 };

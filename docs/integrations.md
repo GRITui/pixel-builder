@@ -1,0 +1,516 @@
+# Use pixel-builder with AI agents
+
+pixel-builder exposes the same 16 tools two ways, so any agent can drive it:
+
+- **MCP server** (stdio, or Streamable HTTP): for Claude Code, Hermes Agent,
+  Claude Desktop, Cursor, Codex CLI, Gemini CLI, VS Code / GitHub Copilot,
+  Windsurf, Cline, Zed, the OpenAI Agents SDK and remote MCP clients.
+- **CLI**: for any agent that can run shell commands. Same tools as
+  kebab-case commands (`generate_asset` -> `generate-asset`) with `--json`.
+
+Pair either with the **skill** ([`skills/pixel-builder/SKILL.md`](../skills/pixel-builder/SKILL.md)),
+which teaches the agent the consistent-pixel-art workflow. Agents *working on
+this repo* read [`AGENTS.md`](../AGENTS.md).
+
+> Verification status: every snippet below cites the doc it came from. Where I
+> could read the official page it says **verified**; where the official page was
+> not reachable and the format was confirmed only through search-result excerpts
+> of it (or third-party guides) it says **excerpt-verified** or **reported**.
+> Re-check those against the linked page if something doesn't load.
+
+## 0. Launch commands
+
+All placeholders: `<ABS>` = absolute path of this repo checkout,
+`<GAME>` = absolute path of the game project that should receive the assets.
+
+| Mode | Command | Use when |
+|---|---|---|
+| Dev stdio (inside this repo) | `npx tsx src/node/cli.ts mcp` | project configs in this repo |
+| Built stdio | `node <ABS>/dist-node/cli.mjs mcp` (after `npm run build:node`) | global / other projects |
+| Linked bin | `pixel-builder mcp` (after `npm link` in this repo; uses `dist-node/cli.mjs` if built, else falls back to tsx) | you want a short command on `PATH` |
+| Streamable HTTP | `npx tsx src/node/cli.ts mcp --http --port 8788` -> `http://127.0.0.1:8788/mcp` | clients that connect to a URL |
+| CLI | `npx tsx src/node/cli.ts <command> --json` | agents with a shell |
+
+**Workspace** (where the project file and exports live), highest priority first:
+`--workspace <dir>`, env `PIXEL_BUILDER_WORKSPACE`, default `./pixel-assets`.
+The project is `<ws>/pixel-builder.json`; exports go to `<ws>/<folder>/`
+(`characters/`, `buildings/`, `environments/`, `objects/`, `ui/`, `maps/`).
+Relative workspace paths resolve against the server's working directory, which
+GUI apps do not control, so in global configs use an absolute `<GAME>/pixel-assets`.
+
+**Notes**
+
+- Don't launch the stdio server with plain `npm run mcp`: npm prints a banner
+  (`> pixel-builder@0.1.0 mcp`) to stdout, which corrupts the stdio protocol
+  (I confirmed this). Use `npx tsx ...` as above, or `npm run -s mcp`.
+- GUI apps (Claude Desktop, Windsurf, Cursor from the dock) often don't inherit
+  your shell `PATH`. If `npx`/`node` isn't found, put the absolute path of the
+  binary (`which node`) in `command`.
+- Check the server works before wiring a client:
+  `npx tsx src/node/cli.ts get-style-guide --json` should print the kit and legend.
+  I ran the stdio server (dev and built), the HTTP server and the CLI examples in
+  this guide against the current code: all 16 tools list over both transports.
+
+## 1. Claude Code
+
+Docs: <https://code.claude.com/docs/en/mcp>, <https://code.claude.com/docs/en/skills> (**verified**)
+
+In this repo it works out of the box: the committed [`.mcp.json`](../.mcp.json)
+registers the server (Claude Code asks you to approve project servers on first
+use) and [`.claude/skills/pixel-builder/`](../.claude/skills/pixel-builder/) is
+the skill. Start Claude Code from the repo root.
+
+```json
+{
+  "mcpServers": {
+    "pixel-builder": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["tsx", "src/node/cli.ts", "mcp"],
+      "env": { "PIXEL_BUILDER_WORKSPACE": "./pixel-assets" }
+    }
+  }
+}
+```
+
+Use it from another project (built version, user scope = every project; the
+workspace is `./pixel-assets` of whatever directory you start Claude in):
+
+```bash
+claude mcp add --transport stdio --scope user pixel-builder \
+  --env PIXEL_BUILDER_WORKSPACE=./pixel-assets \
+  -- node <ABS>/dist-node/cli.mjs mcp
+```
+
+HTTP instead: `claude mcp add --transport http pixel-builder http://127.0.0.1:8788/mcp`
+
+Install the skill globally: `cp -r <ABS>/skills/pixel-builder ~/.claude/skills/`
+(project-only: copy into `<GAME>/.claude/skills/`).
+
+Note: if a repo has a `CLAUDE.md`, Claude Code reads it *instead of* `AGENTS.md`
+unless `CLAUDE.md` imports it (`@AGENTS.md`),
+see <https://code.claude.com/docs/en/memory#agents-md>.
+
+**Check:** `claude mcp list` shows `pixel-builder` as connected; in a session
+`/mcp` lists its tools. Ask "get the pixel-builder style guide".
+
+## 2. Hermes Agent (Nous Research)
+
+Docs: <https://hermes-agent.nousresearch.com/docs/user-guide/features/mcp>,
+<https://hermes-agent.nousresearch.com/docs/user-guide/features/skills>,
+<https://hermes-agent.nousresearch.com/docs/user-guide/features/context-files>
+(**verified** via the docs' source in the NousResearch/hermes-agent repo on GitHub;
+the docs site itself was not reachable from my environment)
+
+`~/.hermes/config.yaml`, top-level key `mcp_servers` (YAML, snake_case names):
+
+```yaml
+mcp_servers:
+  pixel_builder:
+    command: "node"
+    args: ["<ABS>/dist-node/cli.mjs", "mcp"]
+    env:
+      PIXEL_BUILDER_WORKSPACE: "<GAME>/pixel-assets"
+```
+
+Dev checkout instead of a build (`cwd` is a documented stdio field):
+
+```yaml
+mcp_servers:
+  pixel_builder:
+    command: "npx"
+    args: ["tsx", "src/node/cli.ts", "mcp"]
+    cwd: "<ABS>"
+    env:
+      PIXEL_BUILDER_WORKSPACE: "<GAME>/pixel-assets"
+```
+
+Hermes does **not** forward your whole shell environment to stdio servers, so
+always set `PIXEL_BUILDER_WORKSPACE` under `env`. HTTP variant:
+`url: "http://127.0.0.1:8788/mcp"` (fields `url`, `headers`). Optional controls:
+`enabled`, `timeout`, `connect_timeout`, `lazy`.
+
+Skill (skills live in `~/.hermes/skills/`; each is a folder with `SKILL.md`):
+
+```bash
+mkdir -p ~/.hermes/skills && cp -r <ABS>/skills/pixel-builder ~/.hermes/skills/
+```
+
+or point Hermes at the repo's skills folder in `config.yaml` (no copy):
+
+```yaml
+skills:
+  external_dirs:
+    - <ABS>/skills
+```
+
+`hermes skills install https://<host>/path/SKILL.md` also works for a URL
+(documented, untested here; it fetches only `SKILL.md`, not `reference.md`).
+Hermes also loads `AGENTS.md` as project context (priority: `.hermes.md` >
+`AGENTS.override.md` > `AGENTS.md` > `CLAUDE.md` > `.cursorrules`).
+
+**Check:** `hermes mcp test pixel_builder` and `hermes mcp list`; in a session run
+`/reload-mcp` after editing the config, `hermes skills list`, then `/pixel-builder`.
+
+## 3. Claude Desktop
+
+Docs: <https://modelcontextprotocol.io/quickstart/user> (**excerpt-verified**:
+the page was not reachable; path and JSON confirmed via search excerpts)
+
+Open the config file (the app's Settings -> Developer -> Edit Config button opens it; menu names not verified, or edit the file directly):
+macOS `~/Library/Application Support/Claude/claude_desktop_config.json`,
+Windows `%APPDATA%\Claude\claude_desktop_config.json`. Use absolute paths; the
+app starts servers with its own working directory.
+
+```json
+{
+  "mcpServers": {
+    "pixel-builder": {
+      "command": "node",
+      "args": ["<ABS>/dist-node/cli.mjs", "mcp"],
+      "env": { "PIXEL_BUILDER_WORKSPACE": "<GAME>/pixel-assets" }
+    }
+  }
+}
+```
+
+Fully quit and restart Claude Desktop. For the skill, upload
+`skills/pixel-builder/` as a skill in Claude's settings, or paste `SKILL.md`
+into a project's instructions (skill upload UI not verified here).
+
+**Check:** after restart the tools/connector indicator in the chat box lists
+`pixel-builder`; ask "list the pixel-builder generators".
+
+## 4. Cursor
+
+Docs: <https://cursor.com/docs/mcp> (**excerpt-verified**; page not reachable)
+
+Project: [`.cursor/mcp.json`](../.cursor/mcp.json) (committed); global:
+`~/.cursor/mcp.json`. Top-level key `mcpServers`. Cursor interpolates
+`${workspaceFolder}`, `${env:NAME}`, `${userHome}` in `command`, `args`, `env`,
+`url`, `headers`.
+
+```json
+{
+  "mcpServers": {
+    "pixel-builder": {
+      "command": "npx",
+      "args": ["tsx", "${workspaceFolder}/src/node/cli.ts", "mcp"],
+      "env": { "PIXEL_BUILDER_WORKSPACE": "${workspaceFolder}/pixel-assets" }
+    }
+  }
+}
+```
+
+For a different project use the built version
+(`"command": "node", "args": ["<ABS>/dist-node/cli.mjs", "mcp"]`, workspace
+`${workspaceFolder}/pixel-assets`). HTTP: `{"url": "http://127.0.0.1:8788/mcp"}`.
+Skill (reported by third-party guides, not confirmed on Cursor's docs): Cursor
+reads `SKILL.md` folders from `.cursor/skills/` and `.agents/skills/` (and, for
+compatibility, `.claude/skills/`). Cursor also reads `AGENTS.md` in the project root.
+
+**Check:** Cursor Settings -> MCP (Tools & MCP) shows `pixel-builder` with a
+green status and its tools; in Agent chat ask it to list generators.
+
+## 5. Codex CLI
+
+Docs: <https://developers.openai.com/codex/mcp> (**excerpt-verified**; page not reachable)
+
+```bash
+codex mcp add pixel-builder \
+  --env PIXEL_BUILDER_WORKSPACE=<GAME>/pixel-assets \
+  -- node <ABS>/dist-node/cli.mjs mcp
+```
+
+which writes to `~/.codex/config.toml` (trusted projects may also use a
+project-scoped `.codex/config.toml`):
+
+```toml
+[mcp_servers.pixel-builder]
+command = "node"
+args = ["<ABS>/dist-node/cli.mjs", "mcp"]
+
+[mcp_servers.pixel-builder.env]
+PIXEL_BUILDER_WORKSPACE = "<GAME>/pixel-assets"
+```
+
+Dev checkout: `command = "npx"`, `args = ["tsx", "<ABS>/src/node/cli.ts", "mcp"]`.
+Streamable HTTP: `url = "http://127.0.0.1:8788/mcp"` (optional `bearer_token_env_var`,
+`http_headers`). Codex reads `AGENTS.md` natively. Skills (reported, not confirmed
+on OpenAI's page): `.agents/skills/<name>/SKILL.md` in the repo or
+`~/.agents/skills/`, invoked as `$pixel-builder`.
+
+**Check:** `codex mcp list` shows the server; in the TUI `/mcp` lists its tools.
+
+## 6. Gemini CLI
+
+Docs: <https://github.com/google-gemini/gemini-cli/blob/main/docs/tools/mcp-server.md>
+and <https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/gemini-md.md> (**verified**)
+
+Project [`.gemini/settings.json`](../.gemini/settings.json) (committed) or user
+`~/.gemini/settings.json`. Key `mcpServers`; `env` supports `$VAR` / `${VAR}`.
+
+```json
+{
+  "mcpServers": {
+    "pixel-builder": {
+      "command": "npx",
+      "args": ["tsx", "src/node/cli.ts", "mcp"],
+      "env": { "PIXEL_BUILDER_WORKSPACE": "./pixel-assets" }
+    }
+  },
+  "context": { "fileName": ["AGENTS.md", "GEMINI.md"] }
+}
+```
+
+`context.fileName` makes Gemini load `AGENTS.md` (its default is only
+`GEMINI.md`). Run `gemini` from the repo root so the relative paths resolve.
+Built version: `"command": "node", "args": ["<ABS>/dist-node/cli.mjs", "mcp"]`
+with an absolute workspace. HTTP: use **`httpUrl`**, not `url` (`url` is the SSE
+endpoint): `"httpUrl": "http://127.0.0.1:8788/mcp"`. CLI alternative:
+`gemini mcp add --transport http pixel-builder http://127.0.0.1:8788/mcp`.
+Skills: Gemini CLI uses the universal `.agents/skills/` layout (reported by
+third-party guides; not confirmed on Google's docs).
+
+**Check:** `gemini mcp list`, or `/mcp` inside the CLI (shows connection status and tools).
+
+## 7. VS Code / GitHub Copilot
+
+Docs: <https://code.visualstudio.com/docs/agents/reference/mcp-configuration>
+and <https://code.visualstudio.com/docs/agent-customization/mcp-servers>
+(**verified** via the docs' source in microsoft/vscode-docs)
+
+Workspace [`.vscode/mcp.json`](../.vscode/mcp.json) (committed). Note the top-level
+key is **`servers`**, not `mcpServers`. Variables like `${workspaceFolder}` work in
+the config; `cwd` and `envFile` are optional fields.
+
+```json
+{
+  "servers": {
+    "pixel-builder": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["tsx", "${workspaceFolder}/src/node/cli.ts", "mcp"],
+      "cwd": "${workspaceFolder}",
+      "env": { "PIXEL_BUILDER_WORKSPACE": "${workspaceFolder}/pixel-assets" }
+    }
+  }
+}
+```
+
+HTTP: `{"type": "http", "url": "http://127.0.0.1:8788/mcp"}`. User-wide: run
+**MCP: Open User Configuration**. VS Code can also read a portable root
+`.mcp.json` (which this repo has for Claude Code); if you see the server listed
+twice, disable one. VS Code asks you to trust a server the first time it starts.
+Optional: `chat.useAgentsMdFile` (experimental, per the VS Code docs/community
+reports) makes Copilot load `AGENTS.md`; Copilot skills are reported to live in
+`.github/skills/`.
+
+**Check:** Command Palette -> **MCP: List Servers** shows `pixel-builder` running;
+in Chat (Agent mode) **Configure Tools** lists its tools.
+
+## 8. Windsurf
+
+Docs: <https://docs.windsurf.com/windsurf/cascade/mcp> (**excerpt-verified**; page not
+reachable). The product and docs are being rebranded (search excerpts show
+`~/.config/devin/mcp_config.json` on macOS/Linux and `%APPDATA%\devin\mcp_config.json`
+on Windows; older versions used `~/.codeium/windsurf/mcp_config.json`), so open the
+file from the app rather than guessing: Cascade panel -> `...` (Actions) -> **Open MCP
+config file**. Key `mcpServers`; remote servers use `serverUrl` or `url`. I found
+no documented project-level file, so no config is committed. Use absolute paths.
+
+```json
+{
+  "mcpServers": {
+    "pixel-builder": {
+      "command": "node",
+      "args": ["<ABS>/dist-node/cli.mjs", "mcp"],
+      "env": { "PIXEL_BUILDER_WORKSPACE": "<GAME>/pixel-assets" }
+    }
+  }
+}
+```
+
+HTTP: `"serverUrl": "http://127.0.0.1:8788/mcp"`. Windsurf treats a root `AGENTS.md`
+as an always-on rule (search excerpt).
+
+**Check:** after saving, refresh the MCP list in the Cascade panel; `pixel-builder` and its tools should appear (exact UI wording not verified).
+
+## 9. Cline
+
+Docs: <https://docs.cline.bot/mcp/configuring-mcp-servers> (**excerpt-verified**;
+page not reachable; excerpts from Cline-related guides)
+
+Cline panel -> menu (top right) -> **MCP Servers** -> **Configure MCP Servers**
+opens `cline_mcp_settings.json` (VS Code on macOS:
+`~/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/settings/`;
+Linux `~/.config/Code/...`; Windows `%APPDATA%/Code/...`; Cline CLI
+`~/.cline/data/settings/`). Use absolute paths.
+
+```json
+{
+  "mcpServers": {
+    "pixel-builder": {
+      "command": "node",
+      "args": ["<ABS>/dist-node/cli.mjs", "mcp"],
+      "env": { "PIXEL_BUILDER_WORKSPACE": "<GAME>/pixel-assets" },
+      "disabled": false,
+      "autoApprove": []
+    }
+  }
+}
+```
+
+HTTP: `{"url": "http://127.0.0.1:8788/mcp", "type": "streamableHttp", "disabled": false}`.
+Cline also reads a root `AGENTS.md` (reported).
+
+**Check:** the server shows a green dot in the MCP Servers panel and lists its tools.
+
+## 10. Zed
+
+Docs: <https://github.com/zed-industries/zed/blob/main/docs/src/ai/mcp.md> (**verified**)
+
+Zed uses `context_servers` in settings (`~/.config/zed/settings.json`, or
+`.zed/settings.json` per project; open with the `zed::OpenSettingsFile` action).
+Use absolute paths. No project file is committed because Zed has no documented
+workspace-folder variable.
+
+```json
+{
+  "context_servers": {
+    "pixel-builder": {
+      "command": "node",
+      "args": ["<ABS>/dist-node/cli.mjs", "mcp"],
+      "env": { "PIXEL_BUILDER_WORKSPACE": "<GAME>/pixel-assets" }
+    }
+  }
+}
+```
+
+Remote: `{"url": "http://127.0.0.1:8788/mcp"}` (optional `headers`). Zed reads a
+root `AGENTS.md` among its project rules files
+(<https://zed.dev/docs/ai/instructions>, search excerpt).
+
+**Check:** Settings -> AI -> MCP Servers: a green dot with "Server is active".
+
+## 11. OpenAI Agents SDK (Python)
+
+Docs: <https://github.com/openai/openai-agents-python/blob/main/docs/mcp.md> (**verified**)
+
+```python
+import asyncio
+from agents import Agent, Runner
+from agents.mcp import MCPServerStdio
+
+SKILL = open("<ABS>/skills/pixel-builder/SKILL.md").read()
+
+async def main() -> None:
+    async with MCPServerStdio(
+        name="pixel-builder",
+        params={
+            "command": "node",
+            "args": ["<ABS>/dist-node/cli.mjs", "mcp"],
+            "env": {"PIXEL_BUILDER_WORKSPACE": "<GAME>/pixel-assets"},
+        },
+        cache_tools_list=True,
+    ) as server:
+        agent = Agent(name="Pixel artist", instructions=SKILL, mcp_servers=[server])
+        result = await Runner.run(agent, "Make a cozy RPG hero and a wooden chest.")
+        print(result.final_output)
+
+asyncio.run(main())
+```
+
+Streamable HTTP (start `mcp --http` first): replace the server with
+`MCPServerStreamableHttp(name="pixel-builder", params={"url": "http://127.0.0.1:8788/mcp"})`
+from `agents.mcp`. Passing `SKILL.md` as `instructions` is how this SDK takes a
+skill. (`env` and `cwd` are optional stdio params per the SDK reference
+excerpt.) The JavaScript/TypeScript Agents SDK was not checked.
+
+**Check:** `await server.list_tools()` inside the `async with` returns the 16 tools.
+
+## 12. Remote MCP clients (HTTP transport)
+
+Start the server: `npx tsx src/node/cli.ts mcp --http --port 8788`. It prints
+`MCP server (Streamable HTTP) at http://127.0.0.1:8788/mcp` on stderr. Endpoint
+`http://127.0.0.1:8788/mcp`, Streamable HTTP, **stateless** (each request is
+independent; only `POST` is accepted, a `GET` returns 405). Any MCP client that
+takes a URL can use it directly (see the HTTP variants above). Flags:
+`--port <n>`, `--host <addr>` (default `127.0.0.1`), `--workspace <dir>`.
+
+Hosted clients such as ChatGPT developer mode need a public HTTPS URL. Docs:
+<https://developers.openai.com/api/docs/guides/developer-mode> (**excerpt-verified**).
+In ChatGPT, enable Developer mode (see the doc for the current menu path), add a
+connector, and enter the MCP URL **including the `/mcp` path**; supported
+transports are Streamable HTTP and SSE.
+
+To reach the local server from the internet you need a tunnel (for example
+`cloudflared` or ngrok). Two gotchas I confirmed in the code:
+
+- On loopback binds the server only accepts `Host` / `Origin` headers that are
+  `localhost`, `127.0.0.1` or `::1` (DNS-rebinding guard), so a tunnel that
+  forwards the public hostname gets **403**. Configure the tunnel to rewrite the
+  Host header to `localhost` (cloudflared `--http-host-header`, ngrok
+  `--host-header`; those flags are from memory, check your tunnel's docs).
+- There is **no authentication**. Anyone who can reach the URL can read and
+  write your workspace. Only expose it behind tunnel-level access control, and
+  stop it when done. Binding to another interface with `--host` turns the guard
+  off, so don't do that on an untrusted network.
+
+Claude Desktop's remote connectors and Claude.ai also need a public HTTPS URL
+(not verified here).
+
+**Check:** this lists the 16 tools (a plain `GET` in a browser gives 405, which
+also proves it is up):
+
+```bash
+curl -s -X POST http://127.0.0.1:8788/mcp \
+  -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+## 13. Any agent with a shell (CLI)
+
+No MCP needed. From this repo `npx tsx src/node/cli.ts <command> --json`; after
+`npm run build:node` use `node <ABS>/dist-node/cli.mjs <command> --json`; after
+`npm link`, `pixel-builder <command> --json`. Give the agent
+[`SKILL.md`](../skills/pixel-builder/SKILL.md) (paste it, or `@`-reference it) so
+it knows the workflow. The first positional argument is each command's main input
+(`generator`, `id` or exact name, `name`, `kit_id`, `path`); arrays and objects
+take JSON, `@file.json` or `k=v,k=v`; `pixel-builder <command> --help` lists every
+option. Exit codes: 0 ok, 1 tool error, 2 usage error. `--json` prints
+`{"ok": true, ...result, "previews": [...]}` or `{"ok": false, "error": "..."}`.
+
+```bash
+pixel-builder get-style-guide --json
+pixel-builder list-generators --category object --json
+pixel-builder generate-asset object --params kind=chest --seed 3 --name chest --json
+pixel-builder generate-variations environment --params kind=oak --count 6 --json
+pixel-builder paint-asset --name gem --category object --width 8 --height 8 --frames @gem.json
+pixel-builder export-asset chest --format spritesheet --scale 4 --out-dir ./game/art
+pixel-builder --workspace <GAME>/pixel-assets list-assets --json
+```
+
+Preview images (including the contact sheet from `generate-variations`) are
+saved to `<workspace>/.previews/`; have the agent open them with its
+image-reading tool, since looking at the output is part of the workflow.
+**Check:** `pixel-builder list-kits --json` lists the built-in kits.
+
+## Tool reference (same names in MCP and CLI)
+
+`get_style_guide`, `list_generators`, `generate_asset`, `generate_variations`,
+`paint_asset`, `edit_asset`, `list_assets`, `get_asset`, `delete_asset`,
+`export_asset`, `import_image`, `list_kits`, `create_kit`, `update_kit`,
+`set_active_kit`, `rerender_assets`. MCP also exposes the resources
+`pixel-builder://project`, `pixel-builder://style-guide` and the prompt
+`asset_pack` (`game`, `count`). Inputs and outputs: see
+[`BUILD_PLAN.md`](BUILD_PLAN.md) ("Agent tool contract") and the skill's cheat-sheet.
+
+## Where the skill goes (summary)
+
+| Tool | Skill location | Notes |
+|---|---|---|
+| Claude Code | `.claude/skills/pixel-builder/` (project) or `~/.claude/skills/` | verified |
+| Hermes Agent | `~/.hermes/skills/pixel-builder/` or `skills.external_dirs` | verified |
+| Codex CLI, Cursor, Gemini CLI, Copilot | `.agents/skills/pixel-builder/` (Copilot also `.github/skills/`; Cursor `.cursor/skills/`) | reported by third-party guides; unverified |
+| Anything else | paste `SKILL.md` into the system prompt / rules / `AGENTS.md` | always works |
