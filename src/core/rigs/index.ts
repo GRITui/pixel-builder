@@ -5,7 +5,7 @@ import { HUMANOID_ATTACHMENTS } from "./attachments";
 import { BIRD_CLIPS, BIRD_RIGS } from "./bird";
 import { HUMANOID_CLIPS } from "./clips";
 import { EXAMPLE_RIG, IDLE, NGOB_HAT, WALK } from "./example";
-import { FACE, HAIR_STYLES, hairAttachment, HUMANOID_RIGS, NO_FACE } from "./humanoid";
+import { FACE, HAIR_STYLES, hairAttachment, HUMANOID_RIGS, HUMAN_RIGS, NO_FACE } from "./humanoid";
 import { QUADRUPED_CLIPS, QUADRUPED_RIGS } from "./quadruped";
 
 /** Which clips/attachments fit which rig: rigs share a `family` via their joint contract. */
@@ -14,6 +14,7 @@ export type RigFamily = "humanoid" | "quadruped" | "bird";
 export const RIGS: { rig: RigDef; family: RigFamily }[] = [
   { rig: EXAMPLE_RIG, family: "humanoid" },
   ...HUMANOID_RIGS.map((rig) => ({ rig, family: "humanoid" as const })),
+  ...HUMAN_RIGS.map((rig) => ({ rig, family: "humanoid" as const })),
   ...QUADRUPED_RIGS.map((rig) => ({ rig, family: "quadruped" as const })),
   ...BIRD_RIGS.map((rig) => ({ rig, family: "bird" as const })),
 ];

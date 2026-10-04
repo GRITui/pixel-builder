@@ -5,7 +5,7 @@ import { KIT_PRESETS, proportions } from "../kit";
 import { colorIndex } from "../palette";
 import { renderRig, validateRig } from "../rig";
 import { attachmentById, clipById, rigById, withHumanoidDefaults } from "./index";
-import { HAIR_STYLES, HUMANOID_RIGS, hairAttachment } from "./humanoid";
+import { AGES, HAIR_STYLES, HUMANOID_RIGS, HUMAN_RIGS, SEXES, hairAttachment, humanoidRig } from "./humanoid";
 import { HUMANOID_JOINTS } from "./joints";
 
 const gen = (p: object, kit = KIT_PRESETS[0], seed = 1) => characterGenerator.generate({ ...defaults(characterGenerator), ...p }, kit, seed);
@@ -69,5 +69,39 @@ describe("withHumanoidDefaults", () => {
     const bare = renderRig({ rig, kit }, [clipById("idle")!.clip])[0].frames[0];
     const faced = renderRig({ rig, kit, attachments: withHumanoidDefaults(rig, []) }, [clipById("idle")!.clip])[0].frames[0];
     expect(faced.data).not.toEqual(bare.data);
+  });
+});
+
+describe("human cores by sex and age", () => {
+  const rest = (r: (typeof HUMAN_RIGS)[number], id: string) => (r.joints.find((j) => j.id === id)!.rest as { down: number[] }).down;
+  const get = (sex: string, age: string) => HUMAN_RIGS.find((r) => r.id === `human-${sex}-${age}`)!;
+  it("registers 10 valid rigs that render every clip", () => {
+    expect(HUMAN_RIGS).toHaveLength(10);
+    for (const r of HUMAN_RIGS) {
+      expect(rigById(r.id)?.family).toBe("humanoid");
+      expect(validateRig(r, [hairAttachment("short")])).toEqual([]);
+      for (const id of ["idle", "walk", "run", "farm", "carry", "attack", "sit"]) {
+        const c = clipById(id);
+        if (c) expect(renderRig({ rig: r, kit: KIT_PRESETS[0], attachments: withHumanoidDefaults(r, []) }, [c.clip]).length).toBeGreaterThan(0);
+      }
+    }
+  });
+  it("keeps feet baseline and head size; heights ordered", () => {
+    for (const sex of SEXES) {
+      const adult = get(sex, "young-adult");
+      for (const age of AGES) {
+        expect(rest(get(sex, age), "footL")[1]).toBe(rest(adult, "footL")[1]);
+        expect(get(sex, age).parts.find((p) => p.id === "head")).toEqual(adult.parts.find((p) => p.id === "head"));
+      }
+      const hy = (age: string) => rest(get(sex, age), "head")[1];
+      expect(hy("baby")).toBeGreaterThan(hy("kid"));
+      expect(hy("kid")).toBeGreaterThan(hy("young-adult"));
+      expect(hy("elder")).toBeGreaterThan(hy("young-adult"));
+    }
+  });
+  it("defaults pick the classic rig and age/sex params render", () => {
+    expect(humanoidRig("normal")).toEqual(HUMANOID_RIGS[1]);
+    expect(gen({ age: "baby", sex: "female" }).rows).toHaveLength(4);
+    expect(gen({ age: "baby" }).rows[0].frames[0].data).not.toEqual(gen({}).rows[0].frames[0].data);
   });
 });

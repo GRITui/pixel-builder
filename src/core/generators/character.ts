@@ -4,7 +4,7 @@ import { buildLegend } from "../legend";
 import { Painter } from "../painter";
 import { colorIndex, type Material } from "../palette";
 import { clipFrames, renderRig, type Attachment, type Clip, type PartDef } from "../rig";
-import { HUMANOID_RIGS, hairAttachment, torsoWidth, type Build, type HairStyle } from "../rigs/humanoid";
+import { HUMANOID_RIGS, humanoidRig, AGES, hairAttachment, torsoWidth, type Age, type Build, type HairStyle, type Sex } from "../rigs/humanoid";
 import { attachmentById, clipById } from "../rigs";
 import { WALK } from "../rigs/example";
 import { rng, type Rng } from "../rng";
@@ -151,7 +151,10 @@ const HEADWEAR_ID: Record<string, string> = { helmet: "helmet", hood: "hood", wi
  */
 function drawHumanoid(p: Params, kit: StyleKit, size: number, t: Traits): FrameSet[] {
   const build = str(p, "build") as Build;
-  const rig = HUMANOID_RIGS.find((r) => r.id === `humanoid-${build}`) ?? HUMANOID_RIGS[1];
+  const sex = str(p, "sex"), age = str(p, "age");
+  const rig = sex === "male" && age === "young-adult"
+    ? HUMANOID_RIGS.find((r) => r.id === `humanoid-${build}`) ?? HUMANOID_RIGS[1]
+    : humanoidRig(build, age as Age, sex as Sex);
   const tw = torsoWidth(build);
   const hat = str(p, "headwear"), weapon = str(p, "weapon");
   const accent = mat(p, "accent_mat");
@@ -201,6 +204,8 @@ export const characterGenerator: Generator = {
   params: [
     { key: "archetype", label: "Archetype", type: "select", options: ["humanoid", "slime"], default: "humanoid" },
     { key: "build", label: "Build", type: "select", options: ["slim", "normal", "stocky"], default: "normal" },
+    { key: "sex", label: "Sex", type: "select", options: ["male", "female"], default: "male" },
+    { key: "age", label: "Age", type: "select", options: [...AGES], default: "young-adult" },
     { key: "skin", label: "Skin / body", type: "material", options: SKINS, default: "skin" },
     { key: "hair", label: "Hair", type: "material", options: PAINT, default: "hair" },
     { key: "hair_style", label: "Hair style", type: "select", options: ["short", "long", "spiky", "ponytail", "bald"], default: "short" },
