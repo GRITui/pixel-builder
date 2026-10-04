@@ -74,8 +74,6 @@ const BLEND_PRIORITY: Record<Ground, number> = { water: -1, paddy: 0, dirt: 1, "
 const BLEND_ORDER = (Object.keys(BLEND_PRIORITY) as Ground[]).filter((g) => g !== "water").sort((a, b) => BLEND_PRIORITY[a] - BLEND_PRIORITY[b]);
 /** 8-neighbour offsets; bit k of a blend mask = NEIGHBOURS[k]. */
 const NEIGHBOURS: [number, number][] = [[0, -1], [1, 0], [0, 1], [-1, 0], [-1, -1], [1, -1], [1, 1], [-1, 1]];
-/** Smooth noise in [-1, 1] with period T, so edge wobble continues across tile seams. */
-const EDGE_WOBBLE = (i: number, T: number) => 0.75 * Math.sin((2 * Math.PI * i) / T + 1.3) + 0.25 * Math.sin((2 * Math.PI * 2 * i) / T + 0.4);
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
@@ -386,28 +384,64 @@ function tmKind(tm: TileMap, idx: number): string {
 }
 
 /**
- * Ground tile with higher-priority neighbours spreading into it. Each neighbour cell (mask bits
- * follow NEIGHBOURS) radiates an influence that fades with distance; a pixel turns into the
- * neighbour's ground where the summed influence passes a wobbly threshold. Summing rounds the
- * corners (convex ones more), and because the field is continuous in world space and the wobble
- * is periodic in T, adjacent transition tiles line up. A 1px darker rim marks the lip.
+ * Pixels of a T-sized tile (plus a 1px ring, for rims) covered by higher ground in the cells set
+ * in `mask`: the closing of those cells (radius rc) grown by d, so straight runs stay straight and
+ * corners round both ways. Depends only on (T, mask), so it is computed once per process.
+ */
+const edgeShapes = new Map<string, Uint8Array>();
+function edgeShape(T: number, mask: number): Uint8Array {
+  const key = `${T}:${mask}`;
+  const hit = edgeShapes.get(key);
+  if (hit) return hit;
+  // closing of the higher ground (radius rc) grown by d: straight runs stay straight, and both
+  // convex and concave corners get a real radius instead of stair-steps
+  const rc = Math.max(3, T * 0.75), d = Math.max(1, T * 0.18), rho = rc - d;
+  const n = Math.ceil(rho), M = n + 1, G = T + 2 * M;
+  // distance from each pixel centre (tile coords -M .. T+M-1) to the higher cells
+  const g = new Float64Array(G * G);
+  for (let gy = 0; gy < G; gy++)
+    for (let gx = 0; gx < G; gx++) {
+      const qx = gx - M + 0.5, qy = gy - M + 0.5;
+      let m = Infinity;
+      NEIGHBOURS.forEach(([dx, dy], k) => {
+        if (!(mask & (1 << k))) return;
+        const ex = Math.max(dx * T - qx, 0, qx - (dx * T + T)), ey = Math.max(dy * T - qy, 0, qy - (dy * T + T));
+        m = Math.min(m, Math.hypot(ex, ey));
+      });
+      g[gy * G + gx] = m;
+    }
+  const disc: [number, number][] = [];
+  for (let oy = -n; oy <= n; oy++) for (let ox = -n; ox <= n; ox++) if (ox * ox + oy * oy <= rho * rho) disc.push([ox, oy]);
+  const inside = (x: number, y: number) => {
+    const at = (xx: number, yy: number) => {
+      const gx = xx + M, gy = yy + M;
+      return gx < 0 || gy < 0 || gx >= G || gy >= G ? Infinity : g[gy * G + gx];
+    };
+    const d0 = at(x, y);
+    if (d0 < d) return true;
+    if (d0 >= rc + rho) return false;
+    // inside iff the whole disc of radius rho around p lies within rc of the higher ground
+    for (const [ox, oy] of disc) if (at(x + ox, y + oy) >= rc) return false;
+    return true;
+  };
+  const W = T + 2, out = new Uint8Array(W * W);
+  for (let y = -1; y <= T; y++) for (let x = -1; x <= T; x++) out[(y + 1) * W + x + 1] = inside(x, y) ? 1 : 0;
+  edgeShapes.set(key, out);
+  return out;
+}
+
+/**
+ * Ground tile with higher-priority neighbours spreading into it (mask bits follow NEIGHBOURS).
+ * The neighbour ground is the morphological closing of those cells grown by a couple of pixels:
+ * clean straight edges, rounded corners both ways (Kenney-style). The shape depends only on
+ * cells within a tile's reach, so adjacent transition tiles line up. A 1px darker rim marks
+ * land lips; water layers get a foam rim instead.
  */
 function blendTile(base: Sprite, layers: { sprite: Sprite; mask: number; foam?: boolean }[]): Sprite {
   const T = base.w;
   const out = createSprite(T, T);
   for (let i = 0; i < base.data.length; i++) out.data[i] = base.data[i];
-  const R = Math.max(3, T * 0.55);
-  const wob = (x: number, y: number) => 0.07 * (EDGE_WOBBLE(((x % T) + T) % T, T) + EDGE_WOBBLE(((y % T) + T) % T, T));
-  const taken = (x: number, y: number, mask: number) => {
-    const px = x + 0.5, py = y + 0.5;
-    let sum = 0;
-    NEIGHBOURS.forEach(([dx, dy], k) => {
-      if (!(mask & (1 << k))) return;
-      const ex = Math.max(dx * T - px, 0, px - (dx * T + T)), ey = Math.max(dy * T - py, 0, py - (dy * T + T));
-      sum += Math.max(0, 1 - Math.hypot(ex, ey) / R);
-    });
-    return sum > 0.65 + wob(x, y);
-  };
+    const taken = (x: number, y: number, mask: number) => edgeShape(T, mask)[(y + 1) * (T + 2) + x + 1] === 1;
   // which layer owns each pixel (-1 = this tile's own ground); later layers win
   const owner = new Array(T * T).fill(-1);
   layers.forEach(({ sprite, mask }, li) => {
