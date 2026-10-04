@@ -5,3 +5,4 @@ dist
 pixel-assets/
 previews/
 dist-node
+scripts/*-tmp.ts
