@@ -22,7 +22,7 @@ const isPng = (b: Buffer) => b.subarray(1, 4).toString() === "PNG";
 describe("tool contract", () => {
   it("exposes exactly the planned tool names", () => {
     expect(TOOLS.map((t) => t.name)).toEqual([
-      "get_style_guide", "list_generators", "generate_asset", "generate_variations", "paint_asset", "edit_asset", "list_assets",
+      "get_style_guide", "list_generators", "generate_asset", "generate_variations", "paint_asset", "edit_asset", "edit_region", "list_assets",
       "get_asset", "delete_asset", "export_asset", "import_image", "list_kits", "create_kit", "update_kit", "set_active_kit", "rerender_assets",
       "list_rigs", "list_clips", "list_attachments", "generate_rigged", "attach", "create_rig", "create_clip", "create_attachment",
       "generate_pack", "import_svg",
@@ -36,6 +36,16 @@ describe("tool contract", () => {
     expect(() => call("generate_asset", { generator: "environment", bogus: 1 })).toThrow(/unknown input 'bogus'/);
     expect(() => call("generate_variations", { generator: "environment", count: 13 })).toThrow(/count/);
     expect(() => call("paint_asset", { name: "x", category: "object", width: 0, height: 4, frames: [["."]] })).toThrow(/width/);
+  });
+
+  it("generate_rigged takes directions 4 (default) or 8", () => {
+    const rows = (a: any) => a.rows ?? a.animations?.map((r: any) => r.name);
+    const a4 = data("generate_rigged", { rig: "humanoid-normal", clips: ["walk"], name: "d4", save: false }).asset;
+    const a8 = data("generate_rigged", { rig: "humanoid-normal", clips: ["walk"], directions: 8, name: "d8", save: false }).asset;
+    expect(JSON.stringify(a8)).toContain("walk-down-right");
+    expect(JSON.stringify(a4)).not.toContain("walk-down-right");
+    void rows;
+    expect(() => call("generate_rigged", { rig: "humanoid-normal", directions: 6 })).toThrow();
   });
 });
 
@@ -62,7 +72,7 @@ describe("get_style_guide / list_generators", () => {
     const all = data("list_generators").generators;
     expect(all.map((g: { id: string }) => g.id)).toEqual(GENERATORS.map((g) => g.id));
     const env = data("list_generators", { category: "environment" }).generators;
-    expect(env.map((g: { id: string }) => g.id)).toEqual(["environment", "tileset"]);
+    expect(env.map((g: { id: string }) => g.id)).toEqual(["environment", "tileset", "sideview"]);
     expect(env[0].params.find((p: { key: string }) => p.key === "kind").options).toContain("oak");
     expect(env[0].defaults.kind).toBe("oak");
   });
@@ -265,13 +275,13 @@ describe("kits", () => {
   it("lists, creates, updates and activates kits", () => {
     const kits = data("list_kits");
     expect(kits.active).toBe("kit-default");
-    expect(kits.kits.map((k: { id: string }) => k.id)).toEqual(["kit-default", "kit-gameboy", "kit-neon"]);
+    expect(kits.kits.map((k: { id: string }) => k.id)).toEqual(["kit-default", "kit-gameboy", "kit-neon", "kit-hd", "kit-hd-rich", "kit-side"]);
 
     const created = data("create_kit", { name: "Noir", base_kit_id: "kit-gameboy", changes: { outline: "black", sizes: { object: 24 }, rampOverrides: { cloth: ["#000000", "#222222", "#444444", "#888888", "#ffffff"] }, vibe: "noir" } }).kit;
     expect(created).toMatchObject({ name: "Noir", paletteId: "gameboy", outline: "black", vibe: "noir" });
     expect(created.id).not.toBe("kit-gameboy");
     expect(created.sizes).toMatchObject({ object: 24, character: 16 });
-    expect(data("list_kits").kits).toHaveLength(4);
+    expect(data("list_kits").kits).toHaveLength(7);
 
     const up = data("update_kit", { kit_id: created.id, changes: { shadeSteps: 2, sizes: { tile: 8 } } });
     expect(up.kit).toMatchObject({ shadeSteps: 2, sizes: { object: 24, tile: 8 } });

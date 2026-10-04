@@ -38,6 +38,7 @@ const ANIMALS: [species: string, sets: string[]][] = [
   ["dog", ["normal", "sea"]], ["cat", ["normal", "sea"]], ["chicken", ["normal", "sea"]], ["fish", ["normal", "sea"]],
   ["cow", ["normal"]], ["sheep", ["normal"]], ["water-buffalo", ["sea"]], ["pig", ["sea"]],
 ];
+const GROUND_KINDS = ["ground-top", "ground-edge-left", "ground-edge-right", "ground-fill", "ground-wall-left", "ground-wall-right", "ground-inner-left", "ground-inner-right", "slope-up", "slope-down"];
 const g = (name: string, generator: string, params: PackEntryProcedural["params"], tags: string[], seed = 1): PackEntry => ({ name, generator, params, seed, tags });
 /** The player farmer holding each tool, with the matching work clip. */
 const worker = (tool: string, clip: string): PackEntry => ({
@@ -101,6 +102,26 @@ const FARMING_V1: PackManifest = {
   ],
 };
 
-export const PACKS: PackManifest[] = [FARMING_V1];
+/** Side-view starter (#20): use with the `kit-side` kit. Hero (profile rig + platformer clips), enemies, tiles, platform, ladder, parallax layers, level. */
+const SIDE_VIEW_STARTER: PackManifest = {
+  id: "side-view-starter",
+  name: "Side-view starter",
+  description: "Platformer starter for the kit-side camera: a side hero with idle/walk/run/jump/fall/climb/crouch, slime and beetle enemies, the ground tile set with slopes, a one-way platform, a ladder, a front-on house, sky/hills/trees parallax layers and a generated level.",
+  entries: [
+    { name: "hero-side", rig: "humanoid-side", attachments: ["costume-overalls", "straw-hat"], clips: ["idle", "walk", "run", "jump", "fall", "climb", "crouch"], tags: ["character", "player"] },
+    g("enemy-slime", "sideenemy", { kind: "slime" }, ["character", "enemy"]),
+    g("enemy-beetle", "sideenemy", { kind: "beetle", body: "cloth2" }, ["character", "enemy"]),
+    ...GROUND_KINDS.map((kind) => g(`tile-${kind}`, "sideview", { kind }, ["environment", "tile"])),
+    g("platform", "sideview", { kind: "platform", cols: 3 }, ["environment", "platform"]),
+    g("ladder", "sideview", { kind: "ladder", rows: 2 }, ["environment", "ladder"]),
+    g("house-side", "sideview", { kind: "building", cols: 6 }, ["building"]),
+    g("bg-sky", "sideview", { kind: "bg-sky" }, ["environment", "background"]),
+    g("bg-hills", "sideview", { kind: "bg-hills" }, ["environment", "background"]),
+    g("bg-trees", "sideview", { kind: "bg-trees" }, ["environment", "background"]),
+    g("level-1", "sidelevel", { cols: 48, rows: 14 }, ["map", "level"], 3),
+  ],
+};
+
+export const PACKS: PackManifest[] = [FARMING_V1, SIDE_VIEW_STARTER];
 
 export const packById = (id: string) => PACKS.find((p) => p.id === id);

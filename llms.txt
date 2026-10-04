@@ -20,13 +20,15 @@ Agents making pixel art: read the skill first. Agents editing this repository: r
 - Launch (stdio MCP, inside the repo): `npx tsx src/node/cli.ts mcp`
 - Launch (Streamable HTTP): `npx tsx src/node/cli.ts mcp --http --port 8788` then `http://127.0.0.1:8788/mcp`
 - CLI: `npx tsx src/node/cli.ts <command> --json` (for example `get-style-guide`, `list-generators`, `generate-asset`)
-- Workspace: `--workspace <dir>` or env `PIXEL_BUILDER_WORKSPACE` (default `./pixel-assets`); exports in `<workspace>/characters|buildings|environments|objects|ui|maps/`
+- Workspace: `--workspace <dir>` or env `PIXEL_BUILDER_WORKSPACE` (default `./pixel-assets`), or a shared-server URL `http(s)://host/api/projects/<id>` (token env `PIXEL_BUILDER_TOKEN`, exports to `--out-dir`/`PIXEL_BUILDER_OUT_DIR`); exports in `<workspace>/characters|buildings|environments|objects|ui|maps/`
 
 ## Tools (MCP tool names)
 
-get_style_guide, list_generators, generate_asset, generate_variations, paint_asset, edit_asset, list_assets, get_asset, delete_asset, export_asset (png/spritesheet/tiled/svg/tiled-tileset/godot/unity/atlas), import_image, import_svg, list_kits, create_kit, update_kit, set_active_kit, rerender_assets, list_rigs, list_clips, list_attachments, generate_rigged, attach, create_rig, create_clip, create_attachment, generate_pack (built-in farming-v1 starter kit or your own manifest). MCP resources: pixel-builder://project, pixel-builder://style-guide. MCP prompt: asset_pack.
+get_style_guide, list_generators, generate_asset, generate_variations, paint_asset, edit_asset, edit_region (change only a rect or cells region with your own legend rows, or a prompt when ANTHROPIC_API_KEY is set), list_assets, get_asset, delete_asset, export_asset (png/spritesheet/tiled/svg/aseprite/tiled-tileset/godot/unity/atlas), import_image, import_svg, list_kits, create_kit, update_kit (locked kits are refused: fork with create_kit), set_active_kit, rerender_assets (stale_only), list_rigs, list_clips, list_attachments, generate_rigged (directions 4|8), attach, create_rig, create_clip, create_attachment, generate_pack (built-in farming-v1 starter kit or your own manifest). Kit presets: kit-default, kit-gameboy, kit-neon, kit-side (platformer camera: sideview/sideenemy/sidelevel generators, humanoid-side rig, pack side-view-starter), kit-hd and kit-hd-rich (HD = every size 1.5x, 48px characters). MCP resources: pixel-builder://project, pixel-builder://style-guide. MCP prompts: asset_pack, design_creature (author a rigged creature yourself with create_rig / create_clip / create_attachment, no API key).
 
-Generators include rigged characters and animals, a Thai stilt house, corrugated roofs, a rice-paddy tile and a rice-village map biome.
+Custom motion: write the clip yourself and call create_clip with rig (no key needed). Poses are {joint:[dx,dy]} in grid units (y grows down), per-view frames {down,side,up} with equal counts, only the family's joints, offsets within +-4 (+-8 for jumps), feet kept on the ground. Worked example (wai bow) in skills/pixel-builder/SKILL.md. The web app's "Describe animation" box (POST /api/clip) does this with the server model.
+
+Generators include rigged characters and animals, a Thai stilt house, corrugated roofs, a rice-paddy tile and a rice-village map biome. Characters take `pattern` (plaid, stripes, polka, gingham) and `expression` (happy, surprised, tired); rigged recipes can request a pattern with a part-less attachment id `pattern-<kind>[:slot]` (applied by `applyPattern` in `src/core/rigs/shapes-pattern.ts`).
 
 ## Optional
 

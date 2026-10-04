@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { solvePose, type Clip, type RigDef } from "../../core/rig";
-import { addFrame, bones, canRedo, canUndo, cleanPose, createHistory, deleteFrame, dragJoint, duplicateFrame, frameCount, framesPerView, hitJoint, pushHistory, redo, setPose, toClip, undo } from "./ops";
+import { RIGS } from "../../core/rigs";
+import { addFrame, bones, canRedo, clipFamily, canUndo, cleanPose, createHistory, deleteFrame, dragJoint, duplicateFrame, frameCount, framesPerView, hitJoint, pushHistory, redo, setPose, toClip, undo } from "./ops";
 
 const rig: RigDef = {
   id: "t", name: "T", grid: 32, slots: {}, parts: [],
@@ -83,4 +84,13 @@ describe("history and bones", () => {
     expect(canRedo(h)).toBe(false);
   });
   it("lists bones", () => expect(bones(rig)).toEqual([["root", "arm"], ["arm", "hand"]]));
+});
+
+describe("clipFamily", () => {
+  it("uses the registry, else the joint contract, else null", () => {
+    const q = RIGS.find((r) => r.family === "quadruped")!.rig;
+    expect(clipFamily(q)).toBe("quadruped");
+    expect(clipFamily({ ...q, id: "my-custom" })).toBe("quadruped");
+    expect(clipFamily(rig)).toBeNull();
+  });
 });

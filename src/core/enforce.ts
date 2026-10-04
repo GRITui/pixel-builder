@@ -33,6 +33,7 @@ export function stripOutline(s: Sprite): Sprite {
  */
 export function applyOutline(s: Sprite, kit: StyleKit): Sprite {
   if (kit.outline === "none") return s;
+  if (kit.detail === "rich") return richOutline(s);
   const out = cloneSprite(s);
   const L = lightVector(kit.lightDir);
   for (let y = 0; y < s.h; y++)
@@ -53,6 +54,60 @@ export function applyOutline(s: Sprite, kit: StyleKit): Sprite {
       if (d && kit.outline === "colored") idx = colorIndex(d.mat, 0);
       if (d && kit.outline === "selective" && towardLight) idx = colorIndex(d.mat, Math.max(0, Math.min(1, d.level - 2)));
       out.data[y * s.w + x] = idx;
+    }
+  return out;
+}
+
+/**
+ * Rich-mode outline ("sel-out" proper): every outline pixel is the darkest level of the material
+ * it touches, so a skin edge is dark skin, a cloth edge dark cloth.
+ */
+export function richOutline(s: Sprite): Sprite {
+  const out = cloneSprite(s);
+  for (let y = 0; y < s.h; y++)
+    for (let x = 0; x < s.w; x++) {
+      if (getPx(s, x, y)) continue;
+      let best = 0, bestLevel = -1;
+      for (const [dx, dy] of N4) {
+        const v = getPx(s, x + dx, y + dy);
+        const d = v ? decodeIndex(v) : null;
+        if (d && d.level > bestLevel) { best = v; bestLevel = d.level; }
+      }
+      if (!best) continue;
+      const d = decodeIndex(best)!;
+      out.data[y * s.w + x] = d.mat === "ink" ? OUTLINE_INDEX : colorIndex(d.mat, 0);
+    }
+  return out;
+}
+
+const N8 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]] as const;
+
+/**
+ * Anti-alias stair-steps of curved silhouettes: where the outline turns a corner after a run of two
+ * or more pixels, the filled pixel tucked into the inside of the corner steps one level darker,
+ * which reads as the in-between tone of a smooth curve. A pixel is only changed to a colour one of
+ * its neighbours already has, so this can never create an isolated speck.
+ */
+export function smoothCurves(s: Sprite): Sprite {
+  const out = cloneSprite(s);
+  const filled = (x: number, y: number) => getPx(s, x, y) !== 0;
+  const edge = (x: number, y: number) => filled(x, y) && N4.some(([dx, dy]) => !filled(x + dx, y + dy) && x + dx >= 0 && y + dy >= 0 && x + dx < s.w && y + dy < s.h);
+  for (let y = 1; y < s.h - 1; y++)
+    for (let x = 1; x < s.w - 1; x++) {
+      const v = getPx(s, x, y);
+      const d = v ? decodeIndex(v) : null;
+      if (!d || d.mat === "ink" || d.level < 1 || edge(x, y)) continue;
+      let hit = false;
+      for (const a of [-1, 1])
+        for (const b of [-1, 1]) {
+          if (!edge(x + a, y) || !edge(x, y + b)) continue;
+          // the two edge pixels meet diagonally; require a straight run behind one of them
+          const runH = edge(x - a, y + b), runV = edge(x + a, y - b);
+          if (runH !== runV) hit = true;
+        }
+      if (!hit) continue;
+      const idx = colorIndex(d.mat, d.level - 1);
+      if (N8.some(([dx, dy]) => getPx(s, x + dx, y + dy) === idx)) out.data[y * s.w + x] = idx;
     }
   return out;
 }
@@ -81,6 +136,7 @@ export function finalize(s: Sprite, kit: StyleKit, opts: { outline?: boolean; cl
   let out = sanitize(s);
   if (opts.cleanup) out = removeOrphans(out);
   if (opts.outline !== false) out = applyOutline(out, kit);
+  if (kit.detail === "rich" && opts.outline !== false && kit.outline !== "none") out = smoothCurves(out);
   return out;
 }
 

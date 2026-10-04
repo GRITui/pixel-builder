@@ -2,11 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { renderRigFrame, solvePose, type Attachment, type Clip, type Dir, type RigDef, type View } from "../../core/rig";
 import type { Material } from "../../core/palette";
 import type { StyleKit } from "../../core/types";
-import { Modal } from "../components/common";
+import { aiClip } from "../../ai/client";
+import { rigById } from "../../core/rigs";
+import { aiOffReason, Modal, useAiStatus } from "../components/common";
 import { fitScale } from "../components/SpriteView";
 import { drawSprite, type FlatPalette } from "../render";
 import {
-  addFrame, bones, canRedo, canUndo, createHistory, deleteFrame, dragJoint, duplicateFrame, frameCount, framesPerView,
+  addFrame, bones, canRedo, clipFamily, canUndo, createHistory, deleteFrame, dragJoint, duplicateFrame, frameCount, framesPerView,
   hitJoint, pushHistory, redo, setPose, toClip, undo, VIEWS, type Pt, type ViewFrames,
 } from "./ops";
 import "./rig.css";
@@ -41,6 +43,11 @@ export function RigEditor(p: RigEditorProps) {
   const [active, setActive] = useState<string | null>(null);
   const [hover, setHover] = useState<string | null>(null);
   const dragging = useRef<string | null>(null);
+  const { status } = useAiStatus();
+  const family = useMemo(() => clipFamily(rig), [rig]);
+  const [describe, setDescribe] = useState("");
+  const [describing, setDescribing] = useState(false);
+  const [describeMsg, setDescribeMsg] = useState<{ error?: boolean; text: string } | null>(null);
 
   const frames = draft ?? hist.present;
   const n = frameCount(frames);
@@ -139,6 +146,31 @@ export function RigEditor(p: RigEditorProps) {
     setIndex(0);
     setFps(c.fps);
   };
+
+  // text -> clip: loads into the timeline for hand-tuning; nothing is saved until "Save clip"
+  const runDescribe = async () => {
+    if (!family || !describe.trim() || describing) return;
+    setDescribing(true);
+    setDescribeMsg(null);
+    try {
+      const { clip, notes } = await aiClip({
+        prompt: describe.trim(),
+        family,
+        rig: rigById(rig.id) ? rig.id : { id: rig.id, joints: rig.joints.map((j) => ({ id: j.id, parent: j.parent })) },
+      });
+      setPlaying(false);
+      setHist((h) => pushHistory(h, framesPerView(clip)));
+      setIndex(0);
+      setFps(clip.fps);
+      setName(clip.id);
+      setDescribeMsg({ text: notes || `Loaded ${clip.id}. Tweak it, then save.` });
+    } catch (e) {
+      setDescribeMsg({ error: true, text: e instanceof Error ? e.message : "Could not generate a clip." });
+    } finally {
+      setDescribing(false);
+    }
+  };
+  const describeOff = !status?.enabled ? aiOffReason(status) : !family ? "This rig does not match a known joint set." : "";
 
   const valid = /^[a-z0-9][a-z0-9-_]*$/i.test(name.trim());
   const pose = frames[view][i] ?? {};
@@ -250,6 +282,24 @@ export function RigEditor(p: RigEditorProps) {
               </select>
             </label>
           )}
+          <div className="rige-describe" title={describeOff || undefined}>
+            <label className="inline">
+              Describe animation
+              <input
+                aria-label="Describe animation"
+                value={describe}
+                placeholder="e.g. bow politely (wai)"
+                maxLength={300}
+                disabled={!!describeOff}
+                onChange={(e) => setDescribe(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && void runDescribe()}
+              />
+            </label>
+            <button disabled={!!describeOff || !describe.trim() || describing} onClick={() => void runDescribe()} title={describeOff || "Replaces the timeline with an AI-drafted clip (undo with Ctrl+Z)"}>
+              {describing ? "Animating…" : "Generate"}
+            </button>
+            {describeMsg && <span className={describeMsg.error ? "error" : "dim fine"}>{describeMsg.text}</span>}
+          </div>
           <p className="dim fine">Frames are shared by all views; each view has its own pose. Left mirrors the side view.</p>
         </div>
       </div>

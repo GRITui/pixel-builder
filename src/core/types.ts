@@ -20,6 +20,8 @@ export const CATEGORIES: { id: Category; label: string }[] = [
 ];
 
 export type OutlineMode = "none" | "black" | "colored" | "selective";
+/** "rich" adds hue-shifted ramps, sel-out, anti-aliased curves and humanoid micro-detail; absent = "standard". */
+export type DetailLevel = "standard" | "rich";
 export type LightDir = "top-left" | "top" | "top-right";
 
 /**
@@ -40,8 +42,16 @@ export interface StyleKit {
   /** Ambient light 0..1 — raises the darkest shade used on shadow sides. */
   ambient: number;
   sizes: Record<Exclude<Category, "map">, number> & { tile: number };
+  /** Pixel richness (see DetailLevel). Optional so existing kits stay standard. */
+  detail?: DetailLevel;
+  /** Camera: "side" is the platformer view (ground line at the bottom, profile characters); absent = "topdown". */
+  camera?: "topdown" | "side";
   /** Free-text art direction used by the AI ("cozy, chunky, SNES-era"). */
   vibe: string;
+  /** House style: edits are refused; fork it (create_kit / Duplicate) to change anything. */
+  locked?: boolean;
+  /** Bumped on every change (missing = 1). Assets record the version they were made with (`Asset.kitVersion`). */
+  version?: number;
 }
 
 export interface FrameSet {
@@ -55,6 +65,8 @@ export interface Asset {
   name: string;
   category: Category;
   kitId: string;
+  /** `StyleKit.version` at creation / last rerender (missing = 1). Older than the kit's = stale. */
+  kitVersion?: number;
   /** One or more animation rows; static assets have a single row with one frame. */
   rows: FrameSet[];
   fps: number;

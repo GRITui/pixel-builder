@@ -1,7 +1,10 @@
 // Browser client for the Pixel Builder API (server/). Same-origin `/api/*`
 // (Vite proxies it in dev). The API key only ever lives on the server.
+import { authHeaders } from "../ui/remote";
 import { finalize } from "../core/enforce";
 import { coerceParams, type Generator, type Params } from "../core/generators/types";
+import type { Attachment, Clip, RigDef } from "../core/rig";
+import type { RigFamily } from "../core/rigs";
 import type { Category, Sprite, StyleKit } from "../core/types";
 
 export interface AiStatus {
@@ -31,7 +34,7 @@ async function request<T>(path: string, init: { method: "GET" | "POST"; body?: u
   try {
     res = await fetch(path, {
       method: init.method,
-      headers: init.body === undefined ? undefined : { "content-type": "application/json" },
+      headers: { ...authHeaders(), ...(init.body === undefined ? {} : { "content-type": "application/json" }) },
       body: init.body === undefined ? undefined : JSON.stringify(init.body),
       signal: AbortSignal.timeout(init.timeoutMs),
     });
@@ -114,6 +117,78 @@ export async function vibeKit(args: { prompt: string; kit: StyleKit }): Promise<
   });
   return {
     kit: r.kit && typeof r.kit === "object" ? (r.kit as Partial<StyleKit>) : {},
+    notes: typeof r.notes === "string" ? r.notes : "",
+  };
+}
+
+/**
+ * Region edit: the model repaints only the masked cells. Returns legend rows for the
+ * mask's bounding box; apply them with `applyRegionEdit` (core/inpaint).
+ */
+export async function aiInpaint(args: {
+  rows: string[];
+  mask: { rect: { x: number; y: number; w: number; h: number } } | { cells: [number, number][] };
+  prompt: string;
+  kit: StyleKit;
+}): Promise<{ rect: { x: number; y: number; w: number; h: number }; rows: string[] }> {
+  const r = await request<{ rect?: { x: number; y: number; w: number; h: number }; rows?: unknown }>("/api/inpaint", {
+    method: "POST",
+    timeoutMs: CALL_TIMEOUT_MS,
+    body: { rows: args.rows, mask: args.mask, prompt: args.prompt, kit: args.kit },
+  });
+  if (!r.rect || !Array.isArray(r.rows) || !r.rows.every((x) => typeof x === "string")) throw new Error("The server returned a malformed edit.");
+  return { rect: r.rect, rows: r.rows as string[] };
+}
+
+/**
+ * "Describe animation": text -> a Clip for a rig family (validated server-side against the
+ * family's joints). Load it into the rig editor timeline; it is not stored until saved.
+ */
+export async function aiClip(args: { prompt: string; family: RigFamily; rig?: string | { id: string; joints: { id: string; parent: string | null }[] }; fps?: number; frames?: number }): Promise<{ clip: Clip; notes: string }> {
+  const r = await request<{ clip?: Partial<Clip>; notes?: unknown }>("/api/clip", { method: "POST", timeoutMs: CALL_TIMEOUT_MS, body: args });
+  const c = r.clip;
+  if (!c || typeof c.id !== "string" || typeof c.fps !== "number" || !c.frames || typeof c.frames !== "object") throw new Error("The server returned a malformed clip.");
+  return { clip: c as Clip, notes: typeof r.notes === "string" ? r.notes : "" };
+}
+
+export interface RigAuthorResult {
+  /** Present when the model authored a new rig; otherwise `baseRig` names the registry rig that was extended. */
+  rig?: RigDef;
+  baseRig?: string;
+  family: string;
+  /** Built-in attachment ids to wear. */
+  attachmentIds: string[];
+  attachments: Attachment[];
+  /** Clips the new rig brings (idle/walk for free-form creatures). */
+  clips: Clip[];
+  slots: Record<string, string>;
+  name: string;
+  notes: string;
+}
+
+/**
+ * "Describe a character": text -> a rigged character or creature (a new rig, or a registry rig plus
+ * new attachments). The server validates the result; the caller stores it in the project.
+ */
+export async function aiRig(args: { prompt: string; kit: StyleKit; base?: string }): Promise<RigAuthorResult> {
+  const r = await request<Partial<RigAuthorResult>>("/api/rig", {
+    method: "POST",
+    timeoutMs: CALL_TIMEOUT_MS,
+    body: { prompt: args.prompt, kit: args.kit, ...(args.base ? { base: args.base } : {}) },
+  });
+  const rig = r.rig && typeof r.rig === "object" && Array.isArray(r.rig.joints) && Array.isArray(r.rig.parts) ? r.rig : undefined;
+  const baseRig = typeof r.baseRig === "string" ? r.baseRig : undefined;
+  if (!rig && !baseRig) throw new Error("The server returned a malformed rig.");
+  const list = <T extends { id: unknown }>(v: unknown): T[] => (Array.isArray(v) ? v.filter((x): x is T => !!x && typeof (x as T).id === "string") : []);
+  return {
+    rig,
+    baseRig,
+    family: typeof r.family === "string" ? r.family : "custom",
+    attachmentIds: Array.isArray(r.attachmentIds) ? r.attachmentIds.filter((x): x is string => typeof x === "string") : [],
+    attachments: list<Attachment>(r.attachments),
+    clips: list<Clip>(r.clips),
+    slots: r.slots && typeof r.slots === "object" ? (r.slots as Record<string, string>) : {},
+    name: typeof r.name === "string" && r.name ? r.name : rig?.name ?? "AI rig",
     notes: typeof r.notes === "string" ? r.notes : "",
   };
 }

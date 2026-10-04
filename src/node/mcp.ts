@@ -7,8 +7,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { TOOLS, ToolError, callTool, type ToolDef, type ToolResult } from "./tools";
-import { Workspace, serializeProjectCompact } from "./workspace";
+import { TOOLS, ToolError, callTool, callToolAsync, type ToolDef, type ToolResult } from "./tools";
+import { type Workspace, serializeProjectCompact } from "./workspace";
 
 export const VERSION = "0.1.0";
 export const DEFAULT_HTTP_PORT = 8788;
@@ -50,7 +50,7 @@ function register(server: McpServer, ws: Workspace, tool: ToolDef): void {
     },
     async (args: unknown): Promise<CallToolResult> => {
       try {
-        return toCallToolResult(callTool(ws, tool.name, args));
+        return toCallToolResult(await callToolAsync(ws, tool.name, args));
       } catch (e) {
         return errorResult(e, tool.name);
       }
@@ -72,6 +72,23 @@ export function assetPackPrompt(game: string, count: number): string {
   ].join("\n");
 }
 
+export function designCreaturePrompt(description: string, family?: string): string {
+  const fam = family?.trim();
+  return [
+    `Design a rigged, animated character or creature: ${description}`,
+    fam ? `Preferred family: ${fam} (humanoid, quadruped, bird, fish, or custom for a free-form skeleton).` : "",
+    "",
+    "You author the rig yourself as JSON (no API key needed). Look at every preview image before moving on.",
+    "1. Call get_style_guide (palette, material names, legend) and list_rigs. Decide: does a built-in rig already fit the body (people, common animals, birds, fish)? Then you only need attachments (clothes, props) and material slots. Otherwise write a new rig. Names of the joints each family expects are in list_rigs; a new rig that reuses a family's joint names also gets that family's clips and attachments.",
+    "2. Extending a built-in rig: for each garment or prop call create_attachment with {rig: <rig id>, attachment: {id, name, parts:[...], joints?:[...]}}. Parts are ellipse {joint, rx, ry, dx?, dy?}, box {joint, w, h}, limb {from, to, r} or tiny pixels details; every part has a unique id, z (higher = in front, may differ per view) and a slot or material name. A part that reuses an existing part id replaces it. Pick colours through generate_rigged `slots`.",
+    "3. New rig: call create_rig with {id, name, grid: 32, joints:[{id, parent, rest:[x,y] or {down,side,up}}], parts:[...], slots:{slot: material}}. Single root joint, absolute rest positions on the 32 grid, keep a 1px margin, side view faces right, show face parts only in views down/side. Use limbs for legs, arms and tails, ellipses for bodies, boxes for hard shapes. It is test-rendered in three views; read the errors and fix them.",
+    "4. For a free-form skeleton call create_clip for 'idle' (2-4 subtle frames) and 'walk' (4 frames): poses are {joint: [dx, dy]} offsets per frame, with per-view frames {down, side, up} when side motion differs from front motion. Same-family rigs reuse the built-in clips.",
+    "5. Call generate_rigged {rig, slots, attachments, clips: [idle, walk]} (add directions: 8 for 3/4 views) and look at the sheet.",
+    "6. Fix what looks off with create_rig / create_attachment (same id replaces) and generate_rigged again: silhouette unreadable, parts floating off their joints, wrong draw order (z) in the up view, legs not swinging. Try one other kit with generate_rigged kit_id if the project has several.",
+    "7. Finish by naming the asset and listing its exported files.",
+  ].filter((l) => l !== "").join("\n");
+}
+
 /** Build an MCP server bound to a workspace (no transport attached). */
 export function createMcpServer(ws: Workspace): McpServer {
   const server = new McpServer({ name: "pixel-builder", version: VERSION }, { instructions: INSTRUCTIONS });
@@ -81,13 +98,19 @@ export function createMcpServer(ws: Workspace): McpServer {
     "project",
     "pixel-builder://project",
     { title: "Project file", description: "The workspace project (kits + assets) as pixel-builder/project JSON, the same format the web app imports and exports.", mimeType: "application/json" },
-    async (uri) => ({ contents: [{ uri: uri.href, mimeType: "application/json", text: serializeProjectCompact(ws.load()) }] }),
+    async (uri) => {
+      await ws.pull();
+      return { contents: [{ uri: uri.href, mimeType: "application/json", text: serializeProjectCompact(ws.load()) }] };
+    },
   );
   server.registerResource(
     "style-guide",
     "pixel-builder://style-guide",
     { title: "Style guide", description: "Style guide of the active kit: look settings, palette legend for painting and the painting rules.", mimeType: "text/markdown" },
-    async (uri) => ({ contents: [{ uri: uri.href, mimeType: "text/markdown", text: callTool(ws, "get_style_guide", {}).text ?? "" }] }),
+    async (uri) => {
+      await ws.pull();
+      return { contents: [{ uri: uri.href, mimeType: "text/markdown", text: callTool(ws, "get_style_guide", {}).text ?? "" }] };
+    },
   );
 
   server.registerPrompt(
@@ -104,6 +127,19 @@ export function createMcpServer(ws: Workspace): McpServer {
       const n = Math.max(3, Math.min(60, Number.parseInt(count ?? "", 10) || 12));
       return { messages: [{ role: "user", content: { type: "text", text: assetPackPrompt(game, n) } }] };
     },
+  );
+
+  server.registerPrompt(
+    "design_creature",
+    {
+      title: "Design a rigged creature",
+      description: "Author a rigged character or creature from a description: pick a family or write a new rig, create_rig / create_attachment, generate_rigged with idle + walk, look, fix. Works without an API key.",
+      argsSchema: {
+        description: z.string().describe("What to make, e.g. 'a monk in saffron robes carrying an alms bowl' or 'a river crab'."),
+        family: z.string().optional().describe("humanoid, quadruped, bird, fish or custom (default: you decide)."),
+      },
+    },
+    ({ description, family }) => ({ messages: [{ role: "user", content: { type: "text", text: designCreaturePrompt(description, family) } }] }),
   );
   return server;
 }

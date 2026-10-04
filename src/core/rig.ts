@@ -10,15 +10,32 @@ import { finalize } from "./enforce";
 import { buildLegend } from "./legend";
 import { Painter } from "./painter";
 import { decodeIndex, MATERIALS, type Material } from "./palette";
+import { richParts, richShade } from "./rigs/detail";
+import { applyPattern, patternsOf } from "./rigs/shapes-pattern";
 import type { FrameSet, Sprite, StyleKit } from "./types";
 
 /** Drawing views. "left" is rendered as the mirror of "side" (lighting is recomputed, not flipped). */
 export type View = "down" | "side" | "up";
-export type Dir = "down" | "left" | "right" | "up";
+/** 3/4 views: front-three-quarter and back-three-quarter (right-facing; mirrored for the left diagonals). */
+export type DiagView = "down-side" | "up-side";
+export type RigView = View | DiagView;
+export type Dir = "down" | "down-right" | "right" | "up-right" | "up" | "up-left" | "left" | "down-left";
+/** The classic four directions (row order of every 4-direction asset). */
 export const DIRS: Dir[] = ["down", "left", "right", "up"];
-export const viewOf = (d: Dir): View => (d === "left" || d === "right" ? "side" : d);
+/** All eight directions in document order; the diagonals are 3/4 views (`down-side`, `up-side`), mirrored for the left ones. */
+export const DIRS8: Dir[] = ["down", "down-right", "right", "up-right", "up", "up-left", "left", "down-left"];
+export type Directions = 4 | 8;
+/** Side-view (platformer) rigs draw only profile rows, whatever `directions` asks for. */
+export const SIDE_ONLY_RIGS = new Set(["humanoid-side"]);
+const SIDE_DIRS: Dir[] = ["right", "left"];
+export const viewOf = (d: Dir): RigView =>
+  d === "left" || d === "right" ? "side" : d === "down-left" || d === "down-right" ? "down-side" : d === "up-left" || d === "up-right" ? "up-side" : d;
+const isMirrored = (d: Dir) => d === "left" || d === "down-left" || d === "up-left";
+const isDiagonal = (v: RigView): v is DiagView => v === "down-side" || v === "up-side";
+/** Foreshortening of side-view x motion when a diagonal view borrows the side clip. */
+const DIAG_X = 0.75;
 
-type PerView<T> = T | Partial<Record<View, T>>;
+type PerView<T> = T | Partial<Record<RigView, T>>;
 
 export interface Joint {
   id: string;
@@ -32,8 +49,14 @@ interface PartBase {
   id: string;
   /** Draw order; higher is in front. May differ per view (e.g. a held tool is behind the body in "up"). */
   z: PerView<number>;
-  /** Views the part appears in (default: all). */
-  views?: View[];
+  /** Hide this part in the diagonal views even though it appears in "side" (its diagonal replacement is a separate part). */
+  noDiag?: boolean;
+  /**
+   * Views the part appears in (default: all). Diagonal views: a part that lists a diagonal view
+   * appears exactly there; otherwise it follows its "side" view (down-only/up-only parts are hidden
+   * in 3/4 views, and in `up-side` face-like parts, see FRONT_FEATURE, are dropped).
+   */
+  views?: RigView[];
   /** Material slot ("skin", "top", ...) resolved through the asset's slot map, or a literal material name. */
   slot?: string;
   /** Shift the shade by whole ramp levels. */
@@ -99,16 +122,47 @@ export interface RigRender {
   size?: number;
 }
 
-function pick<T>(v: PerView<T>, view: View): T {
-  if (v !== null && typeof v === "object" && !Array.isArray(v) && ("down" in v || "side" in v || "up" in v)) {
-    const pv = v as Partial<Record<View, T>>;
-    return (pv[view] ?? pv.down ?? pv.side ?? pv.up) as T;
+export interface RenderOptions {
+  /** 4 (default: down, left, right, up) or 8 (adds the four 3/4 diagonals). */
+  directions?: Directions;
+}
+
+const VIEW_KEYS: RigView[] = ["down", "down-side", "side", "up-side", "up"];
+const isPerView = (v: unknown): v is Partial<Record<RigView, unknown>> =>
+  v !== null && typeof v === "object" && !Array.isArray(v) && VIEW_KEYS.some((k) => k in (v as object));
+
+function pick<T>(v: PerView<T>, view: RigView): T {
+  if (isPerView(v)) {
+    const pv = v as Partial<Record<RigView, T>>;
+    // a diagonal with no data of its own follows the side view
+    return (pv[view] ?? (isDiagonal(view) ? pv.side : undefined) ?? pv.down ?? pv.side ?? pv.up ?? pv["down-side"] ?? pv["up-side"]) as T;
   }
   return v as T;
 }
 
+/** Joint rest: a missing diagonal is the midpoint between the neighbouring front/back view and the side view. */
+function pickRest(v: PerView<[number, number]>, view: RigView): [number, number] {
+  if (isPerView(v) && isDiagonal(view) && !(view in v)) {
+    const pv = v as Partial<Record<RigView, [number, number]>>;
+    const a = pv[view === "down-side" ? "down" : "up"], b = pv.side;
+    if (a && b) return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  }
+  return pick(v, view);
+}
+
+/** Face-like parts are not visible from behind (used to filter side parts in `up-side`). */
+const FRONT_FEATURE = /eye|nose|mouth|face|lip|blush|lash|snout|beak|wattle|fringe|muzzle|jaw|beard|mustache|glasses|freckle|wrinkle/i;
+
+function visibleIn(p: PartDef, view: RigView): boolean {
+  if (!p.views) return true;
+  if (p.views.includes(view)) return true;
+  if (!isDiagonal(view) || p.noDiag || p.views.some(isDiagonal)) return false;
+  if (!p.views.includes("side")) return false;
+  return !(view === "up-side" && FRONT_FEATURE.test(p.id));
+}
+
 /** World positions of every joint for a view and pose (offsets accumulate down the hierarchy). */
-export function solvePose(rig: RigDef, view: View, pose: Pose = {}): Record<string, [number, number]> {
+export function solvePose(rig: RigDef, view: RigView, pose: Pose = {}): Record<string, [number, number]> {
   const byId = new Map(rig.joints.map((j) => [j.id, j]));
   const acc = new Map<string, [number, number]>();
   const offset = (id: string): [number, number] => {
@@ -124,15 +178,20 @@ export function solvePose(rig: RigDef, view: View, pose: Pose = {}): Record<stri
   };
   const out: Record<string, [number, number]> = {};
   for (const j of rig.joints) {
-    const r = pick(j.rest, view);
+    const r = pickRest(j.rest, view);
     const o = offset(j.id);
     out[j.id] = [r[0] + o[0], r[1] + o[1]];
   }
   return out;
 }
 
-export function clipFrames(clip: Clip, view: View): Pose[] {
-  return pick(clip.frames, view);
+export function clipFrames(clip: Clip, view: RigView): Pose[] {
+  const f = clip.frames;
+  if (isPerView(f) && isDiagonal(view) && !(view in f) && f.side) {
+    // borrow the side frames, foreshortened on x (the character is turned 45 degrees)
+    return f.side.map((pose) => Object.fromEntries(Object.entries(pose).map(([k, o]) => [k, [o[0] * DIAG_X, o[1]] as [number, number]])));
+  }
+  return pick(f, view);
 }
 
 /** Render one frame of a rig to a finished sprite. */
@@ -141,7 +200,7 @@ export function renderRigFrame(r: RigRender, dir: Dir, pose: Pose = {}): Sprite 
   const size = r.size ?? kit.sizes.character;
   const k = size / rig.grid;
   const view = viewOf(dir);
-  const flip = dir === "left";
+  const flip = isMirrored(dir);
   const J = solvePose(withAttachmentJoints(rig, r.attachments), view, pose);
   const X = (x: number) => (flip ? size - x * k : x * k);
   const Y = (y: number) => y * k;
@@ -156,13 +215,15 @@ export function renderRigFrame(r: RigRender, dir: Dir, pose: Pose = {}): Sprite 
   // attachments replace parts with the same id, otherwise add to them
   const parts = new Map<string, PartDef>(rig.parts.map((p) => [p.id, p]));
   for (const a of r.attachments ?? []) for (const p of a.parts) parts.set(p.id, p);
+  if (kit.detail === "rich") for (const p of richParts(rig, parts, size)) parts.set(p.id, p);
   const ordered = [...parts.values()]
-    .filter((p) => !p.views || p.views.includes(view))
+    .filter((p) => visibleIn(p, view))
     .sort((a, b) => pick(a.z, view) - pick(b.z, view));
 
   const P = new Painter(size, size, kit);
   for (const p of ordered) {
     const opts = { tone: p.tone };
+    P.setLayer(p.id, pick(p.z, view));
     const joint = (id: string) => {
       const j = J[id];
       if (!j) throw new Error(`Part "${p.id}" references unknown joint "${id}"`);
@@ -205,18 +266,29 @@ export function renderRigFrame(r: RigRender, dir: Dir, pose: Pose = {}): Sprite 
       }
     }
   }
+  // rich shade passes know the three base views; 3/4 diagonals use the side-view passes
+  if (kit.detail === "rich") richShade(P, { rig, parts, slots, J, view: view === "down" || view === "up" ? view : "side", flip, size });
   return finalize(P.toSprite(), kit);
 }
 
-/** Render clips x 4 directions as animation rows named `<clip>-<dir>`. */
-export function renderRig(r: RigRender, clips: Clip[]): FrameSet[] {
+/** Render clips x 4 (or 8) directions as animation rows named `<clip>-<dir>`. */
+export function renderRig(r: RigRender, clips: Clip[], opts: RenderOptions = {}): FrameSet[] {
   const rows: FrameSet[] = [];
+  const dirs = SIDE_ONLY_RIGS.has(r.rig.id) ? SIDE_DIRS : opts.directions === 8 ? DIRS8 : DIRS;
   for (const clip of clips)
-    for (const dir of DIRS) {
+    for (const dir of dirs) {
       const frames = clipFrames(clip, viewOf(dir));
       rows.push({ name: `${clip.id}-${dir}`, frames: (frames.length ? frames : [{}]).map((pose) => renderRigFrame(r, dir, pose)) });
     }
-  return rows;
+  // `pattern-<kind>[:slot]` attachments (rigged recipes) pattern the garment between neck and hip,
+  // the same band the character generator uses
+  const pats = patternsOf(r.attachments ?? [], { ...r.rig.slots, ...(r.slots ?? {}) } as Record<string, Material>);
+  const ids = new Set(r.rig.joints.map((j) => j.id));
+  if (!pats.length || !ids.has("neck") || !ids.has("hip")) return rows;
+  const k = (r.size ?? r.kit.sizes.character) / r.rig.grid;
+  const pose = solvePose(r.rig, "down");
+  const yMin = Math.round(pose.neck[1] * k), yMax = Math.round((pose.hip[1] + 6) * k);
+  return rows.map((row) => ({ ...row, frames: row.frames.map((f) => pats.reduce((sp, pt) => applyPattern(sp, { pattern: pt.pattern, mat: pt.mat, kit: r.kit, yMin, yMax }), f)) }));
 }
 
 /**
@@ -229,6 +301,8 @@ export interface RigRecipe {
   slots?: Record<string, Material>;
   attachments?: (string | Attachment)[];
   clips: (string | Clip)[];
+  /** 4 (default) or 8 directions (adds the 3/4 diagonals). */
+  directions?: Directions;
 }
 
 /** Structural checks so hand-written or agent-written rigs fail with a clear message. */

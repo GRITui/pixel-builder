@@ -50,7 +50,7 @@ Style Kit fields (`create_kit` / `update_kit` `changes`):
 | `vibe` | free text art direction |
 
 Built-in kits: `kit-default` (Cozy RPG), `kit-gameboy` (Handheld Classic),
-`kit-neon` (Neon Dusk). Matching the kit to the game's mood first is the single
+`kit-neon` (Neon Dusk), `kit-hd` (Cozy RPG at 1.5x: 48px characters, 24px tiles, 144px buildings) and `kit-hd-rich` (the same with rich detail). Matching the kit to the game's mood first is the single
 biggest consistency win: pick palette + outline + light, then size the sprites.
 
 ## Generators (snapshot; call `list_generators` for the exact current specs)

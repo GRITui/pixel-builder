@@ -3,6 +3,7 @@
 //
 //   <ws>/pixel-builder.json
 //   <ws>/<category>s/<slug>.png            image (static) or spritesheet (animated)
+//   <ws>/<category>s/<slug>.aseprite       Aseprite file (indexed, kit palette, layers, tags)
 //   <ws>/<category>s/<slug>.json           sheet metadata (animated / spritesheet export)
 //   <ws>/<category>s/<slug>.tiled.json     Tiled map (+ <slug>.tileset.png, <slug>.deco.png)
 //
@@ -14,6 +15,7 @@ import { emptyProject, parseProject, serializeProject, type ProjectFile } from "
 import type { Asset, Category, Sprite, StyleKit, TileMap } from "../core/types";
 import { spriteSheetToSvg, type RigSvgInfo } from "../core/svg";
 import { ENGINE_FORMATS, engineFiles, tilesetMetaOf, type EngineFormat } from "./engine-export";
+import { asepriteBytes } from "./aseprite";
 import { blankImage, drawSprite, encodePng, kitColors, scaleImage, sheetImage, spriteImage, type RgbaImage } from "./png";
 
 /** An error whose message is meant for the calling agent: say what is wrong and how to fix it. */
@@ -70,6 +72,14 @@ export class Workspace {
     return join(this.dir, PROJECT_FILENAME);
   }
 
+  /** Remote workspaces fetch the project before a tool runs and write it back after; locally both are no-ops. */
+  async pull(): Promise<void> {}
+  async push(): Promise<void> {}
+  /** Run one tool call; remote workspaces serialise calls so pull/run/push never interleave. */
+  exclusive<T>(fn: () => Promise<T>): Promise<T> {
+    return fn();
+  }
+
   /** Read the project file; a missing file is an empty project (nothing is written until `save`). */
   load(): ProjectFile {
     this.warnings = [];
@@ -124,11 +134,11 @@ export function findAsset(project: ProjectFile, idOrName: string): Asset {
 
 // ---------- export ----------
 
-export type ExportFormat = "png" | "spritesheet" | "tiled" | "svg" | EngineFormat;
+export type ExportFormat = "png" | "spritesheet" | "tiled" | "svg" | "aseprite" | EngineFormat;
 
 export interface ExportedFile {
   path: string;
-  kind: "image" | "svg" | "spritesheet" | "sheet-json" | "tiled-json" | "tileset" | "engine";
+  kind: "image" | "svg" | "aseprite" | "spritesheet" | "sheet-json" | "tiled-json" | "tileset" | "engine";
   width?: number;
   height?: number;
 }
@@ -151,7 +161,7 @@ export function categoryDir(ws: Workspace, category: Category): string {
   return join(ws.dir, CATEGORY_DIR[category]);
 }
 
-const SIDE_FILES = (slug: string) => [`${slug}.png`, `${slug}.svg`, `${slug}.json`, `${slug}.tiled.json`, `${slug}.tileset.png`, `${slug}.deco.png`, `${slug}.tsj`, `${slug}.tres`, `${slug}.rules.json`, `${slug}.atlas.json`];
+const SIDE_FILES = (slug: string) => [`${slug}.png`, `${slug}.svg`, `${slug}.aseprite`, `${slug}.json`, `${slug}.tiled.json`, `${slug}.tileset.png`, `${slug}.deco.png`, `${slug}.tsj`, `${slug}.tres`, `${slug}.rules.json`, `${slug}.atlas.json`];
 
 /** Exported files that currently exist for an asset in its default folder (absolute paths). */
 export function assetFiles(ws: Workspace, project: ProjectFile, asset: Asset): string[] {
@@ -262,7 +272,7 @@ export interface ExportOptions {
   scale?: number;
   /** Absolute or cwd-relative output folder; default `<ws>/<category>s`. */
   outDir?: string;
-  /** Part ownership + joints for rigged assets (svg format only; computed by the tool layer). */
+  /** Part ownership + joints for rigged assets (svg and aseprite formats; computed by the tool layer). */
   rig?: RigSvgInfo;
 }
 
@@ -270,6 +280,12 @@ export interface ExportOptions {
 export function svgExists(ws: Workspace, project: ProjectFile, asset: Asset, outDir?: string): boolean {
   const dir = outDir ? resolve(outDir) : categoryDir(ws, asset.category);
   return existsSync(join(dir, `${exportSlug(project, asset)}.svg`));
+}
+
+/** True if an `<slug>.aseprite` already sits where exportAsset would put it. */
+export function asepriteExists(ws: Workspace, project: ProjectFile, asset: Asset, outDir?: string): boolean {
+  const dir = outDir ? resolve(outDir) : categoryDir(ws, asset.category);
+  return existsSync(join(dir, `${exportSlug(project, asset)}.aseprite`));
 }
 
 /** Write an asset's game-ready files. Returns absolute paths. */
@@ -286,6 +302,11 @@ export function exportAsset(ws: Workspace, project: ProjectFile, asset: Asset, o
     const path = join(dir, `${slug}.svg`);
     atomicWrite(path, spriteSheetToSvg({ name: asset.name, category: asset.category, fps: asset.fps, rows: asset.rows, tilemap: asset.tilemap, rig: opts.rig, kit }));
     return [{ path, kind: "svg" }];
+  }
+  if (format === "aseprite") {
+    const path = join(dir, `${slug}.aseprite`);
+    atomicWrite(path, asepriteBytes(asset, kit, opts.rig));
+    return [{ path, kind: "aseprite" }];
   }
   if (format === "tiled" && !asset.tilemap) throw new ToolError(`Asset '${asset.name}' is a ${asset.category}, not a map; 'tiled' export only works for map assets. Use format 'png' or 'spritesheet'.`);
 

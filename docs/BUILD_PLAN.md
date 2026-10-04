@@ -126,6 +126,7 @@ Owns: `server/**`, `src/ai/**`, `src/ai/*.test.ts`.
     -> `{ name, params, notes }`. Build a JSON schema from the generator's
     `ParamSpec`s (select/material -> enum, number -> number, bool -> boolean,
     all required, `additionalProperties: false`) plus `name`, `notes`.
+  - `POST /api/inpaint` `{ rows: string[] (sprite legend rows), mask: {rect:{x,y,w,h}} | {cells:[[x,y]]}, prompt, kit }` -> `{ rect, rows }` (legend rows for the mask bbox, one repair round)
   - `POST /api/pixels` `{ prompt, category, w, h, kit, references?: Sprite[] }`
     -> `{ name, sprite }`. Encode the kit palette as a legend of single chars
     (`.` = transparent), ask for `rows: string[]` of exactly `h` strings of
@@ -268,19 +269,20 @@ optional unless marked *; `kit_id` defaults to the active kit.
 | `generate_variations` | generator*, count (1-12), params, vary ("seed" \| "params"), kit_id | contact-sheet image + [{seed, params}] (not saved) |
 | `paint_asset` | name*, category*, width*, height*, frames* (string[][] of legend rows; one inner array per frame), row_names, fps, outline (true), cleanup (true), kit_id | asset summary, files, preview |
 | `edit_asset` | id*, row, frame, pixels [{x,y,char}], rows (replace frame), name, tags | asset summary, preview |
+| `edit_region` | id*, row, frame, rect {x,y,w,h} \| cells [[x,y]], rows (legend rows for the selection bbox) \| prompt (needs ANTHROPIC_API_KEY), all_frames (false), outline (true) | asset summary, changed_pixels, preview. Only masked cells change; cleanup + outline are re-applied around them only. Async tool (`callToolAsync`) |
 | `list_assets` | category, query | summaries |
 | `get_asset` | id*, include_pixels (false) | summary, preview, legend rows if asked |
 | `delete_asset` | id* | ok |
-| `export_asset` | id*, format (png \| spritesheet \| tiled \| svg \| tiled-tileset \| godot \| unity \| atlas), scale (1), out_dir | file paths (svg: layered, guides layer) |
+| `export_asset` | id*, format (png \| spritesheet \| tiled \| svg \| aseprite \| tiled-tileset \| godot \| unity \| atlas), scale (1), out_dir | file paths (svg: layered, guides layer; aseprite: indexed, kit palette, layers, tags) |
 | `import_image` | path* (PNG), width*, height*, category*, name, remove_background, crop, outline | asset summary, preview |
 | `import_svg` | path*, name, category, replace_id, kit_id | asset summary, preview (layered SVG back into the kit) |
 | `list_kits` | — | kits (id, name, active) |
 | `create_kit` | name*, base_kit_id, changes (partial StyleKit) | kit |
-| `update_kit` | kit_id*, changes* | kit |
+| `update_kit` | kit_id*, changes* | kit (refused when the kit is `locked`; version bumped) |
 | `set_active_kit` | kit_id* | kit |
-| `rerender_assets` | ids, kit_id | re-generated procedural and rigged assets (consistency after a kit change) |
+| `rerender_assets` | ids, kit_id, stale_only | re-generated procedural and rigged assets (consistency after a kit change) |
 | `list_rigs` / `list_clips` / `list_attachments` | family | rigs / clips / attachments (registry first, then project-defined), with family |
-| `generate_rigged` | rig*, slots, attachments[], clips[] (default walk, idle), name, kit_id, save (true) | character asset (rows `<clip>-<dir>`), spritesheet files, preview |
+| `generate_rigged` | rig*, slots, attachments[], clips[] (default walk, idle), directions (4 or 8, default 4), name, kit_id, save (true) | character asset (rows `<clip>-<dir>`; 8 adds down-right, up-right, up-left, down-left), spritesheet files, preview |
 | `attach` | id*, add[], remove[] | re-rendered rigged asset, files, preview |
 | `create_rig` | rig* (RigDef JSON), kit_id | validated + stored in the project, 3-view preview |
 | `create_clip` | clip* (Clip JSON), rig, kit_id | validated + stored; preview on `rig` if given |

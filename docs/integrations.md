@@ -38,6 +38,13 @@ The project is `<ws>/pixel-builder.json`; exports go to `<ws>/<folder>/`
 Relative workspace paths resolve against the server's working directory, which
 GUI apps do not control, so in global configs use an absolute `<GAME>/pixel-assets`.
 
+**Shared team library.** The workspace may instead be a URL,
+`--workspace https://pixel.internal/api/projects/team` (or `PIXEL_BUILDER_WORKSPACE`). The project is then
+read and written through the server API with ETag/If-Match (a concurrent change makes the tool fail with
+a 409 message and overwrites nothing). Set `PIXEL_BUILDER_TOKEN` when the server runs `AUTH=token`.
+Exports still land in a local folder: `--out-dir <dir>` or env `PIXEL_BUILDER_OUT_DIR` (default `./pixel-assets`).
+Deployment and setup: [`deploy.md`](deploy.md).
+
 **Notes**
 
 - Don't launch the stdio server with plain `npm run mcp`: npm prints a banner
@@ -499,14 +506,23 @@ image-reading tool, since looking at the output is part of the workflow.
 ## Tool reference (same names in MCP and CLI)
 
 `get_style_guide`, `list_generators`, `generate_asset`, `generate_variations`,
-`paint_asset`, `edit_asset`, `list_assets`, `get_asset`, `delete_asset`,
-`export_asset` (png, spritesheet, tiled, svg, tiled-tileset, godot, unity, atlas), `import_image`, `import_svg`, `list_kits`, `create_kit`, `update_kit`,
-`set_active_kit`, `rerender_assets`, `list_rigs`, `list_clips`, `list_attachments`,
-`generate_rigged`, `attach`, `create_rig`, `create_clip`, `create_attachment`, `generate_pack` (whole starter set in one call, e.g. `farming-v1`). `export_asset format=svg` writes a layered SVG (layer per material, per part for rigged assets, locked `guides` layer);
-`import_svg` reads it back: edit by layer, keep `data-material` attrs or use kit colours, the guides layer is ignored. MCP also exposes the resources
+`paint_asset`, `edit_asset`, `edit_region` (change only a rect/cells region: your own legend `rows`, or a `prompt` for the server model when `ANTHROPIC_API_KEY` is set), `list_assets`, `get_asset`, `delete_asset`,
+`export_asset` (png, spritesheet, tiled, svg, aseprite, tiled-tileset, godot, unity, atlas), `import_image`, `import_svg`, `list_kits`, `create_kit`, `update_kit` (refuses `locked` kits; fork with `create_kit`),
+`set_active_kit`, `rerender_assets` (`stale_only`), `list_rigs`, `list_clips`, `list_attachments`,
+`generate_rigged` (`directions: 4|8`; 8 adds 3/4 diagonal rows), `attach`, `create_rig`, `create_clip`, `create_attachment`, `generate_pack` (whole starter set in one call, e.g. `farming-v1` or `side-view-starter` for the `kit-side` platformer camera). `export_asset format=svg` writes a layered SVG (layer per material, per part for rigged assets, locked `guides` layer);
+`export_asset format=aseprite` writes `<slug>.aseprite` (see section 14). `import_svg` reads it back: edit by layer, keep `data-material` attrs or use kit colours, the guides layer is ignored. MCP also exposes the resources
 `pixel-builder://project`, `pixel-builder://style-guide` and the prompt
-`asset_pack` (`game`, `count`). Inputs and outputs: see
+`asset_pack` (`game`, `count`) and `design_creature` (`description`, `family?`: pick a family or write a new rig, `create_rig` / `create_attachment` / `create_clip`, `generate_rigged` with idle + walk, look, fix; no API key needed). The web app's rigged-mode "Describe" box does the same with a server key via `POST /api/rig` (`{prompt, kit, base?}`). Inputs and outputs: see
 [`BUILD_PLAN.md`](BUILD_PLAN.md) ("Agent tool contract") and the skill's cheat-sheet.
+
+**Text to animation clip.** Agents write the clip JSON themselves and call `create_clip` with `rig`
+(worked example "bow politely (wai)" and the validation rules in the skill's "Authoring an animation clip").
+No key needed. The web app's rig editor has a "Describe animation" box backed by
+`POST /api/clip` (`{prompt, family, rig?, fps?, frames?}` -> `{clip, notes}`; needs `ANTHROPIC_API_KEY`;
+joints limited to the family, offsets within +-6 grid units (+-8 for jumps), planted feet on the ground,
+one repair round, then 422). The result is loaded into the timeline for hand-tuning, never auto-saved.
+`npx tsx scripts/clip-author-demo.ts out.png` runs 9 prompts against a running server and writes a
+contact sheet (`--fixtures` renders the offline fixtures instead).
 
 ### Autotile tilesets (`tileset` generator)
 
@@ -528,3 +544,37 @@ bottom-left `unityRect`, per-tile `ruleNeighbors` in the order NW N NE W E SW S 
 | Hermes Agent | `~/.hermes/skills/pixel-builder/` or `skills.external_dirs` | verified |
 | Codex CLI, Cursor, Gemini CLI, Copilot | `.agents/skills/pixel-builder/` (Copilot also `.github/skills/`; Cursor `.cursor/skills/`) | reported by third-party guides; unverified |
 | Anything else | paste `SKILL.md` into the system prompt / rules / `AGENTS.md` | always works |
+
+## 14. Aseprite (export + extension)
+
+**Export.** `pixel-builder export-asset <id> --format aseprite` (MCP: `export_asset` with
+`format: "aseprite"`; web app: Export > "Aseprite (.aseprite)") writes `<slug>.aseprite` into the
+category folder. The file is INDEXED colour mode and its palette is the kit palette
+(entry 0 transparent, entries 1..90 = material x level, the same indices sprites store), so
+paint with the palette and the art stays on-kit. Layers: one per rig part for rigged assets
+(`core`, then attachments, same pixel ownership as the SVG export), one per material for
+everything else; the web app always uses per-material layers. Animation rows are laid out as
+consecutive frames, one tag per row (`walk-down`, `idle-left`...), frame duration `1000 / fps` ms.
+Cels are tight-cropped per layer and zlib-compressed. An existing `.aseprite` is refreshed
+whenever the asset is re-exported (`rerender_assets`, `attach`, ...).
+
+**Extension** (`integrations/aseprite/`, Aseprite 1.2.10+). Install: zip the folder contents
+(`package.json` + `pixel-builder.lua` at the zip root), rename to `pixel-builder.aseprite-extension`
+and double-click it, or copy the two files into Aseprite's `extensions/pixel-builder/` folder
+(Edit > Preferences > Extensions > "Open Extensions Folder"). Commands appear under File > Scripts:
+
+| Command | Does |
+|---|---|
+| Pixel Builder: Generate... | generator + params JSON (+ name, seed) -> `generate-asset`, then `export-asset --format aseprite`, then opens the file |
+| Pixel Builder: Re-render with current kit | `rerender-assets --ids <asset>` and reload the open file (asset = file name or id; asks) |
+| Pixel Builder: Pull kit palette | `get-style-guide` -> sets the sprite palette (entry 0 transparent, then the kit's 90 colours) |
+| Pixel Builder: Send selection to edit_region | stub: reports the selection bounds; wired up when the `edit_region` tool (#18) is merged |
+
+**Transport.** Aseprite's Lua has no HTTP client (only WebSocket), so the extension shells out to
+the CLI with `io.popen` (`<cli> --workspace <dir> --json <command> --input @tmpfile`), not to
+`pixel-builder mcp --http`. Set "CLI command" in the dialog to whatever runs the CLI: `pixel-builder`
+(after `npm link`), or `node /abs/path/dist-node/cli.mjs`, or `npx tsx /abs/path/src/node/cli.ts`.
+Aseprite may not inherit your shell `PATH`; use absolute paths if it cannot find `node`. Both the
+extension and an MCP agent can use the same workspace folder. The first run may ask Aseprite for
+permission to run scripts / access the file system. The Lua was not run inside Aseprite in CI;
+if a command fails the dialog shows the CLI's error text.

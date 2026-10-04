@@ -28,22 +28,25 @@ hand-write PNGs or invent colours.
 | Tool | Use it to |
 |---|---|
 | `get_style_guide` | read the kit (vibe, light, outline, sizes), the **legend** and painting rules. Call first. |
-| `list_kits` / `create_kit` / `update_kit` / `set_active_kit` | pick or shape the kit to the game's vibe |
+| `list_kits` / `create_kit` / `update_kit` / `set_active_kit` | pick or shape the kit to the game's vibe. Kits can be `locked` (house style): `update_kit` refuses them, so fork with `create_kit base_kit_id=<locked>` and edit the copy. Kits carry a `version` (bumped by `update_kit`); assets record `kitVersion`, and `list_assets` flags `stale` ones. Presets: `kit-default`, `kit-gameboy`, `kit-neon`, and the HD pair `kit-hd` / `kit-hd-rich` (every size 1.5x: 48px characters, 24px tiles; pick it for richer pixels, keep one kit per game). `kit-side` is the platformer camera: generators `sideview` (ground tiles, slopes, platform, ladder, front-on house, tiling sky/hills/trees layers), `sideenemy`, `sidelevel` (Tiled-exportable level), rig `humanoid-side` with clips jump/fall/climb/crouch; pack `side-view-starter` |
 | `list_generators` | see generators and their params (authoritative list) |
 | `generate_asset` | procedural asset; saves + exports PNG by default |
 | `generate_variations` | contact sheet of 1-12 seeds or param sets (not saved) |
 | `paint_asset` | new asset from legend rows (what generators can't do) |
 | `edit_asset` | fix pixels or replace a frame of an existing asset |
+| `edit_region` | change only a rect or cell region (add a scarf, recolour a hat): your own `rows`, or `prompt` with an API key |
 | `list_assets` / `get_asset` / `delete_asset` | manage the library |
-| `export_asset` | `png`, `spritesheet`, `tiled` (maps), `svg` (layered, see below) or, for `tileset` assets, `tiled-tileset` / `godot` / `unity` / `atlas` (engine autotile files, see reference) |
+| `export_asset` | `png`, `spritesheet`, `tiled` (maps), `svg` (layered, see below), `aseprite` (see below) or, for `tileset` assets, `tiled-tileset` / `godot` / `unity` / `atlas` (engine autotile files, see reference) |
 | `import_image` | quantise an existing PNG to the kit palette |
 | `import_svg` | read a layered SVG back (new asset, or `replace_id` to retexture an existing one): edit by layer, keep `data-material`/`data-level` or use kit colours, the `guides` layer is ignored |
-| `rerender_assets` | regenerate procedural and rigged assets after a kit change |
+| `rerender_assets` | regenerate procedural and rigged assets after a kit change (`stale_only` = only assets made with an older kit version) |
 | `list_rigs` / `list_clips` / `list_attachments` | rigs, animation clips and accessories (with family); ids for `generate_rigged` |
-| `generate_rigged` | animated character: rig + `slots` + `attachments` + `clips` -> walk/idle rows in 4 directions, exported as a spritesheet |
+| `generate_rigged` | animated character: rig + `slots` + `attachments` + `clips` -> walk/idle rows in 4 directions (`directions: 8` adds the 3/4 diagonals down-right, up-right, up-left, down-left), exported as a spritesheet |
 | `attach` | add/remove attachments (hat, tool) on a saved rigged asset; re-renders every frame |
 | `create_rig` / `create_clip` / `create_attachment` | author your own rig/clip/attachment as JSON (see `docs/RIG.md`); validated and stored in the project |
 | `generate_pack` | build a whole starter set in one call: built-in `farming-v1` (104 assets) or your own `manifest` of generate_asset/generate_rigged inputs; `only` filters by tag (`sea`, `normal`, `building`, `tool`...), re-running replaces in place, writes `.svg` too |
+
+**Aseprite.** `export_asset format=aseprite` writes `<slug>.aseprite`: INDEXED colour mode with the kit palette as the file palette (index 0 transparent, sprite indices map 1:1, so the palette is locked to the kit), one layer per rig part (rigged assets) or per material, all animation rows laid out as consecutive frames with one tag per row (`walk-down`...), frame duration from fps. Re-exporting the PNG (`rerender_assets`, `attach`...) refreshes an existing `.aseprite` too. Artists can also use the Aseprite extension in `integrations/aseprite/`.
 
 **SVG round trip.** `export_asset format=svg` (and `generate_pack`, by default) writes `<slug>.svg`: one layer per material (per part for rigged assets: core, hair, hat...), frames as a grid, and a locked `guides` layer (pixel/tile grid, ground line, frame labels, joints). Pixels are rectangle `<path>`s (one per colour per frame; `fill`/`data-material`/`data-level` sit on the layer and colour groups, repeated map tiles are `<symbol>`/`<use>`), and plain `<rect>`s are read too. Any tool that re-exports an asset's PNG (`rerender_assets`, `attach`, `edit_asset`, ...) also rewrites its `.svg` if one exists, so it never goes stale. Open it in Inkscape/Figma or edit the XML, then `import_svg`.
 
@@ -52,7 +55,7 @@ look at it before moving on.
 
 ## What the generators can make (highlights)
 
-- `character`: rigged humanoids built from a core + layers: `sex` (male/female), `age` (baby, kid, young-adult, senior, elder), `hair_style`, `facial` (beard, mustache, glasses, freckles, wrinkles), `costume` (overalls, dress, apron, sarong, smock, sweater), `headwear` (straw-hat, ngob-hat, cap, bonnet, bandana, beanie...), `bag` (backpack, satchel, tote, basket); 4-direction walk.
+- `character`: rigged humanoids built from a core + layers: `sex` (male/female), `age` (baby, kid, young-adult, senior, elder), `hair_style`, `facial` (beard, mustache, glasses, freckles, wrinkles), `costume` (overalls, dress, apron, sarong, smock, sweater), `headwear` (straw-hat, ngob-hat, cap, bonnet, bandana, beanie...), `bag` (backpack, satchel, tote, basket); 4-direction walk. New: `pattern` (none, plaid, stripes, polka, gingham; patterns the shirt/dress, or the apron/sarong cloth, along its own ramp) and `expression` (neutral, happy, surprised, tired). Rich kits and 48px canvases also get shaped hands, hair clumps, collars, cuffs, pockets and 2x3 eyes automatically; 32px standard output is unchanged.
 - `animal`: rigged cow, sheep, water buffalo, dog, cat, horse, pig, chicken, rooster, duck, fish, catfish; `age` adult or baby; idle/walk/graze (or peck/flap, or swim).
 - `building`: cottage, shop, tower, keep, barn, `stilt-house` (raised Southeast-Asian house; `access` stairs/ladder) and `half-brick` (two-storey Thai house: masonry ground floor, wooden upper floor, balcony gable; 1.5x building width); `farmhouse` and `coop` with `size` small/medium/large (barn has a large gambrel version; red barn = `wall: "cloth2", trim: "sand"`); roofs gable, hip, flat, dome, spire, `corrugated` (use `roof: "metal"` for zinc).
 - `environment`: props with animation rows (trees: sway/chop/fall/stump when `cuttable`; `old-oak` landmark; bush/weed cut; rock break), `fence` (`piece`: h, v, post, corners, T, cross, gates), seamless tiles incl. animated `water-tile`, `paddy-tile` and soil `tilled-soil-tile`, `watered-soil-tile`, `dried-soil-tile`, `snowed-soil-tile`.
@@ -135,6 +138,109 @@ Rules:
   that already went through them.
 - `edit_asset`: `pixels: [{x, y, char}]` for touch-ups, `rows` to replace a
   frame (`row` + `frame` select it). Re-look at the preview after every edit.
+- `edit_region`: to add or change one part (scarf, hat colour) without touching
+  the rest, select `rect: {x,y,w,h}` (or `cells`) and give `rows` for that
+  selection's bounding box (read pixels with `get_asset include_pixels`; an
+  invalid answer lists the box's current rows). Only the selected cells change
+  and the outline is redone around them only. `prompt` instead of `rows` asks
+  the server model and needs `ANTHROPIC_API_KEY`. `all_frames` repeats it on
+  every frame of the row. For rigged assets prefer an attachment.
+
+## Authoring an animation clip (text to motion, you write the JSON)
+
+When no built-in clip does what the user asks ("bow politely (wai)", "pick up the basket then walk",
+"the goat headbutts"), write the clip yourself and call `create_clip` with `rig` set, so it is
+validated and previewed on that rig. No API key is needed (the web app's "Describe animation" box and
+`POST /api/clip` do the same with the server model).
+
+1. `list_rigs` for the rig and its family, `list_clips family=...` to read a similar clip.
+2. A clip is `{id, fps, frames}`. A pose is `{joint: [dx, dy]}` in grid units (design grid 32), `[0,0]`
+   is the rest pose (omit rested joints). **x grows right, y grows DOWN** (`dy < 0` lifts). Children
+   inherit their parent's offset: `hip` moves both legs, so a bob down needs a negative `dy` on the feet.
+3. Give per-view frames `{down, side, up}` with the **same number of frames** in each (side faces right;
+   swing limbs on x in `side`, lift on y in `down`/`up`). Use 4-8 frames, `fps` 4-8 for gestures. Make
+   frame 0 the rest pose and the last frame return towards it so it loops.
+4. Joints per family (see `joints.ts`): humanoid `hip chest neck head shoulderL/R elbowL/R handL/R kneeL/R footL/R`;
+   quadruped `body neck head jaw tail shoulderFL/FR kneeFL/FR footFL/FR hipBL/BR kneeBL/BR footBL/BR`;
+   bird `body head beak tail wingL wingR legL footL legR footR`; fish `body head tail finTop finL finR`.
+
+Worked example, "bow politely (wai)" on `human-male-young-adult` (hands rise to the chest, the torso
+folds forward with the head, a short hold, then up; feet planted):
+
+```json
+{"id":"wai-bow","fps":4,"frames":{
+ "side":[{},
+  {"elbowL":[1,-1],"elbowR":[1,-1],"handL":[2,-2],"handR":[2,-2]},
+  {"hip":[0,1],"chest":[1,2],"head":[1,1],"elbowL":[1,-1],"elbowR":[1,-1],"handL":[2,-2],"handR":[2,-2],"footL":[0,-1],"footR":[0,-1]},
+  {"hip":[0,1],"chest":[1,2],"head":[1,1],"elbowL":[1,-1],"elbowR":[1,-1],"handL":[2,-2],"handR":[2,-2],"footL":[0,-1],"footR":[0,-1]},
+  {"chest":[0,1],"elbowL":[1,-1],"elbowR":[1,-1],"handL":[1,-2],"handR":[1,-2]}],
+ "down":[{},
+  {"elbowL":[0.5,-1],"elbowR":[0.5,-1],"handL":[1,-2],"handR":[1,-2]},
+  {"hip":[0,1],"chest":[0.5,2],"head":[0.5,1],"elbowL":[0.5,-1],"elbowR":[0.5,-1],"handL":[1,-2],"handR":[1,-2],"footL":[0,-1],"footR":[0,-1]},
+  {"hip":[0,1],"chest":[0.5,2],"head":[0.5,1],"elbowL":[0.5,-1],"elbowR":[0.5,-1],"handL":[1,-2],"handR":[1,-2],"footL":[0,-1],"footR":[0,-1]},
+  {"chest":[0,1],"elbowL":[0.5,-1],"elbowR":[0.5,-1],"handL":[0.5,-2],"handR":[0.5,-2]}],
+ "up":[{},{"elbowL":[0.5,-1],"elbowR":[0.5,-1]},{"hip":[0,1],"chest":[0.5,2],"head":[0.5,1],"footL":[0,-1],"footR":[0,-1]},{"hip":[0,1],"chest":[0.5,2],"head":[0.5,1],"footL":[0,-1],"footR":[0,-1]},{"chest":[0,1]}]}}
+```
+
+Then `generate_rigged` with `clips: ["wai-bow", "idle"]`, look at the sheet, adjust, call `create_clip`
+again with the same id (it replaces). Rules (the server enforces the same ones for `/api/clip`):
+
+- Only joints of the rig's family; an unknown joint is an error.
+- Offsets within +-6 grid units (+-8 when the motion is a jump, hop, leap or flap).
+- Planted feet stay on the ground: a foot's own `dy` plus its parents' `dy` must not be > 0 (no sinking), and
+  at least one foot stays within 2 units of the ground in every frame, unless the motion leaves the ground on purpose.
+- 2-12 frames per view, the same count in every view, `fps` 1-30.
+- Check at 1x: if the motion does not read, exaggerate the key pose, not the offsets of every joint.
+
+## Authoring a creature yourself (no API key)
+
+The web app's "Describe" box (`POST /api/rig`) needs a server key; you do not.
+You can write the same JSON. The MCP prompt `design_creature`
+(`description`, `family?`) walks through it:
+
+1. `list_rigs`: if a built-in rig fits the body (people, common animals, birds,
+   fish) keep it and author only attachments plus `slots`. Otherwise write a rig.
+2. Rig JSON: `{id, name, grid: 32, joints:[{id, parent, rest}], parts:[...], slots:{slot: material}}`.
+   One root joint, absolute `rest: [x, y]` on the 32 grid (y down; or per view
+   `{down, side, up}`), 1px margin, side view faces right. Parts: `ellipse
+   {joint, rx, ry, dx?, dy?}`, `box {joint, w, h}`, `limb {from, to, r}`; each
+   with a unique `id`, `z` (higher = in front, may be per view) and a `slot`
+   (or a material name). Use `views: ["down","side"]` for eyes and faces. Reuse
+   a family's joint names (humanoid, quadruped, bird, fish: see `list_rigs`) to
+   inherit its clips and attachments; a free-form skeleton needs its own clips.
+3. `create_rig {rig}` (validated, test-rendered in 3 views), `create_clip`
+   for `idle` and `walk`, `create_attachment {rig, attachment}` for props.
+4. `generate_rigged {rig, clips: ["idle","walk"]}`, look at the sheet, fix, repeat.
+
+Worked example, a river crab (one root, two claws, legs):
+
+```json
+create_rig { "rig": {
+  "id": "river-crab", "name": "River crab", "grid": 32,
+  "slots": { "shell": "accent", "eye": "ink" },
+  "joints": [
+    { "id": "body", "parent": null, "rest": [16, 19] },
+    { "id": "clawL", "parent": "body", "rest": { "down": [7, 11], "side": [20, 13], "up": [7, 11] } },
+    { "id": "clawR", "parent": "body", "rest": { "down": [25, 11], "side": [22, 13], "up": [25, 11] } },
+    { "id": "footL0", "parent": "body", "rest": [8, 22] },
+    { "id": "footR0", "parent": "body", "rest": [24, 22] }
+  ],
+  "parts": [
+    { "id": "legL0", "kind": "limb", "from": "body", "to": "footL0", "r": 0.9, "slot": "shell", "z": 1 },
+    { "id": "legR0", "kind": "limb", "from": "body", "to": "footR0", "r": 0.9, "slot": "shell", "z": 1 },
+    { "id": "shell", "kind": "ellipse", "joint": "body", "rx": 9, "ry": 6, "slot": "shell", "z": 3 },
+    { "id": "pincerL", "kind": "ellipse", "joint": "clawL", "rx": 3, "ry": 2.5, "slot": "shell", "z": 4 },
+    { "id": "pincerR", "kind": "ellipse", "joint": "clawR", "rx": 3, "ry": 2.5, "slot": "shell", "z": 4 }
+  ] } }
+create_clip { "rig": "river-crab", "clip": { "id": "crab-idle", "fps": 3, "frames": [{}, { "clawL": [0, -1], "clawR": [0, -1], "body": [0, 0.5] }] } }
+create_clip { "rig": "river-crab", "clip": { "id": "crab-walk", "fps": 8, "frames": [{ "footL0": [-1, -1] }, { "body": [0, 0.5] }, { "footR0": [1, -1] }, { "body": [0, 0.5] }] } }
+generate_rigged { "rig": "river-crab", "clips": ["crab-idle", "crab-walk"] }
+```
+
+Extending instead ("a monk in saffron robes carrying an alms bowl"):
+`create_attachment {rig: "humanoid-normal", attachment: {id: "alms-bowl", name: "Alms bowl", parts: [{id: "bowl", kind: "ellipse", joint: "handL", dy: 1, rx: 3, ry: 2, slot: "metal", z: 6}]}}`
+then `generate_rigged {rig: "humanoid-normal", slots: {top: "gold"}, attachments: ["alms-bowl"], clips: ["idle","walk"]}`.
+Name your own clips with a prefix (`crab-idle`): a built-in clip with the same id wins.
 
 ## Consistency rules (read before generating)
 
@@ -157,9 +263,14 @@ Assets live in a workspace directory (`--workspace <dir>`, else env
 `PIXEL_BUILDER_WORKSPACE`, else `./pixel-assets`). The project is
 `<workspace>/pixel-builder.json`; exports are in `<workspace>/<category folder>/`
 (`characters/`, `buildings/`, `environments/`, `objects/`, `ui/`, `maps/`).
+Team setups: `--workspace` / `PIXEL_BUILDER_WORKSPACE` may also be a URL
+`http(s)://host/api/projects/<id>` of a shared pixel-builder server; the project is then
+loaded and saved through its API (token in env `PIXEL_BUILDER_TOKEN`) while exports still
+go to a local folder (`--out-dir <dir>` or env `PIXEL_BUILDER_OUT_DIR`, default `./pixel-assets`).
+See `docs/deploy.md`.
 Copy or point the game at those files. MCP also exposes the resources
 `pixel-builder://project` and `pixel-builder://style-guide`, and a prompt
-`asset_pack` (`game`, `count`) that walks through a starter pack.
+`asset_pack` (`game`, `count`) that walks through a starter pack, and `design_creature` (`description`, `family?`) for authoring a rigged creature.
 
 ## No MCP? Use the CLI
 

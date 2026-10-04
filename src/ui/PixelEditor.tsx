@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { aiInpaint, aiStatus } from "../ai/client";
 import { applyOutline, stripOutline } from "../core/enforce";
+import type { Rect } from "../core/inpaint";
+import { buildLegend, encodeSprite } from "../core/legend";
 import { resolveRamps } from "../core/kit";
 import { colorIndex, MATERIALS, RAMP_LEN } from "../core/palette";
 import { cloneSprite, createSprite, getPx, spritesEqual } from "../core/sprite";
@@ -7,7 +10,7 @@ import type { Asset, FrameSet, Sprite, StyleKit } from "../core/types";
 import { paintLayers, rgbaTable } from "./editor/canvasUtil";
 import {
   canRedo, canUndo, createHistory, floodFill, linePoints, moveItem, paintPoints, pushHistory, rectPoints, redo,
-  replaceAt, resizeSprite, shadePoints, undo, type Anchor, type History, type Point,
+  applyRegionToRow, replaceAt, resizeSprite, selectionRect, shadePoints, undo, type Anchor, type History, type Point,
 } from "./editor/ops";
 import { SpriteThumb } from "./editor/SpriteThumb";
 import "./editor/editor.css";
@@ -20,7 +23,7 @@ export interface PixelEditorProps {
   onClose: () => void;
 }
 
-type Tool = "pencil" | "eraser" | "fill" | "line" | "rect" | "picker" | "shade";
+type Tool = "pencil" | "eraser" | "fill" | "line" | "rect" | "picker" | "shade" | "select";
 
 const TOOLS: { id: Tool; label: string; key: string; hint: string }[] = [
   { id: "pencil", label: "Pencil", key: "B", hint: "Draw (right-click erases)" },
@@ -30,9 +33,10 @@ const TOOLS: { id: Tool; label: string; key: string; hint: string }[] = [
   { id: "rect", label: "Rect", key: "R", hint: "Drag a rectangle" },
   { id: "picker", label: "Pick", key: "I", hint: "Eyedropper" },
   { id: "shade", label: "Shade", key: "S", hint: "Click lightens, Shift-click darkens along the colour ramp" },
+  { id: "select", label: "AI select", key: "T", hint: "Drag a rectangle, describe the change, and let the AI repaint just that region" },
 ];
 
-const TOOL_KEYS: Record<string, Tool> = { b: "pencil", e: "eraser", g: "fill", l: "line", r: "rect", i: "picker", s: "shade" };
+const TOOL_KEYS: Record<string, Tool> = { b: "pencil", e: "eraser", g: "fill", l: "line", r: "rect", i: "picker", s: "shade", t: "select" };
 
 interface Stroke {
   tool: Tool;
@@ -76,6 +80,20 @@ export function PixelEditor({ asset, kit, onSave, onClose }: PixelEditorProps) {
   const [fps, setFps] = useState(asset.fps || 6);
   const [draft, setDraft] = useState<Sprite | null>(null);
   const [allFrames, setAllFrames] = useState(false);
+  // AI region edit: selection, prompt, key status and the pending preview (committed as one history step on Accept)
+  const [sel, setSel] = useState<Rect | null>(null);
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiAll, setAiAll] = useState(false);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState("");
+  const [aiEnabled, setAiEnabled] = useState<boolean | null>(null);
+  const [proposal, setProposal] = useState<FrameSet[] | null>(null);
+  const selStart = useRef<Point | null>(null);
+  useEffect(() => {
+    let live = true;
+    void aiStatus().then((s) => live && setAiEnabled(s.enabled));
+    return () => { live = false; };
+  }, []);
 
   const rows = hist.present;
   const ri = Math.min(ri0, rows.length - 1);
@@ -98,7 +116,7 @@ export function PixelEditor({ asset, kit, onSave, onClose }: PixelEditorProps) {
   const coordRef = useRef<HTMLSpanElement>(null);
   const strokeRef = useRef<Stroke | null>(null);
 
-  const shown = draft ?? frame;
+  const shown = draft ?? proposal?.[ri]?.frames[fi] ?? frame;
 
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -163,7 +181,16 @@ export function PixelEditor({ asset, kit, onSave, onClose }: PixelEditorProps) {
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (e.button !== 0 && e.button !== 2) return;
     if (strokeRef.current) return;
+    if (proposal) return; // accept or discard the AI preview first
     const p = cellAt(e);
+    if (tool === "select") {
+      if (e.button !== 0) return;
+      e.currentTarget.setPointerCapture(e.pointerId);
+      selStart.current = p;
+      setSel(selectionRect(p, p, frame.w, frame.h));
+      setAiError("");
+      return;
+    }
     const erase = e.button === 2;
     const value = erase || tool === "eraser" ? 0 : color;
     if (tool === "picker") {
@@ -199,18 +226,52 @@ export function PixelEditor({ asset, kit, onSave, onClose }: PixelEditorProps) {
       const ok = p.x >= 0 && p.y >= 0 && p.x < frame.w && p.y < frame.h;
       coordRef.current.textContent = ok ? `${p.x}, ${p.y}` : "";
     }
+    if (selStart.current) {
+      setSel(selectionRect(selStart.current, p, frame.w, frame.h));
+      return;
+    }
     const s = strokeRef.current;
     if (!s || (p.x === s.last.x && p.y === s.last.y)) return;
     applyStroke(s, p);
   };
 
   const endStroke = () => {
+    selStart.current = null;
     const s = strokeRef.current;
     if (!s) return;
     strokeRef.current = null;
     replaceFrame(s.ri, s.fi, s.work);
     setDraft(null);
   };
+
+  // ---------- AI region edit ----------
+
+  const runAi = async () => {
+    if (!sel || !aiPrompt.trim() || aiBusy) return;
+    setAiBusy(true);
+    setAiError("");
+    try {
+      const legend = buildLegend(kit);
+      const targets = aiAll ? row.frames.map((_, i) => i) : [fi];
+      const edits: { fi: number; rows: string[] }[] = [];
+      for (const i of targets) {
+        const f = row.frames[i];
+        if (f.w !== frame.w || f.h !== frame.h) continue;
+        const r = await aiInpaint({ rows: encodeSprite(f, legend), mask: { rect: sel }, prompt: aiPrompt.trim(), kit });
+        edits.push({ fi: i, rows: r.rows });
+      }
+      setProposal(applyRegionToRow(rows, ri, edits, sel, kit, true));
+    } catch (e) {
+      setAiError(e instanceof Error ? e.message : "The AI edit failed.");
+    } finally {
+      setAiBusy(false);
+    }
+  };
+  const acceptAi = () => {
+    if (proposal) commitRows(proposal);
+    setProposal(null);
+  };
+  const discardAi = () => setProposal(null);
 
   // ---------- frame + row ops ----------
 
@@ -375,6 +436,12 @@ export function PixelEditor({ asset, kit, onSave, onClose }: PixelEditorProps) {
                 onContextMenu={(e) => e.preventDefault()}
               />
               {gridStyle && <div className="pe-grid" style={gridStyle} />}
+              {sel && (
+                <div
+                  className={"pe-sel" + (proposal ? " is-preview" : "")}
+                  style={{ left: sel.x * zoom, top: sel.y * zoom, width: sel.w * zoom, height: sel.h * zoom }}
+                />
+              )}
               {mirror && <div className="pe-mirror-line" style={{ left: pw / 2 }} />}
             </div>
           </div>
@@ -445,6 +512,50 @@ export function PixelEditor({ asset, kit, onSave, onClose }: PixelEditorProps) {
               Re-outline
             </button>
             <label className="pe-check"><input type="checkbox" checked={allFrames} onChange={(e) => setAllFrames(e.target.checked)} />Whole row</label>
+          </div>
+
+          <h3>AI region edit</h3>
+          <div className="pe-ai">
+            <p className="pe-dim pe-note">
+              {sel ? `Selected ${sel.w} x ${sel.h} at ${sel.x}, ${sel.y}.` : "Pick Select + prompt (T) and drag a rectangle."} Only the selection changes; the kit outline is re-applied around it.
+            </p>
+            <textarea
+              className="pe-ai-prompt"
+              rows={3}
+              placeholder="e.g. a red scarf around the neck"
+              value={aiPrompt}
+              maxLength={300}
+              disabled={aiBusy || !!proposal}
+              onChange={(e) => setAiPrompt(e.target.value)}
+              aria-label="Region edit prompt"
+            />
+            {row.frames.length > 1 && (
+              <label className="pe-check" title="Repaint the same region on every frame of this animation row (one model call per frame)">
+                <input type="checkbox" checked={aiAll} disabled={aiBusy || !!proposal} onChange={(e) => setAiAll(e.target.checked)} />Apply to all {row.frames.length} frames
+              </label>
+            )}
+            {asset.source.kind === "rigged" && (
+              <p className="pe-dim pe-note">This asset is rigged: edits are lost when it is re-rendered. A rig attachment is the better way to add a scarf or hat.</p>
+            )}
+            {!proposal ? (
+              <button
+                type="button"
+                className="pe-primary"
+                onClick={runAi}
+                disabled={!aiEnabled || !sel || !aiPrompt.trim() || aiBusy}
+                title={aiEnabled ? (sel ? "Repaint the selected region" : "Select a region first") : "AI is off: set ANTHROPIC_API_KEY on the server (or use the edit_region tool with your own rows)"}
+              >
+                {aiBusy ? "Painting..." : "Apply"}
+              </button>
+            ) : (
+              <div className="pe-row">
+                <button type="button" className="pe-primary" onClick={acceptAi} title="Keep this edit (undoable)">Accept</button>
+                <button type="button" onClick={discardAi}>Discard</button>
+                <span className="pe-dim">Previewing on the canvas</span>
+              </div>
+            )}
+            {aiEnabled === false && <p className="pe-dim pe-note">AI is off (no API key on the server).</p>}
+            {aiError && <p className="pe-error" role="alert">{aiError}</p>}
           </div>
 
           <h3>Canvas size</h3>

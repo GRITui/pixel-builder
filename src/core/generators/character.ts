@@ -3,11 +3,15 @@ import { KIT_PRESETS } from "../kit";
 import { buildLegend } from "../legend";
 import { Painter } from "../painter";
 import { colorIndex, type Material } from "../palette";
-import { clipFrames, renderRig, type Attachment, type Clip, type PartDef } from "../rig";
-import { HUMANOID_RIGS, humanoidRig, femaleCueParts, AGES, torsoWidth, type Age, type Build, type Sex } from "../rigs/humanoid";
+import { clipFrames, renderRig, solvePose, type Attachment, type Clip, type PartDef } from "../rig";
+import { HUMANOID_RIGS, humanoidRig, armRadius, femaleCueParts, diagFaceParts, AGES, torsoWidth, type Age, type Build, type Sex } from "../rigs/humanoid";
 import { attachmentById, clipById } from "../rigs";
 import { WALK } from "../rigs/example";
 import { hairStyleAttachment } from "../rigs/wardrobe";
+import { bigFaceOn, EXPRESSIONS, faceParts, handsAttachment, PATTERNS, shapesOn, type Expression, type Pattern } from "../rigs/shapes";
+import { applyPattern } from "../rigs/shapes-pattern";
+import { shapedHair } from "../rigs/shapes-hair";
+import { shapedWear } from "../rigs/shapes-wear";
 import { rng, type Rng } from "../rng";
 import type { FrameSet, Sprite, StyleKit } from "../types";
 import { bool, mat, PAINT, str, type Generator, type Params } from "./types";
@@ -107,28 +111,34 @@ function fallbackItem(item: string, tw: number): PartDef[] {
 const WOOD = buildLegend(KIT_PRESETS[0]).byIndex.get(colorIndex("wood", 3)) ?? "w";
 
 /** Seeded face / trim details, drawn above hats so eyes always show. */
-function detailParts(t: Traits, tw: number, size: number, eyeZ: number, fem?: Age): PartDef[] {
+function detailParts(t: Traits, tw: number, size: number, eyeZ: number, fem?: Age, fx?: { kit: StyleKit; expression: Expression; shaped: boolean }): PartDef[] {
   const ex = t.wideEyes ? 1 : 0;
   const big = size >= 32;
-  const P: PartDef[] = [
+  // richer faces (#38): shaped canvases always, standard 32px only when an expression is asked for
+  const fxOn = !!fx && (fx.shaped || fx.expression !== "neutral");
+  const bigFace = fxOn && bigFaceOn(size);
+  const ownMouth = fxOn && (bigFace || fx!.expression !== "neutral");
+  const P: PartDef[] = bigFace ? [] : [
     { id: "eyeL", kind: "box", joint: "head", dx: -3 - ex, dy: -1, w: 1, h: 2, slot: "ink", tone: -2, z: eyeZ, views: ["down"] },
     { id: "eyeR", kind: "box", joint: "head", dx: 2 + ex, dy: -1, w: 1, h: 2, slot: "ink", tone: -2, z: eyeZ, views: ["down"] },
-    { id: "eyeSide", kind: "box", joint: "head", dx: 3, dy: -1, w: 1, h: 2, slot: "ink", tone: -2, z: eyeZ, views: ["side"] },
+    { id: "eyeSide", kind: "box", joint: "head", dx: 3, dy: -1, w: 1, h: 2, slot: "ink", tone: -2, z: eyeZ, views: ["side"], noDiag: true },
   ];
+  if (!bigFace) P.push(...diagFaceParts(eyeZ, ex, !fem && !ownMouth));
   if (fem) {
     // female cues: lashes, lips, always-on blush and a bow for the young (replace the neutral mouth)
-    P.push(...femaleCueParts(fem, eyeZ, ex, big));
-  } else P.push({ id: "mouth", kind: "box", joint: "head", dx: -0.5, dy: 2, w: 1, h: 1, slot: "skin", tone: -2, z: eyeZ, views: ["down"] });
-  if (big) {
+    P.push(...femaleCueParts(fem, eyeZ, ex, big && !bigFace).filter((q) => !(ownMouth && /^fem-lips/.test(q.id))));
+  } else if (!ownMouth) P.push({ id: "mouth", kind: "box", joint: "head", dx: -0.5, dy: 2, w: 1, h: 1, slot: "skin", tone: -2, z: eyeZ, views: ["down"] });
+  if (fxOn) P.push(...faceParts({ kit: fx!.kit, size, expression: fx!.expression, fem: !!fem, wide: t.wideEyes, blush: fem ? true : t.blush, z: eyeZ }));
+  if (big && !bigFace) {
     if (t.blush && !fem) {
       P.push(
         { id: "blushL", kind: "box", joint: "head", dx: -4 - ex, dy: 1, w: 1, h: 1, slot: "cloth2", tone: 1, z: eyeZ, views: ["down"] },
         { id: "blushR", kind: "box", joint: "head", dx: 3 + ex, dy: 1, w: 1, h: 1, slot: "cloth2", tone: 1, z: eyeZ, views: ["down"] },
-        { id: "blushS", kind: "box", joint: "head", dx: 4, dy: 1, w: 1, h: 1, slot: "cloth2", tone: 1, z: eyeZ, views: ["side"] },
+        { id: "blushS", kind: "box", joint: "head", dx: 4, dy: 1, w: 1, h: 1, slot: "cloth2", tone: 1, z: eyeZ, views: ["side"], noDiag: true },
       );
     }
   }
-  if (t.collar) {
+  if (t.collar && !fx?.shaped) {
     P.push({ id: "collar", kind: "box", joint: "chest", dx: -tw / 2 + 1, dy: -1, w: tw - 2, h: 1, slot: "accent", normal: [0, -0.5, 0.8], z: 3.5, views: ["down"] });
     P.push({ id: "collarSide", kind: "box", joint: "chest", dx: -tw * 0.4 + 1, dy: -1, w: tw * 0.8 - 2, h: 1, slot: "accent", normal: [0, -0.5, 0.8], z: 3.5, views: ["side"] });
   }
@@ -173,7 +183,9 @@ function drawHumanoid(p: Params, kit: StyleKit, size: number, t: Traits): FrameS
   const slots: Record<string, Material> = {
     skin: mat(p, "skin"), hair: mat(p, "hair"), top: mat(p, "top"), bottom: mat(p, "bottom"), boots: mat(p, "boots"), accent, helm: helmMat,
   };
+  const shaped = shapesOn(kit, size);
   const atts: Attachment[] = [hairStyleAttachment(str(p, "hair_style"), t.fringe)];
+  if (shaped) atts.push(shapedHair(str(p, "hair_style"), t.fringe), handsAttachment(kit, size, slots.skin));
   if (bool(p, "cape")) atts.push({ id: "cape", name: "Cape", parts: capeParts(tw) });
 
   const pushShared = (id: string | undefined, fallback: PartDef[], remapMetalTo?: string) => {
@@ -190,9 +202,19 @@ function drawHumanoid(p: Params, kit: StyleKit, size: number, t: Traits): FrameS
     const a = attach(v === "basket" ? v : prefix + v);
     if (a) atts.push(a);
   }
-  atts.push({ id: "details", name: "Seeded details", parts: detailParts(t, tw, size, hat !== "none" && (!attach(HEADWEAR_ID[hat]) || WARDROBE_HATS.has(hat)) ? 30 : 7, sex === "female" ? (age as Age) : undefined) });
+  if (shaped) atts.push(shapedWear({ costume: p.costume === undefined ? "none" : str(p, "costume"), tw, arm: armRadius(build, age as Age, sex as Sex), collar: t.collar, age }));
+  atts.push({ id: "details", name: "Seeded details", parts: detailParts(t, tw, size, hat !== "none" && (!attach(HEADWEAR_ID[hat]) || WARDROBE_HATS.has(hat)) ? 30 : 7, sex === "female" ? (age as Age) : undefined, { kit, expression: (str(p, "expression") as Expression) || "neutral", shaped }) });
 
-  return renderRig({ rig, kit, slots, attachments: atts, size }, [walkClip()]);
+  const rows = renderRig({ rig, kit, slots, attachments: atts, size }, [walkClip()], { directions: str(p, "directions") === "8" ? 8 : 4 });
+  const pattern = (p.pattern === undefined ? "none" : str(p, "pattern")) as Pattern;
+  if (pattern === "none" || !(PATTERNS as readonly string[]).includes(pattern)) return rows;
+  // the garment's ramp: the shirt/dress slot, or the accent cloth of an apron or sarong
+  const costume = p.costume === undefined ? "none" : str(p, "costume");
+  const garment = costume === "apron" || costume === "sarong" ? slots.accent : slots.top;
+  const k = size / rig.grid;
+  const yMin = Math.round(solvePose(rig, "down").neck[1] * k);
+  const yMax = Math.round((solvePose(rig, "down").hip[1] + 6) * k);
+  return rows.map((r) => ({ ...r, frames: r.frames.map((f) => applyPattern(f, { pattern, mat: garment, kit, yMin, yMax })) }));
 }
 
 function drawSlime(p: Params, kit: StyleKit, dir: Dir, frame: number, size: number, _t: Traits): Sprite {
@@ -235,6 +257,9 @@ export const characterGenerator: Generator = {
     { key: "weapon", label: "Held item", type: "select", options: ["none", "sword", "staff", "shield", "bow"], default: "none" },
     { key: "accent_mat", label: "Accent (cape, hat, gem)", type: "material", options: PAINT, default: "cloth2" },
     { key: "cape", label: "Cape", type: "bool", default: false },
+    { key: "pattern", label: "Fabric pattern (shirt, dress, apron or sarong cloth)", type: "select", options: [...PATTERNS], default: "none" },
+    { key: "expression", label: "Expression (eyes, brows, mouth)", type: "select", options: [...EXPRESSIONS], default: "neutral" },
+    { key: "directions", label: "Directions (4, or 8 with 3/4 diagonals)", type: "select", options: ["4", "8"], default: "4" },
   ],
   generate(p, kit, seed) {
     const traits = rollTraits(rng(seed));

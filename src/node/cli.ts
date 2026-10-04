@@ -6,8 +6,9 @@ import { mkdirSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEFAULT_HTTP_PORT, VERSION, parseHostList, startHttp, startStdio } from "./mcp";
-import { TOOLS, ToolError, callTool, inputJsonSchema, nearest, type ToolDef, type ToolResult } from "./tools";
-import { DEFAULT_WORKSPACE, Workspace, atomicWrite, slugify } from "./workspace";
+import { TOOLS, ToolError, callToolAsync, inputJsonSchema, nearest, type ToolDef, type ToolResult } from "./tools";
+import { DEFAULT_WORKSPACE, atomicWrite, slugify, type Workspace } from "./workspace";
+import { openWorkspace } from "./remote-workspace";
 
 class UsageError extends Error {}
 
@@ -327,7 +328,7 @@ Runs the MCP server. Default: stdio (Claude Code, Cursor, Codex, Gemini CLI, Her
 Use --token whenever you expose the server beyond localhost; a warning is printed on stderr if you do not.
 Tool output (exports) goes to <workspace>/<category>s/ (UI assets: ui/).`;
 
-async function runMcp(tokens: string[], workspace: string | undefined, io: CliIO): Promise<number> {
+async function runMcp(tokens: string[], workspace: string | undefined, io: CliIO, outDir?: string): Promise<number> {
   let http = false;
   let port = DEFAULT_HTTP_PORT;
   let host = "127.0.0.1";
@@ -346,10 +347,11 @@ async function runMcp(tokens: string[], workspace: string | undefined, io: CliIO
     else if (name === "--allowed-host") allowed.push(value());
     else if (name === "--token") token = value() || undefined;
     else if (name === "--workspace" || name === "-w") workspace = value();
+    else if (name === "--out-dir") outDir = value();
     else throw new UsageError(`Unknown option ${t} for mcp.\n${MCP_USAGE}`);
   }
   if (!http && (token || allowed.some((a) => a.trim()) || host !== "127.0.0.1")) io.err("[pixel-builder] note: --host/--allowed-host/--token only apply with --http; running on stdio.");
-  const ws = new Workspace(workspace);
+  const ws = openWorkspace(workspace, outDir);
   if (http) {
     const handle = await startHttp(ws, { port, host, allowedHosts: parseHostList(...allowed), token });
     const stop = () => void handle.close().then(() => process.exit(0));
@@ -369,6 +371,7 @@ export async function main(argv: string[], io: CliIO = stdio): Promise<number> {
   try {
     // find the command: first token that is not a flag (or a global flag's value)
     let workspace: string | undefined;
+    let outDir: string | undefined;
     let command: string | undefined;
     const rest: string[] = [];
     for (let i = 0; i < argv.length; i++) {
@@ -376,6 +379,8 @@ export async function main(argv: string[], io: CliIO = stdio): Promise<number> {
       if (command === undefined) {
         if (t === "--workspace" || t === "-w") { workspace = argv[++i]; continue; }
         if (t.startsWith("--workspace=")) { workspace = t.slice("--workspace=".length); continue; }
+        if (t === "--out-dir") { outDir = argv[++i]; continue; }
+        if (t.startsWith("--out-dir=")) { outDir = t.slice("--out-dir=".length); continue; }
         if (t === "--json") continue;
         if (t === "--version" || t === "-v") { io.out(VERSION); return 0; }
         if (t === "--help" || t === "-h") { io.out(mainHelp()); return 0; }
@@ -396,7 +401,7 @@ export async function main(argv: string[], io: CliIO = stdio): Promise<number> {
         io.out(MCP_USAGE);
         return 0;
       }
-      return await runMcp(rest.filter((t) => t !== "--json"), workspace, io);
+      return await runMcp(rest.filter((t) => t !== "--json"), workspace, io, outDir);
     }
     const tool = TOOLS.find((t) => kebab(t.name) === command || t.name === command);
     if (!tool) {
@@ -410,8 +415,8 @@ export async function main(argv: string[], io: CliIO = stdio): Promise<number> {
       io.out(toolHelp(tool));
       return 0;
     }
-    const ws = new Workspace(parsed.workspace ?? workspace);
-    const result = callTool(ws, tool.name, buildInput(tool, parsed));
+    const ws = openWorkspace(parsed.workspace ?? workspace, outDir);
+    const result = await callToolAsync(ws, tool.name, buildInput(tool, parsed));
     const previews = savePreviews(ws, result);
     if (json) {
       const data = result.data && typeof result.data === "object" && !Array.isArray(result.data) ? (result.data as object) : { result: result.data };

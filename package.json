@@ -13,6 +13,7 @@
     "typecheck": "tsc",
     "cli": "tsx src/node/cli.ts",
     "mcp": "tsx src/node/cli.ts mcp",
+    "build:server": "esbuild server/index.ts --bundle --platform=node --format=esm --target=node20 --packages=external --outfile=dist-node/server.mjs",
     "build:node": "esbuild src/node/cli.ts --bundle --platform=node --format=esm --target=node20 --packages=external --banner:js=\"#!/usr/bin/env node\" --outfile=dist-node/cli.mjs"
   },
   "repository": {

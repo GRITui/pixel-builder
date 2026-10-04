@@ -238,13 +238,13 @@ const CATEGORY_HINT: Record<Category, string> = {
   map: "a seamless, tileable terrain tile that fills the whole frame edge to edge (no transparency)",
 };
 
-const LIGHT_TEXT: Record<LightDir, string> = {
+export const LIGHT_TEXT: Record<LightDir, string> = {
   "top-left": "the top-left (highlights on upper-left faces, shadows on lower-right)",
   top: "directly above (highlights on top faces, shadows underneath)",
   "top-right": "the top-right (highlights on upper-right faces, shadows on lower-left)",
 };
 
-const OUTLINE_TEXT: Record<OutlineMode, string> = {
+export const OUTLINE_TEXT: Record<OutlineMode, string> = {
   none: "Do not draw outlines.",
   black: "Do NOT draw the outer silhouette outline - a 1px ink outline is added automatically, so leave a 1px transparent margin around the shape.",
   colored: "Do NOT draw the outer silhouette outline - a 1px coloured outline is added automatically, so leave a 1px transparent margin around the shape.",

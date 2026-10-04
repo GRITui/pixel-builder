@@ -11,6 +11,7 @@ import { downscaleRGBA, finalize, materialsUsed, quantizeRGBA } from "../core/en
 import { GENERATORS, generatorById } from "../core/generators";
 import { coerceParams, defaults, randomParams, type Generator, type ParamSpec, type Params } from "../core/generators/types";
 import { newId } from "../core/kit";
+import { applyRegionEdit, cellsMask, checkRegionRows, maskBounds, rectMask, regionContext } from "../core/inpaint";
 import { buildLegend, decodeRows, encodeSprite, legendText, type Legend } from "../core/legend";
 import { MATERIALS, PALETTES, RAMP_LEN, type Material } from "../core/palette";
 import type { ProjectFile } from "../core/project";
@@ -25,7 +26,7 @@ import {
   ToolError, Workspace, assetFiles, exportAsset as exportAssetRaw, findAsset, getKit, isAnimated, kitOf, removeAssetFiles,
   type ExportedFile, type ExportOptions,
 } from "./workspace";
-import { svgExists } from "./workspace";
+import { asepriteExists, svgExists } from "./workspace";
 
 export { ToolError };
 
@@ -55,7 +56,9 @@ export interface ToolDef {
   positional?: string;
   readOnly?: boolean;
   destructive?: boolean;
-  run(ws: Workspace, input: any): ToolResult;
+  /** Calls the model; run through callToolAsync (the sync callTool refuses before running anything). */
+  async?: boolean;
+  run(ws: Workspace, input: any): ToolResult | Promise<ToolResult>;
 }
 
 function defineTool<S extends z.ZodRawShape>(d: {
@@ -66,7 +69,8 @@ function defineTool<S extends z.ZodRawShape>(d: {
   positional?: keyof S & string;
   readOnly?: boolean;
   destructive?: boolean;
-  run: (ws: Workspace, input: z.output<z.ZodObject<S>>) => ToolResult;
+  async?: boolean;
+  run: (ws: Workspace, input: z.output<z.ZodObject<S>>) => ToolResult | Promise<ToolResult>;
 }): ToolDef {
   return d as unknown as ToolDef;
 }
@@ -99,13 +103,34 @@ export function inputJsonSchema(tool: ToolDef): { properties?: Record<string, an
   return z.toJSONSchema(z.object(tool.shape), { io: "input", unrepresentable: "any" }) as any;
 }
 
-export function callTool(ws: Workspace, name: string, raw: unknown): ToolResult {
-  const tool = TOOLS.find((t) => t.name === name);
-  if (!tool) throw new ToolError(`Unknown tool '${name}'. Tools: ${TOOLS.map((t) => t.name).join(", ")}`);
-  const result = tool.run(ws, parseInput(tool, raw));
+function withWarnings(ws: Workspace, result: ToolResult): ToolResult {
   if (ws.warnings.length && result.data && typeof result.data === "object" && !Array.isArray(result.data))
     (result.data as Record<string, unknown>).workspace_warnings = ws.warnings;
   return result;
+}
+
+function findTool(name: string): ToolDef {
+  const tool = TOOLS.find((t) => t.name === name);
+  if (!tool) throw new ToolError(`Unknown tool '${name}'. Tools: ${TOOLS.map((t) => t.name).join(", ")}`);
+  return tool;
+}
+
+export function callTool(ws: Workspace, name: string, raw: unknown): ToolResult {
+  const tool = findTool(name);
+  if (tool.async) throw new ToolError(`${name} may call the AI model and is async; use callToolAsync.`);
+  return withWarnings(ws, tool.run(ws, parseInput(tool, raw)) as ToolResult);
+}
+
+/** Like callTool, but also runs tools that call the model (edit_region with `prompt`). */
+export async function callToolAsync(ws: Workspace, name: string, raw: unknown): Promise<ToolResult> {
+  const tool = findTool(name);
+  const input = parseInput(tool, raw);
+  return ws.exclusive(async () => {
+    await ws.pull();
+    const result = withWarnings(ws, await tool.run(ws, input));
+    await ws.push();
+    return result;
+  });
 }
 
 // ---------- helpers ----------
@@ -196,6 +221,12 @@ interface AssetSummary {
   files: string[];
 }
 
+/** True if the asset was made with an older version of its kit than the kit now has. */
+function isStale(project: ReturnType<Workspace["load"]>, a: Asset): boolean {
+  const k = project.kits.find((x) => x.id === a.kitId);
+  return !!k && (a.kitVersion ?? 1) < (k.version ?? 1);
+}
+
 function summarize(ws: Workspace, project: ReturnType<Workspace["load"]>, a: Asset): AssetSummary {
   const f = a.rows[0].frames[0];
   return {
@@ -203,6 +234,7 @@ function summarize(ws: Workspace, project: ReturnType<Workspace["load"]>, a: Ass
     name: a.name,
     category: a.category,
     kit_id: a.kitId,
+    ...(isStale(project, a) ? { stale: true } : {}),
     width: f.w,
     height: f.h,
     rows: a.rows.map((r) => ({ name: r.name, frames: r.frames.length })),
@@ -267,6 +299,8 @@ function kitSummary(kit: StyleKit, active: boolean) {
     palette: kit.paletteId,
     light: kit.lightDir,
     outline: kit.outline,
+    ...(kit.locked ? { locked: true } : {}),
+    version: kit.version ?? 1,
     shade_steps: kit.shadeSteps,
     dither: kit.dither,
     ambient: kit.ambient,
@@ -535,6 +569,88 @@ const editAsset = defineTool({
   },
 });
 
+const editRegion = defineTool({
+  name: "edit_region",
+  title: "Edit region",
+  description:
+    "Change only a region of a saved asset (add a scarf, recolour a hat) and leave every other pixel untouched. Select the region with `rect` {x,y,w,h} or `cells` [[x,y],...], then give EITHER `rows` (legend rows covering the selection's bounding box, you paint them: no API key needed; '.' erases, chars outside a cells selection are ignored) OR `prompt` (the server-side model paints it; needs ANTHROPIC_API_KEY). Only legend chars are accepted, so it stays on-kit; orphan cleanup and the kit outline are re-applied only around changed pixels. `all_frames` applies the same selection to every frame of the row (rows mode: the same rows; prompt mode: one model call per frame). For rigged assets an attachment (create_attachment + attach) is the better path. Re-exports PNG (and .svg if one exists). Not for maps.",
+  shape: {
+    id: z.string().describe("Asset id (or exact name)."),
+    row: z.union([z.string(), z.number().int().min(0)]).optional().describe("Animation row name or index. Default 0."),
+    frame: z.number().int().min(0).default(0).describe("Frame index within the row."),
+    rect: z.object({ x: z.number().int(), y: z.number().int(), w: z.number().int().min(1), h: z.number().int().min(1) }).optional().describe("Selected rectangle in pixels."),
+    cells: z.array(z.tuple([z.number().int(), z.number().int()])).max(65536).optional().describe("Selected cells [[x,y],...] (alternative to rect)."),
+    rows: z.array(z.string()).optional().describe("Replacement legend rows for the selection's bounding box (agent-supplied mode)."),
+    prompt: z.string().min(1).max(1000).optional().describe("What to paint (server/model mode)."),
+    all_frames: z.boolean().default(false).describe("Apply to every frame of the row."),
+    outline: z.boolean().default(true).describe("Re-apply the kit outline around changed pixels."),
+  },
+  positional: "id",
+  async: true,
+  async run(ws, i) {
+    const project = ws.load();
+    const asset = findAsset(project, i.id);
+    const kit = kitOf(project, asset);
+    const legend = buildLegend(kit);
+    if (asset.tilemap) throw new ToolError(`'${asset.name}' is a map (a tile grid); edit_region only edits sprites.`);
+    if (!!i.rect === !!i.cells) throw new ToolError("Give exactly one selection: `rect` {x,y,w,h} or `cells` [[x,y],...].");
+    if (!!i.rows === !!i.prompt) throw new ToolError("Give exactly one of `rows` (you paint the region; no API key needed) or `prompt` (server model; needs ANTHROPIC_API_KEY).");
+    let ri = 0;
+    if (typeof i.row === "string") {
+      const byName = asset.rows.findIndex((r) => r.name === i.row);
+      ri = byName >= 0 ? byName : /^\d+$/.test(i.row) ? Number(i.row) : -1;
+    } else if (typeof i.row === "number") ri = i.row;
+    const row = asset.rows[ri];
+    if (!row) throw new ToolError(`No row ${JSON.stringify(i.row)} in '${asset.name}'. Rows: ${asset.rows.map((r, k) => `${k}=${r.name}`).join(", ")}.`);
+    if (!row.frames[i.frame]) throw new ToolError(`Row '${row.name}' has ${row.frames.length} frame(s); frame ${i.frame} does not exist.`);
+    const targets = i.all_frames ? row.frames.map((_, k) => k) : [i.frame];
+    const { w, h } = row.frames[i.frame];
+    const mask = i.rect ? rectMask(w, h, i.rect) : cellsMask(w, h, i.cells!);
+    const bbox = maskBounds(mask, w);
+    if (!bbox) throw new ToolError(`The selection is outside the ${w}x${h} frame (or empty).`);
+    const notes: string[] = [];
+    if (asset.source.kind === "rigged") notes.push("This asset is rigged; edits are overwritten when it is re-rendered. An attachment (create_attachment + attach) is the lasting way to add a scarf or hat.");
+
+    let rowsFor: (frameIndex: number) => Promise<string[]> | string[];
+    if (i.rows) {
+      const errs = checkRegionRows(i.rows, bbox, legend, mask, w);
+      if (errs.length) throw new ToolError(`Invalid rows for the selection's bounding box (x=${bbox.x}, y=${bbox.y}, ${bbox.w} cols x ${bbox.h} rows): ${errs.join("; ")}. Current content of that box:\n${regionContext(row.frames[i.frame], bbox, legend).join("\n")}`);
+      rowsFor = () => i.rows!;
+    } else {
+      const { hasKey } = await import("../../server/claude");
+      if (!hasKey()) throw new ToolError("`prompt` needs the AI model, but ANTHROPIC_API_KEY is not set. Either set it, or supply `rows` yourself: legend rows for the selection's bounding box " + `(x=${bbox.x}, y=${bbox.y}, ${bbox.w} cols x ${bbox.h} rows; read the pixels with get_asset include_pixels).`);
+      const { inpaint } = await import("../../server/inpaint");
+      const cells: [number, number][] = [];
+      for (let k = 0; k < mask.length; k++) if (mask[k]) cells.push([k % w, Math.floor(k / w)]);
+      rowsFor = async (fi) => {
+        const r = await inpaint({ rows: encodeSprite(row.frames[fi], legend), mask: { cells }, prompt: i.prompt, kit }, new AbortController().signal);
+        return r.rows;
+      };
+    }
+
+    const next = row.frames.slice();
+    const changed: Record<number, number> = {};
+    for (const fi of targets) {
+      const frame = row.frames[fi];
+      if (frame.w !== w || frame.h !== h) { notes.push(`frame ${fi} has a different size (${frame.w}x${frame.h}); skipped`); continue; }
+      try {
+        const r = applyRegionEdit(frame, mask, await rowsFor(fi), kit, { outline: i.outline });
+        next[fi] = r.sprite;
+        changed[fi] = r.changed;
+      } catch (e) {
+        throw new ToolError(`Nothing saved. frame ${fi}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    if (!Object.keys(changed).length) throw new ToolError("Nothing changed (no frame could be edited).");
+    if (Object.values(changed).every((c) => c === 0)) notes.push("The replacement matched the current pixels; nothing changed.");
+    row.frames = next;
+    asset.updatedAt = Date.now();
+    ws.save(project);
+    exportAsset(ws, project, asset);
+    return { data: { asset: summarize(ws, project, asset), changed_pixels: changed, region: bbox, ...(notes.length ? { notes } : {}) }, images: [previewOf(asset, kit)] };
+  },
+});
+
 // ---------- library ----------
 
 const listAssets = defineTool({
@@ -597,30 +713,33 @@ const exportAssetTool = defineTool({
   name: "export_asset",
   title: "Export asset",
   description:
-    "Write game-ready files for an asset. 'png' = image (animated assets become a spritesheet + .json metadata; maps also get .tiled.json + tilesets); 'spritesheet' = always sheet + .json; 'tiled' = map only; 'svg' = layered vector (a layer per material, per part for rigged assets, plus a locked 'guides' layer with pixel/tile grid, ground line, frame labels, joints) that opens in Inkscape/Figma and comes back with import_svg. Autotile assets (generator 'tileset') also export 'tiled-tileset' (.tsj with a wangset), 'godot' (.tres TileSet with terrain + peering bits), 'unity' (PNG + .rules.json slice rects and neighbour rules) and 'atlas' (PNG + .atlas.json index); each writes <slug>.png beside it. Default folder: <workspace>/<category>s/ (characters/, buildings/, environments/, objects/, maps/ - and ui/ for UI assets, not uis/).",
+    "Write game-ready files for an asset. 'png' = image (animated assets become a spritesheet + .json metadata; maps also get .tiled.json + tilesets); 'spritesheet' = always sheet + .json; 'tiled' = map only; 'aseprite' = .aseprite file (indexed colour with the kit palette locked, one layer per rig part or material, one tag per animation row; opens in Aseprite/LibreSprite), 'svg' = layered vector (a layer per material, per part for rigged assets, plus a locked 'guides' layer with pixel/tile grid, ground line, frame labels, joints) that opens in Inkscape/Figma and comes back with import_svg. Autotile assets (generator 'tileset') also export 'tiled-tileset' (.tsj with a wangset), 'godot' (.tres TileSet with terrain + peering bits), 'unity' (PNG + .rules.json slice rects and neighbour rules) and 'atlas' (PNG + .atlas.json index); each writes <slug>.png beside it. Default folder: <workspace>/<category>s/ (characters/, buildings/, environments/, objects/, maps/ - and ui/ for UI assets, not uis/).",
   shape: {
     id: z.string().describe("Asset id (or exact name)."),
-    format: z.enum(["png", "spritesheet", "tiled", "svg", "tiled-tileset", "godot", "unity", "atlas"]).default("png"),
-    scale: z.number().int().min(1).max(16).default(1).describe("Integer upscale of the PNG (nearest neighbour); ignored for svg."),
+    format: z.enum(["png", "spritesheet", "tiled", "svg", "aseprite", "tiled-tileset", "godot", "unity", "atlas"]).default("png"),
+    scale: z.number().int().min(1).max(16).default(1).describe("Integer upscale of the PNG (nearest neighbour); ignored for svg and aseprite."),
     out_dir: z.string().optional().describe("Output folder (relative to the current directory). Default: <workspace>/<category>s/ (ui/ for UI assets)."),
   },
   positional: "id",
   run(ws, i) {
     const project = ws.load();
     const asset = findAsset(project, i.id);
-    const files = exportAsset(ws, project, asset, { format: i.format, scale: i.scale, outDir: i.out_dir, rig: i.format === "svg" ? rigInfoOf(project, asset) : undefined });
+    const files = exportAsset(ws, project, asset, { format: i.format, scale: i.scale, outDir: i.out_dir, rig: i.format === "svg" || i.format === "aseprite" ? rigInfoOf(project, asset) : undefined });
     return { data: { asset: { id: asset.id, name: asset.name }, files } };
   },
 });
 
 /**
- * Every re-export of an asset's PNG also refreshes its editable .svg when one already
+ * Every re-export of an asset's PNG also refreshes its editable .svg / .aseprite when one already
  * exists, so the vector never goes stale (rerender, attach, edit, import replace, ...).
  */
 function exportAsset(ws: Workspace, project: ProjectFile, asset: Asset, opts: ExportOptions = {}): ExportedFile[] {
   const files = exportAssetRaw(ws, project, asset, opts);
-  if ((opts.format ?? "png") !== "svg" && svgExists(ws, project, asset, opts.outDir))
+  const fmt = opts.format ?? "png";
+  if (fmt !== "svg" && svgExists(ws, project, asset, opts.outDir))
     files.push(...exportAssetRaw(ws, project, asset, { format: "svg", outDir: opts.outDir, rig: rigInfoOf(project, asset) }));
+  if (fmt !== "aseprite" && asepriteExists(ws, project, asset, opts.outDir))
+    files.push(...exportAssetRaw(ws, project, asset, { format: "aseprite", outDir: opts.outDir, rig: rigInfoOf(project, asset) }));
   return files;
 }
 
@@ -814,6 +933,7 @@ const kitChanges = z
     ambient: z.number().min(0).max(1),
     sizes: z.object({ character: size, building: size, environment: size, object: size, ui: size, tile: size }).partial().strict(),
     vibe: z.string().max(500).describe("Free-text art direction."),
+    locked: z.boolean().describe("Mark as house style: update_kit then refuses it; fork it with create_kit to change anything."),
   })
   .partial()
   .strict();
@@ -846,7 +966,8 @@ const createKit = defineTool({
   run(ws, i) {
     const project = ws.load();
     const base = getKit(project, i.base_kit_id);
-    const kit = { ...applyChanges(base, i.changes ?? {}), id: newId("kit"), name: i.name };
+    const { locked: _l, version: _v, ...baseRest } = base;
+    const kit = { ...applyChanges(baseRest as StyleKit, i.changes ?? {}), id: newId("kit"), name: i.name };
     project.kits.push(kit);
     ws.save(project);
     return { data: { kit, note: `Created from '${base.id}'. Use set_active_kit to make it the default, or pass kit_id to tools.` } };
@@ -862,7 +983,8 @@ const updateKit = defineTool({
   run(ws, i) {
     const project = ws.load();
     const kit = getKit(project, i.kit_id);
-    const next = { ...applyChanges(kit, i.changes), id: kit.id };
+    if (kit.locked) throw new ToolError(`Kit '${kit.id}' is locked (house style) and cannot be changed. Fork it: create_kit with base_kit_id '${kit.id}' and your changes, then use the copy.`);
+    const next = { ...applyChanges(kit, i.changes), id: kit.id, version: (kit.version ?? 1) + 1 };
     project.kits = project.kits.map((k) => (k.id === kit.id ? next : k));
     ws.save(project);
     const used = project.assets.filter((a) => a.kitId === kit.id);
@@ -899,10 +1021,10 @@ const rerenderAssets = defineTool({
   title: "Rerender assets",
   description:
     "Re-run the generator (or rig recipe, for rigged assets) of procedural/rigged assets with the current kit settings (after update_kit) so everything stays consistent, and re-export their files. Default: all procedural assets, each with its own kit; pass kit_id to move them to another kit. Hand-painted/imported assets are skipped.",
-  shape: { ids: z.array(z.string()).optional().describe("Asset ids or names. Default: every procedural asset."), kit_id: kitIdField.describe("Re-render with this kit and move the assets to it. Default: each asset's own kit.") },
+  shape: { ids: z.array(z.string()).optional().describe("Asset ids or names. Default: every procedural asset."), kit_id: kitIdField.describe("Re-render with this kit and move the assets to it. Default: each asset's own kit."), stale_only: z.boolean().optional().describe("Only assets made with an older version of their kit (see `stale` in list_assets).") },
   run(ws, i) {
     const project = ws.load();
-    const targets = i.ids ? i.ids.map((id) => findAsset(project, id)) : project.assets.filter((a) => a.source.kind === "procedural" || a.source.kind === "rigged");
+    const targets = (i.ids ? i.ids.map((id) => findAsset(project, id)) : project.assets.filter((a) => a.source.kind === "procedural" || a.source.kind === "rigged")).filter((a) => !i.stale_only || isStale(project, a));
     const forced = i.kit_id ? getKit(project, i.kit_id) : undefined;
     const done: AssetSummary[] = [];
     const skipped: { id: string; name: string; reason: string }[] = [];
@@ -915,6 +1037,7 @@ const rerenderAssets = defineTool({
         a.rows = res.rows;
         a.fps = res.fps;
         a.kitId = kit.id;
+        a.kitVersion = kit.version ?? 1;
         a.updatedAt = Date.now();
         ws.save(project);
         exportAsset(ws, project, a);
@@ -934,6 +1057,7 @@ const rerenderAssets = defineTool({
       a.tilemap = res.tilemap;
       if (res.meta) a.meta = { ...a.meta, ...res.meta };
       a.kitId = kit.id;
+      a.kitVersion = kit.version ?? 1;
       a.updatedAt = Date.now();
       ws.save(project); // keep progress if a later generator throws
       exportAsset(ws, project, a);
@@ -1001,7 +1125,8 @@ function renderRecipe(project: ProjectFile, kit: StyleKit, recipe: RigRecipe) {
   if (errs.length) throw new ToolError(`Cannot render rig '${lib.rig.id}': ${[...new Set(errs)].slice(0, 6).join("; ")}.`);
   // built-in animals share one world scale with the `animal` generator (issue #24)
   const fit = lib.builtin && !atts.length ? fitRigToWorld(lib.rig, kit, recipe.slots ?? {}, clips) : undefined;
-  const rows = fit ? renderRig({ rig: fit.rig, kit, slots: recipe.slots, size: fit.size }, fit.clips) : renderRig({ rig: lib.rig, kit, slots: recipe.slots, attachments: atts }, clips);
+  const ro = { directions: recipe.directions === 8 ? (8 as const) : (4 as const) };
+  const rows = fit ? renderRig({ rig: fit.rig, kit, slots: recipe.slots, size: fit.size }, fit.clips, ro) : renderRig({ rig: lib.rig, kit, slots: recipe.slots, attachments: atts }, clips, ro);
   return { rows, fps: clips[0].fps, lib, attachments: atts, clips };
 }
 
@@ -1047,12 +1172,13 @@ const generateRigged = defineTool({
   name: "generate_rigged",
   title: "Generate rigged character",
   description:
-    "Render a rigged character: one skeleton, material slots, optional attachments, and animation clips x 4 directions (rows '<clip>-<dir>'). Lit by the kit like every generator. Saves (as a character) and exports a spritesheet + .json, with a preview. Re-render later with rerender_assets; change accessories with attach.",
+    "Render a rigged character: one skeleton, material slots, optional attachments, and animation clips x 4 or 8 directions (rows '<clip>-<dir>'; 8 adds the 3/4 diagonals down-right, up-right, up-left, down-left). Lit by the kit like every generator. Saves (as a character) and exports a spritesheet + .json, with a preview. Re-render later with rerender_assets; change accessories with attach.",
   shape: {
     rig: z.string().describe("Rig id (see list_rigs), e.g. a humanoid."),
     slots: slotsField,
     attachments: z.array(z.string()).optional().describe("Attachment ids (see list_attachments)."),
     clips: z.array(z.string()).optional().describe("Clip ids (see list_clips). Default: walk and idle when available."),
+    directions: z.union([z.literal(4), z.literal(8)]).default(4).describe("4 (down, left, right, up) or 8 (adds down-right, up-right, up-left, down-left as 3/4 views). Default 4."),
     name: z.string().min(1).max(80).optional(),
     kit_id: kitIdField,
     save: z.boolean().default(true),
@@ -1063,7 +1189,7 @@ const generateRigged = defineTool({
     const kit = getKit(project, i.kit_id);
     const lib = resolveRig(project, i.rig);
     const defClips = allClips(project).filter((c) => c.family === lib.family && ["walk", "idle"].includes(c.clip.id)).map((c) => c.clip.id).sort().reverse();
-    const recipe: RigRecipe = { rig: lib.rig.id, ...(i.slots ? { slots: i.slots as Record<string, Material> } : {}), attachments: i.attachments ?? [], clips: i.clips?.length ? i.clips : defClips.length ? defClips : [allClips(project).find((c) => c.family === lib.family)?.clip.id ?? "walk"] };
+    const recipe: RigRecipe = { rig: lib.rig.id, ...(i.slots ? { slots: i.slots as Record<string, Material> } : {}), attachments: i.attachments ?? [], clips: i.clips?.length ? i.clips : defClips.length ? defClips : [allClips(project).find((c) => c.family === lib.family)?.clip.id ?? "walk"], ...(i.directions === 8 ? { directions: 8 as const } : {}) };
     const res = renderRecipe(project, kit, recipe);
     const asset = createAsset({
       name: uniqueName(project, "character", i.name ?? lib.rig.name.toLowerCase()),
@@ -1324,7 +1450,7 @@ const generatePack = defineTool({
 });
 
 export const TOOLS: ToolDef[] = [
-  getStyleGuide, listGenerators, generateAsset, generateVariations, paintAsset, editAsset, listAssets, getAsset,
+  getStyleGuide, listGenerators, generateAsset, generateVariations, paintAsset, editAsset, editRegion, listAssets, getAsset,
   deleteAsset, exportAssetTool, importImage, listKits, createKit, updateKit, setActiveKit, rerenderAssets,
   listRigs, listClips, listAttachments, generateRigged, attach, createRig, createClip, createAttachment,
   generatePack, importSvg,

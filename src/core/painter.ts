@@ -38,6 +38,12 @@ export class Painter {
   private light: Float32Array;
   private fixed: Int8Array;
   private tone: Int8Array;
+  // Layer stamps (which part drew a pixel, at what z) feed the rich-detail passes; unused otherwise.
+  private part: Int16Array;
+  private partZ: Float32Array;
+  private partIds: string[] = [];
+  private curPart = -1;
+  private curZ = 0;
   private L: Vec3;
   private materials: Material[] = [];
 
@@ -48,6 +54,8 @@ export class Painter {
     this.light = new Float32Array(w * h);
     this.fixed = new Int8Array(w * h).fill(-1);
     this.tone = new Int8Array(w * h);
+    this.part = new Int16Array(w * h).fill(-1);
+    this.partZ = new Float32Array(w * h);
     this.L = lightVector(kit.lightDir);
   }
 
@@ -80,12 +88,75 @@ export class Painter {
     const i = y * this.w + x;
     this.mat[i] = this.matId(m);
     this.tone[i] = opts?.tone ?? 0;
+    this.part[i] = this.curPart;
+    this.partZ[i] = this.curZ;
     if (n) {
       this.light[i] = this.intensity(n);
       this.fixed[i] = -1;
     } else {
       this.fixed[i] = level;
     }
+  }
+
+  /** Stamp following draws with a part id and z (rig renderer; enables `separate`). */
+  setLayer(id: string, z: number): this {
+    let i = this.partIds.indexOf(id);
+    if (i < 0) i = this.partIds.push(id) - 1;
+    this.curPart = i;
+    this.curZ = z;
+    return this;
+  }
+
+  /** Shift the shade of already-painted lit pixels in a rect (contact shadows, folds, highlights). */
+  shade(x: number, y: number, w: number, h: number, delta: number, only?: Material): this {
+    const mi = only ? this.materials.indexOf(only) : -2;
+    if (only && mi < 0) return this;
+    for (let j = 0; j < h; j++)
+      for (let i = 0; i < w; i++) {
+        const xx = Math.floor(x + i), yy = Math.floor(y + j);
+        if (xx < 0 || yy < 0 || xx >= this.w || yy >= this.h) continue;
+        const k = yy * this.w + xx;
+        if (this.mat[k] < 0 || this.fixed[k] >= 0 || (only && this.mat[k] !== mi)) continue;
+        this.tone[k] += delta;
+      }
+    return this;
+  }
+
+  /**
+   * 1px darker separation where a part sits behind a nearer one (limb over torso, head over
+   * shoulders, brim over brow). `allow(behind, front)` picks which part pairs get a seam.
+   */
+  separate(allow: (behind: string, front: string) => boolean): this {
+    const hits: number[] = [];
+    for (let y = 0; y < this.h; y++)
+      for (let x = 0; x < this.w; x++) {
+        const i = y * this.w + x;
+        if (this.mat[i] < 0 || this.fixed[i] >= 0 || this.part[i] < 0) continue;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const nx = x + dx, ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= this.w || ny >= this.h) continue;
+          const j = ny * this.w + nx;
+          if (this.mat[j] < 0 || this.fixed[j] >= 0 || this.part[j] < 0 || this.part[j] === this.part[i]) continue;
+          if (this.partZ[j] > this.partZ[i] + 0.05 && allow(this.partIds[this.part[i]], this.partIds[this.part[j]])) { hits.push(i); break; }
+        }
+      }
+    for (const i of hits) this.tone[i] -= 1;
+    return this;
+  }
+
+  /** Rim light: lit pixels on the silhouette edge away from the light get one shade lighter. */
+  rim(): this {
+    const side = this.lightSide === 0 ? 1 : -this.lightSide; // light from the left -> rim on the right edge
+    const hits: number[] = [];
+    for (let y = 0; y < this.h; y++)
+      for (let x = 0; x < this.w; x++) {
+        const i = y * this.w + x;
+        if (this.mat[i] < 0 || this.fixed[i] >= 0 || this.light[i] > 0.5) continue;
+        const nx = x + side;
+        if (nx < 0 || nx >= this.w || this.mat[y * this.w + nx] < 0) hits.push(i);
+      }
+    for (const i of hits) this.tone[i] += 1;
+    return this;
   }
 
   /** Explicit pixel with a fixed ramp level (eyes, details, sparkles). */

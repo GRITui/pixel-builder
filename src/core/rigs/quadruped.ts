@@ -2,7 +2,7 @@
 // clips that every quadruped shares. Side view is primary (animal faces right,
 // "left" is its mirror); down/up are simpler front/back views.
 // Joint names are the contract in joints.ts.
-import type { Clip, PartDef, RigDef } from "../rig";
+import type { Clip, PartDef, RigDef, RigView } from "../rig";
 import type { Material } from "../palette";
 
 type V2 = [number, number];
@@ -29,7 +29,7 @@ const BX = 13;
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
 /** Swept crescent through control points with radii that taper along three segments (stamped as discs). */
-function crescent(id: string, pts: [number, number][], radii: number[], z: number, view: "side" | "front", sign = 1, joint = "head"): PartDef[] {
+function crescent(id: string, pts: [number, number][], radii: number[], z: number, view: "side" | "front", sign = 1, joint = "head", views: RigView[] = view === "side" ? ["side"] : ["down", "up"]): PartDef[] {
   const out: PartDef[] = [];
   let n = 0;
   for (let i = 0; i < pts.length - 1; i++) {
@@ -39,8 +39,8 @@ function crescent(id: string, pts: [number, number][], radii: number[], z: numbe
     for (let t = i === 0 ? 0 : 1; t <= steps; t++) {
       const u = t / steps;
       const r = radii[i] + (radii[i + 1] - radii[i]) * u;
-      out.push({ id: `${id}k${n}`, kind: "ellipse", joint, dx: (ax + (bx - ax) * u) * sign, dy: ay + (by - ay) * u, rx: r + 0.7, ry: r + 0.7, slot: "ink", tone: 0, z: z - 0.5 - n * 0.001, views: view === "side" ? ["side"] : ["down", "up"] });
-      out.push({ id: `${id}${n++}`, kind: "ellipse", joint, dx: (ax + (bx - ax) * u) * sign, dy: ay + (by - ay) * u, rx: r, ry: r, slot: "accent", tone: 1, z: z - n * 0.001, views: view === "side" ? ["side"] : ["down", "up"] });
+      out.push({ id: `${id}k${n}`, kind: "ellipse", joint, dx: (ax + (bx - ax) * u) * sign, dy: ay + (by - ay) * u, rx: r + 0.7, ry: r + 0.7, slot: "ink", tone: 0, z: z - 0.5 - n * 0.001, views });
+      out.push({ id: `${id}${n++}`, kind: "ellipse", joint, dx: (ax + (bx - ax) * u) * sign, dy: ay + (by - ay) * u, rx: r, ry: r, slot: "accent", tone: 1, z: z - n * 0.001, views });
     }
   }
   return out;
@@ -96,26 +96,32 @@ function build(s: Spec, variant = 0): RigDef {
   const uHeadY = by - ry * 0.9 + clamp(headLift * 0.6, -1.5, 0.5) - Math.max(0, -headLift) * 0.4;
   const mid = (a: number, b: number) => (a + b) / 2;
 
-  const J = (id: string, parent: string | null, side: V2, down: V2, up: V2) => ({ id, parent, rest: { down, side, up } });
+  // 3/4 views: the side skeleton foreshortened on x around the body, head dipped toward the viewer
+  // (down-side) or away (up-side); far legs offset so both pairs read.
+  const D = (p: V2): V2 => [BX + (p[0] - BX) * 0.8, p[1]];
+  const J = (id: string, parent: string | null, side: V2, down: V2, up: V2, sd: V2 = [0, 0], su: V2 = [0, 0]) => {
+    const a = D(side);
+    return { id, parent, rest: { down, side, up, "down-side": [a[0] + sd[0], a[1] + sd[1]] as V2, "up-side": [a[0] + su[0], a[1] + su[1]] as V2 } };
+  };
   const joints = [
     J("body", null, [BX, by], [16, chestY], [16, by]),
-    J("neck", "body", [nx, ny], [16, chestY + 0.5], [16, by - ry * 0.7]),
-    J("head", "neck", [hx, hy], [16, dHeadY], [16, uHeadY]),
-    J("jaw", "head", [hx + s.snoutDx, hy + s.headRy * 0.55], [16, dHeadY + s.headRx * 0.55 + s.snoutRy * 0.4], [16, uHeadY]),
+    J("neck", "body", [nx, ny], [16, chestY + 0.5], [16, by - ry * 0.7], [0.2, 0.3], [-0.2, -0.3]),
+    J("head", "neck", [hx, hy], [16, dHeadY], [16, uHeadY], [0.4, 0.8], [-0.4, -0.8]),
+    J("jaw", "head", [hx + s.snoutDx, hy + s.headRy * 0.55], [16, dHeadY + s.headRx * 0.55 + s.snoutRy * 0.4], [16, uHeadY], [0.4, 0.8], [-0.4, -0.8]),
     J("tail", "body", [BX - bodyRx, by - ry * 0.35], [16, chestY - ry], [16, by + ry * 0.1]),
     // legs: near side is L in the side view
-    J("shoulderFL", "body", [fx, legTop], [16 - fwD, fs], [16 - fwU, legTop - ry * 0.9]),
-    J("kneeFL", "shoulderFL", [fx, knee], [16 - fwD, mid(fs, GROUND)], [16 - fwU, mid(legTop - ry * 0.9, GROUND - 3.5)]),
-    J("footFL", "kneeFL", [fx + 0.5, GROUND], [16 - fwD - 0.3, GROUND], [16 - fwU - 0.3, GROUND - 3.5]),
-    J("shoulderFR", "body", [fx - 2.6, legTop], [16 + fwD, fs], [16 + fwU, legTop - ry * 0.9]),
-    J("kneeFR", "shoulderFR", [fx - 2.6, knee], [16 + fwD, mid(fs, GROUND)], [16 + fwU, mid(legTop - ry * 0.9, GROUND - 3.5)]),
-    J("footFR", "kneeFR", [fx - 2.1, GROUND], [16 + fwD + 0.3, GROUND], [16 + fwU + 0.3, GROUND - 3.5]),
-    J("hipBL", "body", [bx, legTop], [16 - hwD, chestY - ry * 0.2], [16 - hwU, legTop]),
-    J("kneeBL", "hipBL", [bx - 1.2, knee], [16 - hwD, mid(chestY, GROUND - 2.5)], [16 - hwU, mid(legTop, GROUND)]),
-    J("footBL", "kneeBL", [bx, GROUND], [16 - hwD, GROUND - 2.5], [16 - hwU, GROUND]),
-    J("hipBR", "body", [bx + 2.6, legTop], [16 + hwD, chestY - ry * 0.2], [16 + hwU, legTop]),
-    J("kneeBR", "hipBR", [bx + 1.4, knee], [16 + hwD, mid(chestY, GROUND - 2.5)], [16 + hwU, mid(legTop, GROUND)]),
-    J("footBR", "kneeBR", [bx + 2.6, GROUND], [16 + hwD, GROUND - 2.5], [16 + hwU, GROUND]),
+    J("shoulderFL", "body", [fx, legTop], [16 - fwD, fs], [16 - fwU, legTop - ry * 0.9], [-0.9, 0], [-0.4, 0]),
+    J("kneeFL", "shoulderFL", [fx, knee], [16 - fwD, mid(fs, GROUND)], [16 - fwU, mid(legTop - ry * 0.9, GROUND - 3.5)], [-0.9, 0], [-0.4, 0]),
+    J("footFL", "kneeFL", [fx + 0.5, GROUND], [16 - fwD - 0.3, GROUND], [16 - fwU - 0.3, GROUND - 3.5], [-0.9, 0], [-0.4, 0]),
+    J("shoulderFR", "body", [fx - 2.6, legTop], [16 + fwD, fs], [16 + fwU, legTop - ry * 0.9], [3.6, 0], [3.2, 0]),
+    J("kneeFR", "shoulderFR", [fx - 2.6, knee], [16 + fwD, mid(fs, GROUND)], [16 + fwU, mid(legTop - ry * 0.9, GROUND - 3.5)], [3.6, 0], [3.2, 0]),
+    J("footFR", "kneeFR", [fx - 2.1, GROUND], [16 + fwD + 0.3, GROUND], [16 + fwU + 0.3, GROUND - 3.5], [3.6, 0], [3.2, 0]),
+    J("hipBL", "body", [bx, legTop], [16 - hwD, chestY - ry * 0.2], [16 - hwU, legTop], [-0.4, 0], [-1.6, 0]),
+    J("kneeBL", "hipBL", [bx - 1.2, knee], [16 - hwD, mid(chestY, GROUND - 2.5)], [16 - hwU, mid(legTop, GROUND)], [-0.4, 0], [-1.6, 0]),
+    J("footBL", "kneeBL", [bx, GROUND], [16 - hwD, GROUND - 2.5], [16 - hwU, GROUND], [-0.4, 0], [-1.6, 0]),
+    J("hipBR", "body", [bx + 2.6, legTop], [16 + hwD, chestY - ry * 0.2], [16 + hwU, legTop], [2.2, 0], [1.2, 0]),
+    J("kneeBR", "hipBR", [bx + 1.4, knee], [16 + hwD, mid(chestY, GROUND - 2.5)], [16 + hwU, mid(legTop, GROUND)], [2.2, 0], [1.2, 0]),
+    J("footBR", "kneeBR", [bx + 2.6, GROUND], [16 + hwD, GROUND - 2.5], [16 + hwU, GROUND], [2.2, 0], [1.2, 0]),
   ];
 
   const parts: PartDef[] = [];
@@ -128,7 +134,7 @@ function build(s: Spec, variant = 0): RigDef {
   ] as const) {
     const far = lg.endsWith("R");
     const back = lg[0] === "B";
-    const z = { down: back ? 0 : 3, side: far ? 0 : 3, up: back ? 3 : 0 };
+    const z = { down: back ? 0 : 3, "down-side": back ? (far ? 0 : 1) : 3, side: far ? 0 : 3, up: back ? 3 : 0, "up-side": back ? 3 : 0 };
     const tone = { tone: far ? -2 : 0 };
     add(
       { id: `thigh${lg}`, kind: "limb", from: sh, to: kn, r: s.legR * (back ? 1.1 : 1), slot: hs, z, ...tone },
@@ -139,7 +145,8 @@ function build(s: Spec, variant = 0): RigDef {
 
   // torso: elongated in side view; front view = wide chest with shoulder hump, rear view = narrower rump
   add(
-    { id: "body", kind: "ellipse", joint: "body", rx: bodyRx, ry, slot: "coat", z: 2, views: ["side"] },
+    { id: "body", kind: "ellipse", joint: "body", rx: bodyRx, ry, slot: "coat", z: 2, views: ["side"], noDiag: true },
+    { id: "bodyDiag", kind: "ellipse", joint: "body", rx: bodyRx * 0.88, ry, slot: "coat", z: 2, views: ["down-side", "up-side"] },
     { id: "belly", kind: "ellipse", joint: "body", dy: ry * 0.45, rx: bodyRx * 0.8, ry: ry * 0.5, slot: "coat", tone: -1, z: 1, views: ["side"] },
     { id: "chestD", kind: "ellipse", joint: "body", dy: ry * 0.05, rx: ry * 1.25, ry: ry * 0.85, slot: "coat", z: 2, views: ["down"] },
     { id: "humpD", kind: "ellipse", joint: "body", dy: -ry * 0.8, rx: ry * 0.95, ry: ry * 0.75, slot: "coat", tone: -1, z: 1.5, views: ["down"] },
@@ -197,10 +204,10 @@ function build(s: Spec, variant = 0): RigDef {
   // neck + head
   const hr = s.headRy;
   add(
-    { id: "neck", kind: "limb", from: "body", to: "head", r: s.neckR, slot: "coat", tone: -1, z: { down: 3, side: 3, up: 1 }, views: ["side"] },
+    { id: "neck", kind: "limb", from: "body", to: "head", r: s.neckR, slot: "coat", tone: -1, z: { down: 3, side: 3, up: 1, "up-side": 1 }, views: ["side"] },
     { id: "neckD", kind: "ellipse", joint: "neck", dy: -0.5, rx: s.neckR * 1.15, ry: s.neckR * 1.2, slot: "coat", tone: -1, z: 3, views: ["down"] },
     { id: "neckU", kind: "ellipse", joint: "neck", rx: s.neckR * 1.05, ry: s.neckR * 0.9, slot: "coat", tone: -1, z: 0.8, views: ["up"] },
-    { id: "head", kind: "ellipse", joint: "head", rx: s.headRx, ry: s.headRy, slot: hs, z: { down: 4, side: 4, up: 1 }, views: ["side", "up"] },
+    { id: "head", kind: "ellipse", joint: "head", rx: s.headRx, ry: s.headRy, slot: hs, z: { down: 4, side: 4, up: 1, "up-side": 1 }, views: ["side", "up"] },
     { id: "headFront", kind: "ellipse", joint: "head", rx: hr + 0.6, ry: s.headRx * 0.95, slot: hs, z: 4, views: ["down"] },
     { id: "snout", kind: "ellipse", joint: "jaw", rx: s.snoutRx, ry: s.snoutRy, slot: "muzzle", tone: 1, z: 5, views: ["side"] },
     { id: "snoutF", kind: "ellipse", joint: "jaw", dy: -0.5, rx: s.snoutRy + 0.8, ry: s.snoutRy * 0.85, slot: "muzzle", tone: 1, z: 5, views: ["down"] },
@@ -218,6 +225,7 @@ function build(s: Spec, variant = 0): RigDef {
     const ey = e === "flop" ? 0 : -s.headRy;
     add(
       { id: "earNear", kind: "ellipse", joint: "head", dx: -s.headRx * 0.6, dy: ey + (e === "flop" ? 1 : 0), rx: er[0], ry: er[1], slot: hs, tone: -1, z: 6, views: ["side"] },
+      { id: "earFarD", kind: "ellipse", joint: "head", dx: e === "flop" ? s.headRx * 0.75 : s.headRx * 0.1, dy: e === "flop" ? 0.5 : ey, rx: er[0], ry: er[1], slot: hs, tone: -2, z: e === "flop" ? 6 : 3.9, views: ["down-side"] },
       { id: "earL", kind: "ellipse", joint: "head", dx: -(hr * 0.9), dy: e === "flop" ? 0.5 : -s.headRx * 0.7, rx: er[0], ry: er[1], slot: hs, tone: -1, z: 6, views: ["down", "up"] },
       { id: "earR", kind: "ellipse", joint: "head", dx: hr * 0.9, dy: e === "flop" ? 0.5 : -s.headRx * 0.7, rx: er[0], ry: er[1], slot: hs, tone: -1, z: 6, views: ["down", "up"] },
     );
@@ -229,6 +237,7 @@ function build(s: Spec, variant = 0): RigDef {
     const hr0 = Math.max(0.55, s.hornScale ?? 1);
     add(...crescent("horn", side, [1.7, 1.35, 1.0, 0.6].map((r) => r * hr0), 7, "side"));
     const front: [number, number][] = [[hr * 0.7, -1.6], [hr * 0.7 + 2.6 * L, -2.6], [hr * 0.7 + 4.4 * L, -1.4 * L - 2.4], [hr * 0.7 + 5.4 * L, -5 * L]];
+    add(...crescent("hornD", [[1.4, -2.2], [3.2 * L, -3.6 * L], [4.6 * L, -3 * L - 1], [5.2 * L, -5.6 * L]], [1.5, 1.2, 0.95, 0.55].map((r) => r * hr0), 6.9, "front", 1, "head", ["down-side"]));
     for (const sgn of [-1, 1]) add(...crescent(`hornF${sgn}_`, front, [1.6, 1.3, 1.0, 0.6].map((r) => r * hr0), 7, "front", sgn));
   }
   // eyes: a single ink pixel (box w=1 stays 1px at any kit size)
@@ -236,6 +245,7 @@ function build(s: Spec, variant = 0): RigDef {
     { id: "eye", kind: "box", joint: "head", dx: s.headRx * 0.1, dy: -s.headRy * 0.25, w: 1, h: 1, slot: "ink", tone: -4, z: 9, views: ["side"] },
     { id: "eyeL", kind: "box", joint: "head", dx: -hr * 0.5, dy: -1, w: 1, h: 1, slot: "ink", tone: -4, z: 9, views: ["down"] },
     { id: "eyeR", kind: "box", joint: "head", dx: hr * 0.5, dy: -1, w: 1, h: 1, slot: "ink", tone: -4, z: 9, views: ["down"] },
+    { id: "eyeD", kind: "box", joint: "head", dx: s.headRx * 0.6, dy: -s.headRy * 0.25, w: 1, h: 1, slot: "ink", tone: -4, z: 9, views: ["down-side"] },
     { id: "nose", kind: "box", joint: "jaw", dx: s.snoutRx - 1, dy: -s.snoutRy * 0.5, w: 1, h: 1, slot: "ink", tone: -4, z: 9, views: ["side"] },
     { id: "noseL", kind: "box", joint: "jaw", dx: -1.5, dy: -0.5, w: 1, h: 1, slot: "ink", tone: -4, z: 9, views: ["down"] },
     { id: "noseR", kind: "box", joint: "jaw", dx: 0.8, dy: -0.5, w: 1, h: 1, slot: "ink", tone: -4, z: 9, views: ["down"] },

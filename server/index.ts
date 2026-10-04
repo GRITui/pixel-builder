@@ -7,7 +7,13 @@ import { fileURLToPath } from "node:url";
 
 import { callStructured, getModel, hasKey } from "./claude";
 import { buildLegend, decodeRows } from "../src/core/legend";
+import { inpaint } from "./inpaint";
+import { clipRoute } from "./clip";
+import { rigRoute } from "./rig";
 import * as P from "./prompts";
+import { createAuth, isOpenPath } from "./auth";
+import { FsStore } from "./store";
+import { handleProjects } from "./projects-api";
 
 try {
   process.loadEnvFile(); // .env, if present (the SDK reads the key lazily, after this)
@@ -85,6 +91,9 @@ const POST_ROUTES: Record<string, (b: Record<string, unknown>, s: AbortSignal) =
   "/api/vibe": vibe,
   "/api/pixels": pixels,
   "/api/kit": kitRoute,
+  "/api/inpaint": inpaint,
+  "/api/clip": clipRoute,
+  "/api/rig": rigRoute,
 };
 
 const MIME: Record<string, string> = {
@@ -128,6 +137,9 @@ async function serveStatic(pathname: string, res: ServerResponse) {
   res.end(body);
 }
 
+const auth = createAuth();
+const store = new FsStore();
+
 const production = process.env.NODE_ENV === "production";
 
 const server = createServer(async (req, res) => {
@@ -138,6 +150,12 @@ const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url ?? "/", "http://localhost");
     const path = url.pathname.replace(/\/+$/, "") || "/";
+    if (path === "/healthz") return send(res, 200, { ok: true });
+    if (path.startsWith("/api/") && !isOpenPath(path)) {
+      const a = auth(req);
+      if (!a.ok) return send(res, a.status, { error: a.message });
+    }
+    if (await handleProjects(req, res, path, store)) return;
     if (path === "/api/health") {
       if (req.method !== "GET") throw new P.HttpError(405, "Use GET.");
       return send(res, 200, health());
@@ -160,5 +178,5 @@ const server = createServer(async (req, res) => {
 const port = Number(process.env.PORT ?? 8787);
 server.listen(port, () => {
   const h = health();
-  console.log(`api on :${port} (${h.enabled ? `model ${h.model}` : "AI disabled: no ANTHROPIC_API_KEY"})${production ? ", serving dist/" : ""}`);
+  console.log(`auth=${process.env.AUTH || "none"} data=${store.dir}; api on :${port} (${h.enabled ? `model ${h.model}` : "AI disabled: no ANTHROPIC_API_KEY"})${production ? ", serving dist/" : ""}`);
 });

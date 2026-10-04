@@ -21,5 +21,7 @@
 .rigw-dirs figure { margin: 0; text-align: center; }
 .rigw-dirs figcaption { font-size: 11px; color: var(--dim); }
 .rigw-dirs canvas { border: 1px solid var(--line); }
+.rige-describe { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.rige-describe input { width: 100%; min-width: 200px; }
 .rigw-wrap { display: flex; flex-direction: column; gap: 10px; }
 .rigw-slot select#rig-family, .rigw-slot select#rig-pick { min-width: 110px; }

@@ -15,12 +15,15 @@ import { exportProject, readProjectFile } from "./ui/exportAsset";
 import { ImportDialog } from "./ui/ImportDialog";
 import { MapEditor } from "./ui/MapEditor";
 import { PixelEditor } from "./ui/PixelEditor";
+import { SyncBadge } from "./ui/components/SyncBadge";
+import { useRemoteSync } from "./ui/remote";
 import { STORAGE_ERROR_EVENT, usePref, useProject } from "./ui/store";
 
 const VIEWS = new Set<string>([...CATEGORIES.map((c) => c.id), "library"]);
 
 export default function App() {
-  const { project, kits, library, mergeProject, clips, customRigs, customAttachments, addClip } = useProject();
+  const { project, kits, library, mergeProject, clips, customRigs, customAttachments, addClip, addAuthored, replaceProject } = useProject();
+  const sync = useRemoteSync(project, replaceProject);
   const kit = kits.active;
   const pal = usePalette(kit);
   const { status, refresh } = useAiStatus();
@@ -137,6 +140,7 @@ export default function App() {
 
   return (
     <div className="app">
+      <SyncBadge state={sync.state} message={sync.message} reload={sync.reload} />
       <TopBar kits={kits.kits} kit={kit} onKit={kits.setActive} onEditKit={() => setKitOpen(true)} status={status} onRefreshAi={refresh} />
       <div className={`body ${view === "library" ? "no-strip" : ""}`}>
         <CategoryNav view={view} onView={setViewPref} assets={library.assets} />
@@ -161,6 +165,7 @@ export default function App() {
               customClips={clips}
               customRigs={customRigs}
               customAttachments={customAttachments}
+              onAuthored={addAuthored}
               onSaveClip={(c) => {
                 addClip(c);
                 push(`Saved clip “${c.id}” to the project.`);
