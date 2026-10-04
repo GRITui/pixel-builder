@@ -94,13 +94,13 @@ const headwear: Attachment[] = [
 const HAND_X = { down: 22.5, side: 16, up: 22.5 } as const;
 const HAND_Y = 24.5;
 type D = [number, number];
-const at = (dx: Partial<Record<View, D>> & { down: D }, base: Joint["rest"] | null = null): Joint["rest"] => {
+const at = (dx: Partial<Record<View, D>> & { down: D }): Joint["rest"] => {
   const out = {} as Record<View, [number, number]>;
   for (const v of ["down", "side", "up"] as View[]) {
     const d = dx[v] ?? dx.down;
     out[v] = [HAND_X[v] + d[0], HAND_Y + d[1]];
   }
-  return base ?? out;
+  return out;
 };
 const tipJ = (tip: Partial<Record<View, D>> & { down: D }, butt?: Partial<Record<View, D>> & { down: D }): Joint[] => [
   { id: "toolTip", parent: "handR", rest: at(tip) },
