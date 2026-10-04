@@ -14,31 +14,61 @@ const BUILDS: Record<Build, { tw: number; leg: number; arm: number }> = {
   stocky: { tw: 12, leg: 2.4, arm: 1.8 },
 };
 
+export const AGES = ["baby", "kid", "young-adult", "senior", "elder"] as const;
+export type Age = (typeof AGES)[number];
+export const SEXES = ["male", "female"] as const;
+export type Sex = (typeof SEXES)[number];
+
+// Feet always land on y 28.5; the head keeps its size and its offset from the neck, so shorter
+// ages simply sit lower. `leg`/`torso` are hip->foot and hip->neck lengths on the 32 grid,
+// `arm` scales the limb lengths, `limb` their thickness, `stoop` leans head/chest forward in side view.
+const AGE: Record<Age, { leg: number; torso: number; arm: number; limb: number; stoop: number; female: number }> = {
+  baby: { leg: 2.6, torso: 4.6, arm: 0.55, limb: 1, stoop: 0, female: 0 },
+  kid: { leg: 4.2, torso: 6.2, arm: 0.82, limb: 1, stoop: 0, female: 0.5 },
+  "young-adult": { leg: 5.5, torso: 7.5, arm: 1, limb: 1, stoop: 0, female: 1 },
+  senior: { leg: 5.3, torso: 7.2, arm: 0.98, limb: 0.95, stoop: 1.2, female: 1 },
+  elder: { leg: 4.9, torso: 6.6, arm: 0.92, limb: 0.85, stoop: 2.2, female: 1 },
+};
+
 const v = (down: number[], side = down, up = down) => ({ down: down as [number, number], side: side as [number, number], up: up as [number, number] });
 
-function joints(tw: number): RigDef["joints"] {
-  const sx = tw / 2 + 1.5; // shoulder offset from the centre line (front/back views)
+function joints(tw: number, age: Age, fem: number): RigDef["joints"] {
+  const { leg, torso, arm, stoop } = AGE[age];
+  const sx = tw / 2 + 1.5 - 0.8 * fem; // shoulder offset from the centre line (front/back views)
+  const hipY = 28.5 - leg, kneeY = hipY + (3 * leg) / 5.5;
+  const s = torso / 7.5;
+  const chestY = hipY - 5 * s, neckY = hipY - torso, headY = neckY - 6.5;
+  const shY = chestY, elY = shY + 3.5 * arm, haY = elY + 3 * arm;
+  const cx = 16 + stoop * 0.4; // side-view lean
+  const sideX = (k: number) => 16 + stoop * k;
   const J = (id: string, parent: string | null, rest: RigDef["joints"][number]["rest"]) => ({ id, parent, rest });
+  const kx = tw / 4 + 0.3;
   return [
-    J("hip", null, [16, 23]),
-    J("chest", "hip", [16, 18]),
-    J("neck", "chest", [16, 15.5]),
-    J("head", "neck", [16, 9]),
-    J("shoulderL", "chest", v([16 - sx, 18], [16, 18])),
-    J("shoulderR", "chest", v([16 + sx, 18], [16, 18])),
-    J("elbowL", "shoulderL", v([16 - sx, 21.5], [16, 21.5])),
-    J("elbowR", "shoulderR", v([16 + sx, 21.5], [16, 21.5])),
-    J("handL", "elbowL", v([16 - sx, 24.5], [16, 24.5])),
-    J("handR", "elbowR", v([16 + sx, 24.5], [16, 24.5])),
-    J("kneeL", "hip", v([16 - tw / 4 - 0.3, 26], [15, 26])),
-    J("kneeR", "hip", v([16 + tw / 4 + 0.3, 26], [17, 26])),
-    J("footL", "kneeL", v([16 - tw / 4 - 0.3, 28.5], [15, 28.5])),
-    J("footR", "kneeR", v([16 + tw / 4 + 0.3, 28.5], [17, 28.5])),
+    J("hip", null, [16, hipY]),
+    J("chest", "hip", v([16, chestY], [cx, chestY])),
+    J("neck", "chest", v([16, neckY], [sideX(0.7), neckY])),
+    J("head", "neck", v([16, headY], [sideX(1), headY])),
+    J("shoulderL", "chest", v([16 - sx, shY], [cx, shY])),
+    J("shoulderR", "chest", v([16 + sx, shY], [cx, shY])),
+    J("elbowL", "shoulderL", v([16 - sx, elY], [cx, elY])),
+    J("elbowR", "shoulderR", v([16 + sx, elY], [cx, elY])),
+    J("handL", "elbowL", v([16 - sx, haY], [cx, haY])),
+    J("handR", "elbowR", v([16 + sx, haY], [cx, haY])),
+    J("kneeL", "hip", v([16 - kx, kneeY], [15, kneeY])),
+    J("kneeR", "hip", v([16 + kx, kneeY], [17, kneeY])),
+    J("footL", "kneeL", v([16 - kx, 28.5], [15, 28.5])),
+    J("footR", "kneeR", v([16 + kx, 28.5], [17, 28.5])),
   ];
 }
 
-export function humanoidRig(build: Build): RigDef {
-  const { tw, leg, arm } = BUILDS[build];
+export function humanoidRig(build: Build, age: Age = "young-adult", sex: Sex = "male"): RigDef {
+  const A = AGE[age];
+  const fem = sex === "female" ? A.female : 0;
+  const { tw, leg: leg0, arm: arm0 } = BUILDS[build];
+  const leg = leg0 * A.limb * (1 - 0.08 * fem), arm = arm0 * A.limb * (1 - 0.12 * fem);
+  const s = A.torso / 7.5;
+  const trw = tw / 2 + 0.6 - 0.4 * fem; // torso half width
+  const trs = tw * 0.4 + 0.6 - 0.3 * fem;
   const parts: PartDef[] = [
     // legs: far leg in side view is a separate, darker part behind the torso
     { id: "legL", kind: "limb", from: "hip", to: "footL", r: leg, slot: "bottom", z: 1, views: ["down", "up", "side"] },
@@ -48,10 +78,10 @@ export function humanoidRig(build: Build): RigDef {
     { id: "bootRfar", kind: "box", joint: "footR", dx: -leg - 0.5, dy: -1.5, w: leg * 2 + 1, h: 3, slot: "boots", tone: -1, z: 0, views: ["side"] },
     { id: "bootR", kind: "box", joint: "footR", dx: -leg - 0.5, dy: -1.5, w: leg * 2 + 1, h: 3, slot: "boots", z: 1.5, views: ["down", "up"] },
     // torso
-    { id: "torso", kind: "ellipse", joint: "chest", dy: 2.4, rx: tw / 2 + 0.6, ry: 5.2, flat: 0.45, slot: "top", z: 2, views: ["down", "up"] },
-    { id: "torsoSide", kind: "ellipse", joint: "chest", dy: 2.4, rx: tw * 0.4 + 0.6, ry: 5.2, flat: 0.45, slot: "top", z: 2, views: ["side"] },
-    { id: "belt", kind: "box", joint: "chest", dx: -tw / 2, dy: 5.4, w: tw, h: 1, slot: "boots", tone: 1, z: 2.5, views: ["down", "up"] },
-    { id: "beltSide", kind: "box", joint: "chest", dx: -tw * 0.4, dy: 5.4, w: tw * 0.8, h: 1, slot: "boots", tone: 1, z: 2.5, views: ["side"] },
+    { id: "torso", kind: "ellipse", joint: "chest", dy: 2.4 * s, rx: trw, ry: 5.2 * s, flat: 0.45, slot: "top", z: 2, views: ["down", "up"] },
+    { id: "torsoSide", kind: "ellipse", joint: "chest", dy: 2.4 * s, rx: trs, ry: 5.2 * s, flat: 0.45, slot: "top", z: 2, views: ["side"] },
+    { id: "belt", kind: "box", joint: "chest", dx: -tw / 2, dy: 5.4 * s, w: tw, h: 1, slot: "boots", tone: 1, z: 2.5, views: ["down", "up"] },
+    { id: "beltSide", kind: "box", joint: "chest", dx: -tw * 0.4, dy: 5.4 * s, w: tw * 0.8, h: 1, slot: "boots", tone: 1, z: 2.5, views: ["side"] },
     // arms (sleeve + hand); in side view the near arm is L, the far arm R sits behind the torso
     { id: "upperArmL", kind: "limb", from: "shoulderL", to: "elbowL", r: arm, slot: "top", z: 3 },
     { id: "foreArmL", kind: "limb", from: "elbowL", to: "handL", r: arm, slot: "top", z: 3 },
@@ -60,20 +90,33 @@ export function humanoidRig(build: Build): RigDef {
     { id: "foreArmR", kind: "limb", from: "elbowR", to: "handR", r: arm, slot: "top", z: 3, views: ["down", "up"] },
     { id: "handRp", kind: "ellipse", joint: "handR", dy: 0.6, rx: arm + 0.2, ry: arm + 0.2, slot: "skin", z: 3.1, views: ["down", "up"] },
     { id: "armRfar", kind: "limb", from: "shoulderR", to: "handR", r: arm, slot: "top", tone: -1, z: 1, views: ["side"] },
-    // head
+    // head: identical for every age and sex
     { id: "head", kind: "ellipse", joint: "head", rx: 7.2, ry: 6.6, slot: "skin", z: 4 },
   ];
+  if (fem > 0) {
+    // slightly wider hips, drawn in the trouser/skirt slot under the torso
+    parts.push(
+      { id: "hips", kind: "ellipse", joint: "hip", dy: -0.6, rx: tw / 2 + 0.4 + 0.8 * fem, ry: 2.4, flat: 0.4, slot: "bottom", z: 1.8, views: ["down", "up"] },
+      { id: "hipsSide", kind: "ellipse", joint: "hip", dy: -0.6, rx: tw * 0.4 + 0.4 + 0.6 * fem, ry: 2.4, flat: 0.4, slot: "bottom", z: 1.8, views: ["side"] },
+    );
+  }
+  const def = age === "young-adult" && sex === "male";
   return {
-    id: `humanoid-${build}`,
-    name: `Humanoid (${build})`,
+    id: def ? `humanoid-${build}` : `humanoid-${build}-${sex}-${age}`,
+    name: def ? `Humanoid (${build})` : `Human ${sex} ${age} (${build})`,
     grid: 32,
     slots: { skin: "skin", hair: "hair", top: "cloth", bottom: "leather", boots: "wood", accent: "cloth2", helm: "metal" },
-    joints: joints(tw),
+    joints: joints(tw, age, fem),
     parts,
   };
 }
 
-export const HUMANOID_RIGS: RigDef[] = (["slim", "normal", "stocky"] as Build[]).map(humanoidRig);
+export const HUMANOID_RIGS: RigDef[] = (["slim", "normal", "stocky"] as Build[]).map((b) => humanoidRig(b));
+
+/** The ten sex x age cores, normal build, ids `human-<sex>-<age>`. */
+export const HUMAN_RIGS: RigDef[] = SEXES.flatMap((sex) =>
+  AGES.map((age) => ({ ...humanoidRig("normal", age, sex), id: `human-${sex}-${age}`, name: `Human ${sex} ${age}` })),
+);
 
 /** Torso width on the design grid for a build (cape / collar / weapon placement). */
 export const torsoWidth = (b: Build) => BUILDS[b].tw;
