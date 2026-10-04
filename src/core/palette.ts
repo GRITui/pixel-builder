@@ -142,6 +142,53 @@ export function adjustColor(hex: string, a: ColorAdjust): string {
   return rgbToHex(hslToRgb([h, s, l]));
 }
 
+// ---------- rich ramps ----------
+
+/** Perceptual-ish luma used to keep ramps ordered after hue shifting. */
+export function luma(hex: string): number {
+  const [r, g, b] = hexToRgb(hex);
+  return 0.299 * r + 0.587 * g + 0.114 * b;
+}
+
+// Per level: [target hue, strength 0..1 toward it]. Shadows cool toward violet-blue,
+// highlights warm toward yellow; the middle level keeps the authored colour.
+const HUE_SHIFT: [number, number][] = [[268, 0.3], [252, 0.16], [0, 0], [56, 0.14], [50, 0.26]];
+
+/**
+ * Hue-shift one ramp (dark -> light): the classic pixel-art "richer colour" trick. Luma order is
+ * preserved (repaired if a shift would break it). A ramp that is not strictly ordered, such as a
+ * 4-tone handheld palette, is returned untouched.
+ */
+export function hueShiftRamp(ramp: string[]): string[] {
+  const lum = ramp.map(luma);
+  for (let i = 1; i < lum.length; i++) if (lum[i] <= lum[i - 1]) return ramp;
+  const out = ramp.map((hex, i) => {
+    const [target, k] = HUE_SHIFT[Math.min(i, HUE_SHIFT.length - 1)];
+    if (!k) return hex;
+    let [h, s, l] = rgbToHsl(hexToRgb(hex));
+    const d = ((((target - h) % 360) + 540) % 360) - 180;
+    const far = 1 - 0.75 * (Math.abs(d) / 180); // blue -> yellow would pass through green: keep it small
+    const cap = ([34, 18, 0, 14, 22][i] ?? 12) * (i > 2 ? far : 1);
+    h += Math.max(-cap, Math.min(cap, d * k));
+    s = Math.min(1, Math.max(s, 0.2 * (k / 0.3)));
+    return rgbToHex(hslToRgb([h, s, l]));
+  });
+  for (let i = 1; i < out.length; i++) {
+    let guard = 0;
+    while (luma(out[i]) <= luma(out[i - 1]) + 1 && guard++ < 60) {
+      const [r, g, b] = hexToRgb(out[i]);
+      out[i] = rgbToHex([r + (255 - r) * 0.04 + 1, g + (255 - g) * 0.04 + 1, b + (255 - b) * 0.04 + 1]);
+    }
+  }
+  return out;
+}
+
+export function hueShiftRamps(ramps: Ramps): Ramps {
+  const out = {} as Ramps;
+  for (const m of MATERIALS) out[m] = hueShiftRamp(ramps[m]);
+  return out;
+}
+
 // OKLab gives perceptually sane nearest-colour matching for quantisation.
 function srgbToLinear(c: number) {
   c /= 255;

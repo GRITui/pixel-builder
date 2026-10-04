@@ -1,4 +1,4 @@
-import { MATERIALS, PALETTES, type Ramps } from "./palette";
+import { hueShiftRamps, MATERIALS, PALETTES, type Ramps } from "./palette";
 import type { LightDir, StyleKit } from "./types";
 
 export const DEFAULT_KIT: StyleKit = {
@@ -13,6 +13,15 @@ export const DEFAULT_KIT: StyleKit = {
   ambient: 0.25,
   sizes: { character: 32, building: 96, environment: 32, object: 16, ui: 16, tile: 16 },
   vibe: "Cozy top-down fantasy RPG, chunky readable silhouettes, warm lighting, SNES-era charm.",
+};
+
+/** Rich kit (not in KIT_PRESETS: tools/tests pin the preset list): Cozy RPG with hue-shifted ramps, sel-out, anti-aliased curves and micro-detail. */
+export const RICH_KIT: StyleKit = {
+  ...DEFAULT_KIT,
+  id: "kit-rich",
+  name: "Cozy RPG (rich)",
+  detail: "rich",
+  vibe: "Cozy top-down fantasy RPG with richer pixels: hue-shifted shading, selective outlines, fine detail.",
 };
 
 export const KIT_PRESETS: StyleKit[] = [
@@ -47,7 +56,7 @@ export function resolveRamps(kit: StyleKit): Ramps {
   const base = (PALETTES.find((p) => p.id === kit.paletteId) ?? PALETTES[0]).ramps;
   const out = {} as Ramps;
   for (const m of MATERIALS) out[m] = kit.rampOverrides[m] ?? base[m];
-  return out;
+  return kit.detail === "rich" ? hueShiftRamps(out) : out;
 }
 
 /** Light vector in screen space (x right, y down, z toward viewer), normalised. */
