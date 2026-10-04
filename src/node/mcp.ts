@@ -7,7 +7,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { TOOLS, ToolError, callTool, type ToolDef, type ToolResult } from "./tools";
+import { TOOLS, ToolError, callTool, callToolAsync, type ToolDef, type ToolResult } from "./tools";
 import { Workspace, serializeProjectCompact } from "./workspace";
 
 export const VERSION = "0.1.0";
@@ -50,7 +50,7 @@ function register(server: McpServer, ws: Workspace, tool: ToolDef): void {
     },
     async (args: unknown): Promise<CallToolResult> => {
       try {
-        return toCallToolResult(callTool(ws, tool.name, args));
+        return toCallToolResult(await callToolAsync(ws, tool.name, args));
       } catch (e) {
         return errorResult(e, tool.name);
       }

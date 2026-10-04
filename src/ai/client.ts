@@ -117,3 +117,22 @@ export async function vibeKit(args: { prompt: string; kit: StyleKit }): Promise<
     notes: typeof r.notes === "string" ? r.notes : "",
   };
 }
+
+/**
+ * Region edit: the model repaints only the masked cells. Returns legend rows for the
+ * mask's bounding box; apply them with `applyRegionEdit` (core/inpaint).
+ */
+export async function aiInpaint(args: {
+  rows: string[];
+  mask: { rect: { x: number; y: number; w: number; h: number } } | { cells: [number, number][] };
+  prompt: string;
+  kit: StyleKit;
+}): Promise<{ rect: { x: number; y: number; w: number; h: number }; rows: string[] }> {
+  const r = await request<{ rect?: { x: number; y: number; w: number; h: number }; rows?: unknown }>("/api/inpaint", {
+    method: "POST",
+    timeoutMs: CALL_TIMEOUT_MS,
+    body: { rows: args.rows, mask: args.mask, prompt: args.prompt, kit: args.kit },
+  });
+  if (!r.rect || !Array.isArray(r.rows) || !r.rows.every((x) => typeof x === "string")) throw new Error("The server returned a malformed edit.");
+  return { rect: r.rect, rows: r.rows as string[] };
+}

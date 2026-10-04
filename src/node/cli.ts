@@ -6,7 +6,7 @@ import { mkdirSync, readFileSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEFAULT_HTTP_PORT, VERSION, parseHostList, startHttp, startStdio } from "./mcp";
-import { TOOLS, ToolError, callTool, inputJsonSchema, nearest, type ToolDef, type ToolResult } from "./tools";
+import { TOOLS, ToolError, callToolAsync, inputJsonSchema, nearest, type ToolDef, type ToolResult } from "./tools";
 import { DEFAULT_WORKSPACE, Workspace, atomicWrite, slugify } from "./workspace";
 
 class UsageError extends Error {}
@@ -411,7 +411,7 @@ export async function main(argv: string[], io: CliIO = stdio): Promise<number> {
       return 0;
     }
     const ws = new Workspace(parsed.workspace ?? workspace);
-    const result = callTool(ws, tool.name, buildInput(tool, parsed));
+    const result = await callToolAsync(ws, tool.name, buildInput(tool, parsed));
     const previews = savePreviews(ws, result);
     if (json) {
       const data = result.data && typeof result.data === "object" && !Array.isArray(result.data) ? (result.data as object) : { result: result.data };

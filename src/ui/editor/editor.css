@@ -256,3 +256,10 @@
   .id-controls { border-right: 0; border-bottom: 1px solid var(--ed-line); overflow: visible; }
   .id-previews { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* AI region edit */
+.pe-sel { position: absolute; pointer-events: none; box-sizing: border-box; border: 2px dashed var(--ed-accent); background: color-mix(in srgb, var(--ed-accent) 14%, transparent); }
+.pe-sel.is-preview { border-style: solid; background: transparent; }
+.pe-ai { display: flex; flex-direction: column; gap: 6px; }
+.pe-ai-prompt { width: 100%; box-sizing: border-box; resize: vertical; font: inherit; color: var(--ed-text); background: var(--ed-panel2); border: 1px solid var(--ed-line); border-radius: 4px; padding: 6px; }
+.pe-error { color: var(--danger, #ff8a80); font-size: 12px; margin: 0; }

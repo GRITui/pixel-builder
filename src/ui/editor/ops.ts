@@ -1,7 +1,8 @@
 // Pure editing logic (no DOM, no React) so it can be unit-tested.
 import { colorIndex, decodeIndex, RAMP_LEN } from "../../core/palette";
+import { applyRegionEdit, rectMask, type Rect } from "../../core/inpaint";
 import { blit, createSprite } from "../../core/sprite";
-import type { Sprite } from "../../core/types";
+import type { FrameSet, Sprite, StyleKit } from "../../core/types";
 
 export interface Point {
   x: number;
@@ -248,4 +249,29 @@ export function moveItem<T>(list: T[], from: number, to: number): T[] {
   const [it] = out.splice(from, 1);
   out.splice(to, 0, it);
   return out;
+}
+
+// ---------- region selection + AI region edit ----------
+
+/** Rectangle between two drag corners (any order), clamped to a w x h canvas; null when fully outside. */
+export function selectionRect(a: Point, b: Point, w: number, h: number): Rect | null {
+  const x0 = Math.max(0, Math.min(a.x, b.x)), x1 = Math.min(w - 1, Math.max(a.x, b.x));
+  const y0 = Math.max(0, Math.min(a.y, b.y)), y1 = Math.min(h - 1, Math.max(a.y, b.y));
+  return x1 < x0 || y1 < y0 ? null : { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+}
+
+/**
+ * Apply per-frame replacement rows (legend rows for `rect`) to some frames of
+ * one animation row. Returns a new FrameSet list (the input is untouched), so a
+ * preview can be shown and then committed as a single history step.
+ */
+export function applyRegionToRow(rows: FrameSet[], ri: number, edits: { fi: number; rows: string[] }[], rect: Rect, kit: StyleKit, outline = true): FrameSet[] {
+  const row = rows[ri];
+  let frames = row.frames;
+  for (const e of edits) {
+    const f = row.frames[e.fi];
+    if (!f) continue;
+    frames = replaceAt(frames, e.fi, applyRegionEdit(f, rectMask(f.w, f.h, rect), e.rows, kit, { outline }).sprite);
+  }
+  return frames === row.frames ? rows : replaceAt(rows, ri, { ...row, frames });
 }

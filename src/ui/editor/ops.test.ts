@@ -4,11 +4,41 @@ import { createSprite, getPx, setPx } from "../../core/sprite";
 import { DEFAULT_KIT } from "../../core/kit";
 import {
   canRedo, canUndo, createHistory, cropToContent, floodFill, floodFillGrid, linePoints, moveItem, paintPoints,
-  pushHistory, rectPoints, redo, removeBackground, resizeGrid, resizeSprite, shadePixel, shadePoints, undo, withMirror,
+  pushHistory, rectPoints, redo, removeBackground, resizeGrid, resizeSprite, selectionRect, applyRegionToRow, shadePixel, shadePoints, undo, withMirror,
 } from "./ops";
 import { buildImportSprite } from "./importPipeline";
 
 const key = (p: { x: number; y: number }) => `${p.x},${p.y}`;
+
+describe("region selection and apply", () => {
+  it("normalizes and clamps a drag rectangle", () => {
+    expect(selectionRect({ x: 5, y: 7 }, { x: 2, y: 3 }, 16, 16)).toEqual({ x: 2, y: 3, w: 4, h: 5 });
+    expect(selectionRect({ x: -4, y: -2 }, { x: 40, y: 3 }, 16, 16)).toEqual({ x: 0, y: 0, w: 16, h: 4 });
+    expect(selectionRect({ x: 20, y: 0 }, { x: 30, y: 4 }, 16, 16)).toBeNull();
+  });
+
+  it("applies to chosen frames only, immutably, and undo restores the earlier rows", () => {
+    const kit = { ...DEFAULT_KIT, outline: "none" as const };
+    const mk = () => createSprite(8, 8);
+    const rows = [{ name: "idle", frames: [mk(), mk(), mk()] }];
+    const edits = [0, 2].map((fi) => ({ fi, rows: ["tt", "tt"] }));
+    const next = applyRegionToRow(rows, 0, edits, { x: 1, y: 1, w: 2, h: 2 }, kit, false);
+    expect(next).not.toBe(rows);
+    expect(rows[0].frames[0].data.some(Boolean)).toBe(false);
+    expect(getPx(next[0].frames[0], 1, 1)).toBeGreaterThan(0);
+    expect(next[0].frames[1]).toBe(rows[0].frames[1]);
+    expect(getPx(next[0].frames[2], 2, 2)).toBeGreaterThan(0);
+    expect(getPx(next[0].frames[0], 0, 0)).toBe(0);
+    const h = pushHistory(createHistory(rows), next);
+    expect(undo(h).present).toBe(rows);
+    expect(redo(undo(h)).present).toBe(next);
+  });
+
+  it("throws on invalid rows so the editor can show the error", () => {
+    const rows = [{ name: "idle", frames: [createSprite(8, 8)] }];
+    expect(() => applyRegionToRow(rows, 0, [{ fi: 0, rows: ['"x', "tt"] }], { x: 0, y: 0, w: 2, h: 2 }, DEFAULT_KIT)).toThrow(/legend/);
+  });
+});
 
 describe("linePoints", () => {
   it("covers a single point", () => expect(linePoints(2, 3, 2, 3)).toEqual([{ x: 2, y: 3 }]));

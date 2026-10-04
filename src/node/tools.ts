@@ -11,6 +11,7 @@ import { downscaleRGBA, finalize, materialsUsed, quantizeRGBA } from "../core/en
 import { GENERATORS, generatorById } from "../core/generators";
 import { coerceParams, defaults, randomParams, type Generator, type ParamSpec, type Params } from "../core/generators/types";
 import { newId } from "../core/kit";
+import { applyRegionEdit, cellsMask, checkRegionRows, maskBounds, rectMask, regionContext } from "../core/inpaint";
 import { buildLegend, decodeRows, encodeSprite, legendText, type Legend } from "../core/legend";
 import { MATERIALS, PALETTES, RAMP_LEN, type Material } from "../core/palette";
 import type { ProjectFile } from "../core/project";
@@ -55,7 +56,9 @@ export interface ToolDef {
   positional?: string;
   readOnly?: boolean;
   destructive?: boolean;
-  run(ws: Workspace, input: any): ToolResult;
+  /** Calls the model; run through callToolAsync (the sync callTool refuses before running anything). */
+  async?: boolean;
+  run(ws: Workspace, input: any): ToolResult | Promise<ToolResult>;
 }
 
 function defineTool<S extends z.ZodRawShape>(d: {
@@ -66,7 +69,8 @@ function defineTool<S extends z.ZodRawShape>(d: {
   positional?: keyof S & string;
   readOnly?: boolean;
   destructive?: boolean;
-  run: (ws: Workspace, input: z.output<z.ZodObject<S>>) => ToolResult;
+  async?: boolean;
+  run: (ws: Workspace, input: z.output<z.ZodObject<S>>) => ToolResult | Promise<ToolResult>;
 }): ToolDef {
   return d as unknown as ToolDef;
 }
@@ -99,13 +103,28 @@ export function inputJsonSchema(tool: ToolDef): { properties?: Record<string, an
   return z.toJSONSchema(z.object(tool.shape), { io: "input", unrepresentable: "any" }) as any;
 }
 
-export function callTool(ws: Workspace, name: string, raw: unknown): ToolResult {
-  const tool = TOOLS.find((t) => t.name === name);
-  if (!tool) throw new ToolError(`Unknown tool '${name}'. Tools: ${TOOLS.map((t) => t.name).join(", ")}`);
-  const result = tool.run(ws, parseInput(tool, raw));
+function withWarnings(ws: Workspace, result: ToolResult): ToolResult {
   if (ws.warnings.length && result.data && typeof result.data === "object" && !Array.isArray(result.data))
     (result.data as Record<string, unknown>).workspace_warnings = ws.warnings;
   return result;
+}
+
+function findTool(name: string): ToolDef {
+  const tool = TOOLS.find((t) => t.name === name);
+  if (!tool) throw new ToolError(`Unknown tool '${name}'. Tools: ${TOOLS.map((t) => t.name).join(", ")}`);
+  return tool;
+}
+
+export function callTool(ws: Workspace, name: string, raw: unknown): ToolResult {
+  const tool = findTool(name);
+  if (tool.async) throw new ToolError(`${name} may call the AI model and is async; use callToolAsync.`);
+  return withWarnings(ws, tool.run(ws, parseInput(tool, raw)) as ToolResult);
+}
+
+/** Like callTool, but also runs tools that call the model (edit_region with `prompt`). */
+export async function callToolAsync(ws: Workspace, name: string, raw: unknown): Promise<ToolResult> {
+  const tool = findTool(name);
+  return withWarnings(ws, await tool.run(ws, parseInput(tool, raw)));
 }
 
 // ---------- helpers ----------
@@ -532,6 +551,88 @@ const editAsset = defineTool({
     ws.save(project);
     exportAsset(ws, project, asset);
     return { data: { asset: summarize(ws, project, asset), ...(notes.length ? { notes } : {}) }, images: [previewOf(asset, kit)] };
+  },
+});
+
+const editRegion = defineTool({
+  name: "edit_region",
+  title: "Edit region",
+  description:
+    "Change only a region of a saved asset (add a scarf, recolour a hat) and leave every other pixel untouched. Select the region with `rect` {x,y,w,h} or `cells` [[x,y],...], then give EITHER `rows` (legend rows covering the selection's bounding box, you paint them: no API key needed; '.' erases, chars outside a cells selection are ignored) OR `prompt` (the server-side model paints it; needs ANTHROPIC_API_KEY). Only legend chars are accepted, so it stays on-kit; orphan cleanup and the kit outline are re-applied only around changed pixels. `all_frames` applies the same selection to every frame of the row (rows mode: the same rows; prompt mode: one model call per frame). For rigged assets an attachment (create_attachment + attach) is the better path. Re-exports PNG (and .svg if one exists). Not for maps.",
+  shape: {
+    id: z.string().describe("Asset id (or exact name)."),
+    row: z.union([z.string(), z.number().int().min(0)]).optional().describe("Animation row name or index. Default 0."),
+    frame: z.number().int().min(0).default(0).describe("Frame index within the row."),
+    rect: z.object({ x: z.number().int(), y: z.number().int(), w: z.number().int().min(1), h: z.number().int().min(1) }).optional().describe("Selected rectangle in pixels."),
+    cells: z.array(z.tuple([z.number().int(), z.number().int()])).max(65536).optional().describe("Selected cells [[x,y],...] (alternative to rect)."),
+    rows: z.array(z.string()).optional().describe("Replacement legend rows for the selection's bounding box (agent-supplied mode)."),
+    prompt: z.string().min(1).max(1000).optional().describe("What to paint (server/model mode)."),
+    all_frames: z.boolean().default(false).describe("Apply to every frame of the row."),
+    outline: z.boolean().default(true).describe("Re-apply the kit outline around changed pixels."),
+  },
+  positional: "id",
+  async: true,
+  async run(ws, i) {
+    const project = ws.load();
+    const asset = findAsset(project, i.id);
+    const kit = kitOf(project, asset);
+    const legend = buildLegend(kit);
+    if (asset.tilemap) throw new ToolError(`'${asset.name}' is a map (a tile grid); edit_region only edits sprites.`);
+    if (!!i.rect === !!i.cells) throw new ToolError("Give exactly one selection: `rect` {x,y,w,h} or `cells` [[x,y],...].");
+    if (!!i.rows === !!i.prompt) throw new ToolError("Give exactly one of `rows` (you paint the region; no API key needed) or `prompt` (server model; needs ANTHROPIC_API_KEY).");
+    let ri = 0;
+    if (typeof i.row === "string") {
+      const byName = asset.rows.findIndex((r) => r.name === i.row);
+      ri = byName >= 0 ? byName : /^\d+$/.test(i.row) ? Number(i.row) : -1;
+    } else if (typeof i.row === "number") ri = i.row;
+    const row = asset.rows[ri];
+    if (!row) throw new ToolError(`No row ${JSON.stringify(i.row)} in '${asset.name}'. Rows: ${asset.rows.map((r, k) => `${k}=${r.name}`).join(", ")}.`);
+    if (!row.frames[i.frame]) throw new ToolError(`Row '${row.name}' has ${row.frames.length} frame(s); frame ${i.frame} does not exist.`);
+    const targets = i.all_frames ? row.frames.map((_, k) => k) : [i.frame];
+    const { w, h } = row.frames[i.frame];
+    const mask = i.rect ? rectMask(w, h, i.rect) : cellsMask(w, h, i.cells!);
+    const bbox = maskBounds(mask, w);
+    if (!bbox) throw new ToolError(`The selection is outside the ${w}x${h} frame (or empty).`);
+    const notes: string[] = [];
+    if (asset.source.kind === "rigged") notes.push("This asset is rigged; edits are overwritten when it is re-rendered. An attachment (create_attachment + attach) is the lasting way to add a scarf or hat.");
+
+    let rowsFor: (frameIndex: number) => Promise<string[]> | string[];
+    if (i.rows) {
+      const errs = checkRegionRows(i.rows, bbox, legend, mask, w);
+      if (errs.length) throw new ToolError(`Invalid rows for the selection's bounding box (x=${bbox.x}, y=${bbox.y}, ${bbox.w} cols x ${bbox.h} rows): ${errs.join("; ")}. Current content of that box:\n${regionContext(row.frames[i.frame], bbox, legend).join("\n")}`);
+      rowsFor = () => i.rows!;
+    } else {
+      const { hasKey } = await import("../../server/claude");
+      if (!hasKey()) throw new ToolError("`prompt` needs the AI model, but ANTHROPIC_API_KEY is not set. Either set it, or supply `rows` yourself: legend rows for the selection's bounding box " + `(x=${bbox.x}, y=${bbox.y}, ${bbox.w} cols x ${bbox.h} rows; read the pixels with get_asset include_pixels).`);
+      const { inpaint } = await import("../../server/inpaint");
+      const cells: [number, number][] = [];
+      for (let k = 0; k < mask.length; k++) if (mask[k]) cells.push([k % w, Math.floor(k / w)]);
+      rowsFor = async (fi) => {
+        const r = await inpaint({ rows: encodeSprite(row.frames[fi], legend), mask: { cells }, prompt: i.prompt, kit }, new AbortController().signal);
+        return r.rows;
+      };
+    }
+
+    const next = row.frames.slice();
+    const changed: Record<number, number> = {};
+    for (const fi of targets) {
+      const frame = row.frames[fi];
+      if (frame.w !== w || frame.h !== h) { notes.push(`frame ${fi} has a different size (${frame.w}x${frame.h}); skipped`); continue; }
+      try {
+        const r = applyRegionEdit(frame, mask, await rowsFor(fi), kit, { outline: i.outline });
+        next[fi] = r.sprite;
+        changed[fi] = r.changed;
+      } catch (e) {
+        throw new ToolError(`Nothing saved. frame ${fi}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    if (!Object.keys(changed).length) throw new ToolError("Nothing changed (no frame could be edited).");
+    if (Object.values(changed).every((c) => c === 0)) notes.push("The replacement matched the current pixels; nothing changed.");
+    row.frames = next;
+    asset.updatedAt = Date.now();
+    ws.save(project);
+    exportAsset(ws, project, asset);
+    return { data: { asset: summarize(ws, project, asset), changed_pixels: changed, region: bbox, ...(notes.length ? { notes } : {}) }, images: [previewOf(asset, kit)] };
   },
 });
 
@@ -1324,7 +1425,7 @@ const generatePack = defineTool({
 });
 
 export const TOOLS: ToolDef[] = [
-  getStyleGuide, listGenerators, generateAsset, generateVariations, paintAsset, editAsset, listAssets, getAsset,
+  getStyleGuide, listGenerators, generateAsset, generateVariations, paintAsset, editAsset, editRegion, listAssets, getAsset,
   deleteAsset, exportAssetTool, importImage, listKits, createKit, updateKit, setActiveKit, rerenderAssets,
   listRigs, listClips, listAttachments, generateRigged, attach, createRig, createClip, createAttachment,
   generatePack, importSvg,
