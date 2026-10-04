@@ -44,6 +44,8 @@ export interface StyleKit {
   sizes: Record<Exclude<Category, "map">, number> & { tile: number };
   /** Pixel richness (see DetailLevel). Optional so existing kits stay standard. */
   detail?: DetailLevel;
+  /** Camera: "side" is the platformer view (ground line at the bottom, profile characters); absent = "topdown". */
+  camera?: "topdown" | "side";
   /** Free-text art direction used by the AI ("cozy, chunky, SNES-era"). */
   vibe: string;
   /** House style: edits are refused; fork it (create_kit / Duplicate) to change anything. */

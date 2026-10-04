@@ -41,6 +41,15 @@ export const HD_RICH_KIT: StyleKit = {
   vibe: "Cozy top-down fantasy RPG at 1.5x resolution with richer pixels: hue-shifted shading, selective outlines, fine detail.",
 };
 
+/** Side-view (platformer) kit: standard detail, same palette and light as Cozy RPG, characters 2 tiles tall. */
+export const SIDE_KIT: StyleKit = {
+  ...DEFAULT_KIT,
+  id: "kit-side",
+  name: "Cozy Platformer",
+  camera: "side",
+  vibe: "Cozy side-view platformer, profile characters standing on a ground line, chunky readable silhouettes, warm lighting.",
+};
+
 export const KIT_PRESETS: StyleKit[] = [
   DEFAULT_KIT,
   {
@@ -69,6 +78,7 @@ export const KIT_PRESETS: StyleKit[] = [
   },
   HD_KIT,
   HD_RICH_KIT,
+  SIDE_KIT,
 ];
 
 export function resolveRamps(kit: StyleKit): Ramps {
@@ -94,6 +104,18 @@ export function lightVector(dir: LightDir): [number, number, number] {
  */
 export function proportions(kit: StyleKit) {
   const c = kit.sizes.character;
+  // Side view: the camera sees the profile, so buildings and trees are drawn as facades
+  // (taller storeys) and everything stands on the bottom row of its canvas.
+  if (kit.camera === "side")
+    return {
+      figure: Math.round(c * 0.84),
+      door: Math.round(c * 0.92),
+      doorW: Math.max(3, Math.round(c * 0.5)),
+      window: Math.max(2, Math.round(c * 0.28)),
+      story: Math.round(c * 1.4),
+      tree: Math.round(c * 1.9),
+      tile: kit.sizes.tile,
+    };
   return {
     /** Standing character height, head to feet (the humanoid fills ~84% of its canvas). */
     figure: Math.round(c * 0.84),

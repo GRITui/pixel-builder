@@ -72,7 +72,7 @@ describe("get_style_guide / list_generators", () => {
     const all = data("list_generators").generators;
     expect(all.map((g: { id: string }) => g.id)).toEqual(GENERATORS.map((g) => g.id));
     const env = data("list_generators", { category: "environment" }).generators;
-    expect(env.map((g: { id: string }) => g.id)).toEqual(["environment", "tileset"]);
+    expect(env.map((g: { id: string }) => g.id)).toEqual(["environment", "tileset", "sideview"]);
     expect(env[0].params.find((p: { key: string }) => p.key === "kind").options).toContain("oak");
     expect(env[0].defaults.kind).toBe("oak");
   });
@@ -275,13 +275,13 @@ describe("kits", () => {
   it("lists, creates, updates and activates kits", () => {
     const kits = data("list_kits");
     expect(kits.active).toBe("kit-default");
-    expect(kits.kits.map((k: { id: string }) => k.id)).toEqual(["kit-default", "kit-gameboy", "kit-neon", "kit-hd", "kit-hd-rich"]);
+    expect(kits.kits.map((k: { id: string }) => k.id)).toEqual(["kit-default", "kit-gameboy", "kit-neon", "kit-hd", "kit-hd-rich", "kit-side"]);
 
     const created = data("create_kit", { name: "Noir", base_kit_id: "kit-gameboy", changes: { outline: "black", sizes: { object: 24 }, rampOverrides: { cloth: ["#000000", "#222222", "#444444", "#888888", "#ffffff"] }, vibe: "noir" } }).kit;
     expect(created).toMatchObject({ name: "Noir", paletteId: "gameboy", outline: "black", vibe: "noir" });
     expect(created.id).not.toBe("kit-gameboy");
     expect(created.sizes).toMatchObject({ object: 24, character: 16 });
-    expect(data("list_kits").kits).toHaveLength(6);
+    expect(data("list_kits").kits).toHaveLength(7);
 
     const up = data("update_kit", { kit_id: created.id, changes: { shadeSteps: 2, sizes: { tile: 8 } } });
     expect(up.kit).toMatchObject({ shadeSteps: 2, sizes: { object: 24, tile: 8 } });
