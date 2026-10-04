@@ -166,7 +166,8 @@ function drawHumanoid(p: Params, kit: StyleKit, size: number, t: Traits): FrameS
   const pushShared = (id: string | undefined, fallback: PartDef[], remapMetalTo?: string) => {
     const shared = id ? attach(id) : undefined;
     const parts = shared ? shared.parts.map((q) => (remapMetalTo && q.slot === "metal" ? { ...q, slot: remapMetalTo } : q)) : fallback;
-    if (parts.length) atts.push({ id: id ?? "extra", name: id ?? "extra", parts });
+    // keep the attachment's own joints (tool tips) so its limb parts can resolve them
+    if (parts.length) atts.push({ id: id ?? "extra", name: id ?? "extra", parts, joints: shared?.joints });
   };
   if (hat !== "none") pushShared(HEADWEAR_ID[hat], fallbackHeadwear(HEADWEAR_ID[hat]), hat === "helmet" ? "helm" : undefined);
   if (weapon !== "none") pushShared(weapon, fallbackItem(weapon, tw));
