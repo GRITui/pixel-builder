@@ -436,6 +436,8 @@ export const mapGenerator: Generator = {
     { key: "density", label: "Prop density", type: "number", min: 0, max: 1, step: 0.05, default: 0.5 },
     { key: "path", label: "Winding path", type: "bool", default: true },
     { key: "set", label: "Farm set (farm biome only)", type: "select", options: ["normal", "sea"], default: "normal" },
+    { key: "water_depth", label: "Water depth (smooth shallow-to-abyss gradient, sandy shore banks, lily pads, reeds)", type: "bool", default: false },
+    { key: "river", label: "River (a winding river across meadow / forest / winter maps)", type: "bool", default: false },
   ],
   generate(p, kit: StyleKit, seed) {
     const biome = ((BIOMES as readonly string[]).includes(str(p, "biome")) ? str(p, "biome") : "meadow") as Biome;
@@ -452,7 +454,9 @@ export const mapGenerator: Generator = {
     const farm = biome === "farm" ? farmPlan(cols, rows, seed >>> 0, sea, wantPath, kit) : null;
     const { ground, path } = farm ?? buildGround(biome, cols, rows, seed >>> 0, r, wantPath);
 
-    paintGround(tm, ground, kit, seed, r);
+    if (bool(p, "river") && (biome === "meadow" || biome === "forest" || biome === "winter")) carveRiver(ground, cols, rows, seed >>> 0, new Set(path), biome === "winter");
+    const waterDepth = bool(p, "water_depth");
+    paintGround(tm, ground, kit, seed, r, { waterDepth });
 
     // --- deco layer ---
     const propCache = new Map<string, number>();
@@ -576,6 +580,7 @@ export const mapGenerator: Generator = {
         }
         tm.deco[i] = propTile(kind, vRoll);
       }
+    if (waterDepth) decorateWater(tm, ground, path, reserved, propTile, seed >>> 0, biome);
     return { rows: [{ name: "map", frames: [renderTileMap(tm)] }], fps: 1, tilemap: tm };
   },
 };
@@ -584,8 +589,9 @@ export const mapGenerator: Generator = {
  * Fill `tm.ground` from a ground-type grid: textured kit tiles with blended edges between
  * grounds and foam-rimmed shores. Exported so hand-laid scenes get the same transitions as maps.
  */
-export function paintGround(tm: TileMap, ground: Ground[], kit: StyleKit, seed: number, r: Rng = rng(seed >>> 0)): void {
+export function paintGround(tm: TileMap, ground: Ground[], kit: StyleKit, seed: number, r: Rng = rng(seed >>> 0), opts: { waterDepth?: boolean } = {}): void {
   const { cols, rows } = tm;
+  const depthOf = opts.waterDepth ? waterDepthField(ground, cols, rows) : null;
   const envDefaults = defaults(environmentGenerator);
   // --- ground layer: a few texture variants per kind so it doesn't read as a grid ---
   const tileCache = new Map<string, number>();
@@ -608,7 +614,36 @@ export function paintGround(tm: TileMap, ground: Ground[], kit: StyleKit, seed: 
     }
     return idx;
   };
+  // depth-shaded water (opt-in): one sprite per depth band, bands blended with the land-seam shapes
+  const depthSprite = (d: number): Sprite => {
+    const name = `water-d${d}`;
+    let sp = spriteCache.get(name);
+    if (!sp) {
+      sp = environmentGenerator.generate({ ...envDefaults, kind: "water-tile", depth: d }, kit, seed).rows[0].frames[0];
+      spriteCache.set(name, sp);
+    }
+    return sp;
+  };
   const isWater = (x: number, y: number) => x >= 0 && y >= 0 && x < cols && y < rows && ground[y * cols + x] === "water";
+  const depthTile = (i: number): number => {
+    const x = i % cols, y = Math.floor(i / cols), d = depthOf![i];
+    const layers: { sprite: Sprite; mask: number }[] = [];
+    for (let h = d + 1; h < WATER_BANDS; h++) {
+      let m = 0;
+      NEIGHBOURS.forEach(([dx, dy], k) => {
+        const xx = x + dx, yy = y + dy;
+        if (xx >= 0 && yy >= 0 && xx < cols && yy < rows && depthOf![yy * cols + xx] >= h) m |= 1 << k;
+      });
+      if (m) layers.push({ sprite: depthSprite(h), mask: m });
+    }
+    const name = `water-d${d}${layers.map((l, n) => `-${d + 1 + n}:${l.mask}`).join("")}`;
+    let idx = tileCache.get(name);
+    if (idx === undefined) {
+      idx = ensureTile(tm, name, layers.length ? blendDepth(depthSprite(d), layers) : depthSprite(d), true);
+      tileCache.set(name, idx);
+    }
+    return idx;
+  };
   // Seeded value noise picks the texture variant so repeats form no visible lattice.
   const vNoise = valueNoise((seed ^ 0x7f31) >>> 0, 16);
   for (let i = 0; i < ground.length; i++) {
@@ -616,6 +651,7 @@ export function paintGround(tm: TileMap, ground: Ground[], kit: StyleKit, seed: 
     const x = i % cols, y = Math.floor(i / cols);
     const rr = r.next(), rv = r.int(1, VARIANTS - 1);
     const v = rr < 0.4 ? 0 : (rv + Math.floor(vNoise(x / 2, y / 2) * VARIANTS)) % VARIANTS;
+    if (g === "water" && depthOf) { tm.ground[i] = depthTile(i); continue; }
     if (g === "water") { tm.ground[i] = groundTile(g, 0); continue; }
     // higher-priority neighbours spread into this cell along a smooth curve (see blendTile)
     const layers: { g: Ground; mask: number }[] = [];
@@ -637,8 +673,9 @@ export function paintGround(tm: TileMap, ground: Ground[], kit: StyleKit, seed: 
     let idx = tileCache.get(name);
     if (idx === undefined) {
       // water spreads last, with a foam rim, so shores round off the same way as land seams
-      const all = [...layers.map((l) => ({ sprite: baseSprite(l.g, sv), mask: l.mask })), ...(wmask ? [{ sprite: baseSprite("water", 0), mask: wmask, foam: true }] : [])];
+      const all = [...layers.map((l) => ({ sprite: baseSprite(l.g, sv), mask: l.mask })), ...(wmask ? [{ sprite: depthOf ? depthSprite(0) : baseSprite("water", 0), mask: wmask, foam: true }] : [])];
       const sp = blendTile(baseSprite(g, sv), all);
+      if (depthOf && wmask) wetBank(sp, wmask);
       idx = ensureTile(tm, name, sp, false);
       tileCache.set(name, idx);
     }
@@ -740,4 +777,131 @@ export function blendTile(base: Sprite, layers: { sprite: Sprite; mask: number; 
     }
   out.data = next;
   return out;
+}
+
+// ---------- water depth (opt-in) ----------
+
+const WATER_BANDS = 4;
+
+/**
+ * Depth band 0..3 of every water cell (others 0): distance to the nearest non-water cell, so a
+ * shore cell is shallow (0) and the middle of a wide lake is abyss (3). Cells beyond the map
+ * edge count as water, so a sea running off the map stays deep. 8-neighbour BFS, O(cells).
+ */
+export function waterDepthField(ground: Ground[], cols: number, rows: number): Uint8Array {
+  const dist = new Int16Array(cols * rows).fill(-1);
+  const queue: number[] = [];
+  ground.forEach((g, i) => { if (g !== "water") { dist[i] = 0; queue.push(i); } });
+  for (let head = 0; head < queue.length; head++) {
+    const i = queue[head], x = i % cols, y = Math.floor(i / cols);
+    for (const [dx, dy] of NEIGHBOURS) {
+      const xx = x + dx, yy = y + dy;
+      if (xx < 0 || yy < 0 || xx >= cols || yy >= rows) continue;
+      const j = yy * cols + xx;
+      if (dist[j] < 0) { dist[j] = dist[i] + 1; queue.push(j); }
+    }
+  }
+  const out = new Uint8Array(cols * rows);
+  for (let i = 0; i < out.length; i++) out[i] = ground[i] === "water" ? Math.min(WATER_BANDS - 1, Math.max(0, dist[i] - 1)) : 0;
+  return out;
+}
+
+/**
+ * Paint a ground grid with depth-shaded water: shallow sandy shallows at the shore blending
+ * through medium and deep to abyss, foam rims and a wet sand bank on the land side. Same as
+ * `paintGround(..., { waterDepth: true })`; exported for hand-laid scenes and biome builders.
+ */
+export function paintWaterDepth(tm: TileMap, ground: Ground[], kit: StyleKit, seed: number, r: Rng = rng(seed >>> 0)): void {
+  paintGround(tm, ground, kit, seed, r, { waterDepth: true });
+}
+
+/** `base` with each deeper band spreading in along the land-seam shapes; the seam is dithered (no hard line). */
+function blendDepth(base: Sprite, layers: { sprite: Sprite; mask: number }[]): Sprite {
+  const T = base.w, W = T + 2;
+  const out = createSprite(T, T);
+  out.data = base.data.slice();
+  for (const { sprite, mask } of layers) {
+    const shape = edgeShape(T, mask);
+    const taken = (x: number, y: number) => shape[(y + 1) * W + x + 1] === 1;
+    for (let y = 0; y < T; y++)
+      for (let x = 0; x < T; x++) {
+        if (!taken(x, y)) continue;
+        const rim = !taken(x - 1, y) || !taken(x + 1, y) || !taken(x, y - 1) || !taken(x, y + 1);
+        if (rim && (x + y) % 2 === 0) continue;
+        out.data[y * T + x] = sprite.data[y * T + x];
+      }
+  }
+  return out;
+}
+
+/** Wet sand bank: land pixels within 1-3px of the water become damp sand, dark at the waterline. */
+function wetBank(sp: Sprite, wmask: number): void {
+  const T = sp.w, W = T + 2, shape = edgeShape(T, wmask);
+  const dist = new Int8Array(W * W).fill(9);
+  const queue: number[] = [];
+  for (let i = 0; i < dist.length; i++) if (shape[i] === 1) { dist[i] = 0; queue.push(i); }
+  for (let head = 0; head < queue.length; head++) {
+    const i = queue[head], x = i % W, y = Math.floor(i / W);
+    if (dist[i] >= 3) continue;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const xx = x + dx, yy = y + dy;
+      if (xx < 0 || yy < 0 || xx >= W || yy >= W) continue;
+      if (dist[yy * W + xx] > dist[i] + 1) { dist[yy * W + xx] = dist[i] + 1; queue.push(yy * W + xx); }
+    }
+  }
+  for (let y = 0; y < T; y++)
+    for (let x = 0; x < T; x++) {
+      const d = dist[(y + 1) * W + x + 1];
+      if (d === 0 || d > 3) continue;
+      if (d === 3 && (x + y) % 2) continue;
+      sp.data[y * T + x] = colorIndex("sand", d === 1 ? 1 : 2);
+    }
+}
+
+/** A winding river across the whole map (left to right), 2-4 tiles wide; the path stays dry (a ford). */
+function carveRiver(ground: Ground[], cols: number, rows: number, seed: number, keep: Set<number>, frozen: boolean): void {
+  const n = valueNoise((seed ^ 0x71e5) >>> 0, 16), wn = valueNoise((seed ^ 0x3c1) >>> 0, 16);
+  const flip = (seed & 1) === 1;
+  for (let x = 0; x < cols; x++) {
+    const cy = rows * (flip ? 0.62 : 0.38) + (n(x / 6, 0.5) - 0.5) * rows * 0.5 + Math.sin(x / 4.2) * 1.2;
+    const half = (2 + 1.8 * wn(x / 5, 1.5)) / 2;
+    for (let y = 0; y < rows; y++) if (Math.abs(y + 0.5 - cy) < half && !keep.has(y * cols + x)) ground[y * cols + x] = "water";
+  }
+  if (frozen) return;
+  const was = ground.slice();
+  for (let y = 0; y < rows; y++)
+    for (let x = 0; x < cols; x++) {
+      if (was[y * cols + x] !== "grass") continue;
+      for (const [dx, dy] of NEIGHBOURS) {
+        const xx = x + dx, yy = y + dy;
+        if (xx >= 0 && yy >= 0 && xx < cols && yy < rows && was[yy * cols + xx] === "water") { ground[y * cols + x] = "sand"; break; }
+      }
+    }
+}
+
+/** Lily pads on the shallows, reeds / rocks / driftwood on the banks. Own rng: the rest of the map is untouched. */
+function decorateWater(tm: TileMap, ground: Ground[], path: Set<number>, reserved: Set<number>, propTile: (kind: string, v: number) => number, seed: number, biome: Biome): void {
+  const { cols, rows } = tm;
+  const dep = waterDepthField(ground, cols, rows);
+  const hr = rng((seed ^ 0xa11e) >>> 0);
+  const clump = valueNoise((seed ^ 0x77d1) >>> 0, 16);
+  for (let i = 0; i < ground.length; i++) {
+    const x = i % cols, y = Math.floor(i / cols);
+    const roll = hr.next(), pick = hr.next(), v = hr.int(0, 2);
+    if (tm.deco[i] >= 0 || path.has(i) || reserved.has(i)) continue;
+    if (ground[i] === "water") {
+      if (dep[i] <= 1 && roll < 0.04 + 0.22 * clump(x / 2.5, y / 2.5) ** 2) tm.deco[i] = propTile("lily-pad", v);
+      else if (dep[i] === 0 && roll > 0.97) tm.deco[i] = propTile("river-rock", v);
+      continue;
+    }
+    if (ground[i] !== "grass" && ground[i] !== "sand" && ground[i] !== "dirt") continue;
+    let wet = false;
+    for (const [dx, dy] of NEIGHBOURS) {
+      const xx = x + dx, yy = y + dy;
+      if (xx >= 0 && yy >= 0 && xx < cols && yy < rows && ground[yy * cols + xx] === "water") wet = true;
+    }
+    if (!wet || biome === "winter") continue;
+    if (roll < 0.28) tm.deco[i] = propTile(pick < 0.6 ? "reeds" : "cattail", v);
+    else if (roll < 0.34) tm.deco[i] = propTile(pick < 0.5 ? "river-rock" : "driftwood", v);
+  }
 }

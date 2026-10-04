@@ -26,7 +26,7 @@ describe("environment generator", () => {
     expect(TILE_KINDS).toEqual(["grass-tile", "dirt-tile", "sand-tile", "water-tile", "stone-path-tile", "snow-tile", "paddy-tile"]);
     for (const k of ["oak", "pine", "palm", "dead-tree", "bush", "rock", "boulder", "flowers", "mushroom", "tall-grass", "stump", "crystal"]) expect(PROP_KINDS).toContain(k);
     const kind = environmentGenerator.params.find((p) => p.key === "kind");
-    expect(kind && kind.type === "select" && kind.options.length).toBe(PROP_KINDS.length + EXTRA_PROP_KINDS.length + TILE_KINDS.length + SOIL_TILE_KINDS.length);
+    expect(kind && kind.type === "select" && kind.options.length).toBe(PROP_KINDS.length + EXTRA_PROP_KINDS.length + TILE_KINDS.length + SOIL_TILE_KINDS.length + 6);
   });
 
   it("exposes material params and a variant param", () => {

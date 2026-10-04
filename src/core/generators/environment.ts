@@ -6,6 +6,7 @@ import { hashString, rng, valueNoise, type Rng } from "../rng";
 import { bounds, createSprite, setPx } from "../sprite";
 import type { FrameSet, Sprite, StyleKit } from "../types";
 import { FENCE_PIECES, fenceRows, type FencePiece } from "./fence";
+import { SHORE_OPTIONS, WATER_PROP_KINDS, waterDepthTile, waterPropRows } from "./water";
 import { bool, mat, num, str, type GenResult, type Generator, type Params } from "./types";
 
 /** Seamless ground tiles (no outline, exactly kit.sizes.tile square, must tile/wrap). */
@@ -964,7 +965,7 @@ export const environmentGenerator: Generator = {
   label: "Environment",
   description: "Nature props (trees, bushes, rocks, flowers, crystals) and seamless ground tiles (grass, dirt, sand, animated water, stone path, snow, animated flooded rice paddy).",
   params: [
-    { key: "kind", label: "Kind", type: "select", options: [...PROP_KINDS, ...EXTRA_PROP_KINDS, ...TILE_KINDS, ...SOIL_TILE_KINDS], default: "oak" },
+    { key: "kind", label: "Kind", type: "select", options: [...PROP_KINDS, ...EXTRA_PROP_KINDS, ...TILE_KINDS, ...SOIL_TILE_KINDS, ...WATER_PROP_KINDS], default: "oak" },
     { key: "foliage", label: "Foliage", type: "material", options: FOLIAGE, default: "foliage" },
     { key: "trunk", label: "Trunk / wood", type: "material", options: TRUNKS, default: "wood" },
     { key: "stone", label: "Stone / rock", type: "material", options: STONES, default: "stone" },
@@ -972,6 +973,11 @@ export const environmentGenerator: Generator = {
     { key: "variant", label: "Variant", type: "number", min: 0, max: 9, step: 1, default: 0 },
     { key: "cuttable", label: "Cuttable tree (chop / fall / stump rows)", type: "bool", default: true },
     { key: "piece", label: "Fence piece", type: "select", options: [...FENCE_PIECES], default: "h" },
+    { key: "depth", label: "Water depth (water-tile; -1 = classic, 0 shallow .. 3 abyss)", type: "number", min: -1, max: 3, step: 1, default: -1 },
+    { key: "shore", label: "Shore edges (water-tile with land on those sides: foam + wet bank)", type: "select", options: SHORE_OPTIONS, default: "" },
+    { key: "shore_rocks", label: "Rocks on the bank (shore tiles)", type: "bool", default: false },
+    { key: "flower", label: "Lily pad flower", type: "bool", default: true },
+    { key: "span", label: "Bridge span in tiles (small-bridge, 1-3)", type: "number", min: 1, max: 3, step: 1, default: 1 },
   ],
   generate: (p, kit, seed) => generateEnvironment(p, kit, seed, false),
 };
@@ -998,6 +1004,10 @@ function generateEnvironment(p: Params, kit: StyleKit, seed: number, idleOnly: b
       const flat = kit.shadeSteps <= 3; // few tones: skip patchy noise, keep the texture to tufts/pebbles
       if ((SOIL_TILE_KINDS as readonly string[]).includes(kind)) return { rows: [{ name: "idle", frames: [soilTile(T, r, kind as (typeof SOIL_TILE_KINDS)[number], flat)] }], fps: 1 };
       if (kind === "paddy-tile") return { rows: [{ name: "idle", frames: paddyTile(T, r, mixed, flat) }], fps: 3 };
+      if (kind === "water-tile" && (num(p, "depth") >= 0 || str(p, "shore"))) {
+        const depth = Math.max(0, Math.round(num(p, "depth")) || 0);
+        return { rows: [{ name: "idle", frames: waterDepthTile(T, mixed, kit, { depth, shore: str(p, "shore"), rocks: bool(p, "shore_rocks") }) }], fps: 4 };
+      }
       if (kind === "water-tile") return { rows: [{ name: "idle", frames: waterTile(T, r, mixed) }], fps: 4 };
       const sprite =
         kind === "dirt-tile" ? dirtTile(T, r, mixed, flat) :
@@ -1006,6 +1016,11 @@ function generateEnvironment(p: Params, kit: StyleKit, seed: number, idleOnly: b
         kind === "stone-path-tile" ? stonePathTile(T, r, kit) :
         grassTile(T, r, mixed, flat);
       return { rows: [{ name: "idle", frames: [sprite] }], fps: 1 };
+    }
+
+    if ((WATER_PROP_KINDS as readonly string[]).includes(kind)) {
+      const o = { foliage: mat(p, "foliage"), trunk: mat(p, "trunk"), stone: mat(p, "stone"), accent: mat(p, "accent"), variant, flower: bool(p, "flower"), span: num(p, "span") };
+      return { rows: waterPropRows(kind, kit, mixed, o, idleOnly), fps: 6 };
     }
 
     const old = kind === "old-oak";
