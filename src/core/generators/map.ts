@@ -3,7 +3,7 @@ import { emptyTileMap, ensureTile, renderTileMap } from "../tilemap";
 import type { StyleKit, TileMap } from "../types";
 import { animalGenerator } from "./animal";
 import { buildingGenerator } from "./building";
-import { environmentGenerator, treeHeight } from "./environment";
+import { environmentGenerator, environmentIdle, treeHeight } from "./environment";
 import { colorIndex, decodeIndex } from "../palette";
 import { createSprite } from "../sprite";
 import type { Sprite } from "../types";
@@ -233,7 +233,7 @@ export const mapGenerator: Generator = {
       const name = `${kind}-${v}`;
       let idx = propCache.get(name);
       if (idx === undefined) {
-        const sprite = environmentGenerator.generate({ ...envDefaults, kind, variant: v * 3 + (kind.length % 3) }, kit, seed).rows[0].frames[0];
+        const sprite = environmentIdle({ ...envDefaults, kind, variant: v * 3 + (kind.length % 3) }, kit, seed);
         idx = ensureTile(tm, name, sprite, SOLID_PROPS.has(kind));
         propCache.set(name, idx);
       }

@@ -6,7 +6,7 @@ import { hashString, rng, valueNoise, type Rng } from "../rng";
 import { bounds, createSprite, setPx } from "../sprite";
 import type { FrameSet, Sprite, StyleKit } from "../types";
 import { FENCE_PIECES, fenceRows, type FencePiece } from "./fence";
-import { bool, mat, num, str, type Generator } from "./types";
+import { bool, mat, num, str, type GenResult, type Generator, type Params } from "./types";
 
 /** Seamless ground tiles (no outline, exactly kit.sizes.tile square, must tile/wrap). */
 export const TILE_KINDS = ["grass-tile", "dirt-tile", "sand-tile", "water-tile", "stone-path-tile", "snow-tile", "paddy-tile"] as const;
@@ -961,7 +961,16 @@ export const environmentGenerator: Generator = {
     { key: "cuttable", label: "Cuttable tree (chop / fall / stump rows)", type: "bool", default: true },
     { key: "piece", label: "Fence piece", type: "select", options: [...FENCE_PIECES], default: "h" },
   ],
-  generate(p, kit, seed) {
+  generate: (p, kit, seed) => generateEnvironment(p, kit, seed, false),
+};
+
+/** Just the idle frame (row 0, frame 0): maps scatter many props and never use their animation rows. */
+export function environmentIdle(p: Params, kit: StyleKit, seed: number): Sprite {
+  return generateEnvironment(p, kit, seed, true).rows[0].frames[0];
+}
+
+function generateEnvironment(p: Params, kit: StyleKit, seed: number, idleOnly: boolean): GenResult {
+  {
     const kind = str(p, "kind");
     const variant = Math.max(0, Math.min(9, Math.round(num(p, "variant") || 0)));
     const mixed = (seed + hashString(kind) + variant * 7919) >>> 0;
@@ -1009,7 +1018,7 @@ export const environmentGenerator: Generator = {
     if (old) oldOak(ctx);
     else (PROPS[kind as (typeof PROP_KINDS)[number]] ?? oak)(ctx);
     const raw = ctx.P.toSprite();
-    const rows: FrameSet[] = [{ name: "idle", frames: [finalize(raw, kit)] }, ...propRows(ctx, raw, kit, kind, bool(p, "cuttable"), mixed)];
+    const rows: FrameSet[] = [{ name: "idle", frames: [finalize(raw, kit)] }, ...(idleOnly ? [] : propRows(ctx, raw, kit, kind, bool(p, "cuttable"), mixed))];
     return { rows, fps: rows.length > 1 ? 8 : 1 };
-  },
-};
+  }
+}

@@ -74,7 +74,8 @@ describe("generate_asset / generate_variations", () => {
     const d = r.data as any;
     expect(d.saved).toBe(true);
     expect(d.asset).toMatchObject({ name: "Oak", category: "environment", width: 32, source: { kind: "procedural", generator: "environment", seed: 42 } });
-    expect(d.asset.files).toEqual([join(ws.dir, "environments", "oak.png")]);
+    // trees are animated (sway, chop, fall), so they export a sheet plus its frame map
+    expect(d.asset.files).toEqual([join(ws.dir, "environments", "oak.png"), join(ws.dir, "environments", "oak.json")]);
     expect(existsSync(d.asset.files[0])).toBe(true);
     expect(r.images).toHaveLength(1);
     expect(isPng(r.images![0].png)).toBe(true);
