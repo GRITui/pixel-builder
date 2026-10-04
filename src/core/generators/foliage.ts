@@ -43,18 +43,18 @@ function tint(species: Species, season: Season, leaf: Material): Tint {
   const winter = season === "winter";
   if (species === "pine-hd") return { main: leaf, alt: leaf === "foliage" ? "foliage" : leaf, deep: leaf, sparse: false, snow: winter };
   if (species === "sakura") {
-    if (winter) return { main: "stone", alt: "ui", deep: "wood", sparse: true, snow: true };
+    if (winter) return { main: "ui", alt: "stone", deep: "wood", sparse: true, snow: true };
     if (season === "fall") return { main: "cloth2", alt: "gold", deep: "roof", sparse: false, snow: false };
-    if (season === "spring") return { main: "accent", alt: "skin", deep: "accent", sparse: false, snow: false, specks: { mat: "skin", chance: 0.4 } };
-    return { main: "accent", alt: "skin", deep: "accent", sparse: false, snow: false, specks: { mat: "skin", chance: 0.3 } };
+    if (season === "spring") return { main: "accent", alt: "accent", deep: "accent", sparse: false, snow: false, specks: { mat: "ui", chance: 0.3 } };
+    return { main: "accent", alt: "accent", deep: "accent", sparse: false, snow: false, specks: { mat: "ui", chance: 0.25 } };
   }
   if (species === "maple-autumn") {
-    if (winter) return { main: "stone", alt: "ui", deep: "wood", sparse: true, snow: true };
+    if (winter) return { main: "ui", alt: "stone", deep: "wood", sparse: true, snow: true };
     if (season === "spring") return { main: alt, alt: "gold", deep: leaf, sparse: false, snow: false, specks: { mat: "roof", chance: 0.18 } };
     if (season === "summer") return { main: "cloth2", alt: "gold", deep: "roof", sparse: false, snow: false, specks: { mat: leaf, chance: 0.15 } };
     return { main: "cloth2", alt: "gold", deep: "roof", sparse: false, snow: false, specks: { mat: "roof", chance: 0.2 } };
   }
-  if (winter) return { main: "stone", alt: "ui", deep: "wood", sparse: true, snow: true };
+  if (winter) return { main: "ui", alt: "stone", deep: "wood", sparse: true, snow: true };
   if (season === "fall") return { main: "gold", alt: "cloth2", deep: "roof", sparse: false, snow: false, specks: { mat: "leather", chance: 0.15 } };
   if (season === "spring") return { main: alt, alt: leaf, deep: leaf, sparse: false, snow: false, specks: { mat: species === "birch" ? "gold" : "skin", chance: 0.22 } };
   return { main: leaf, alt, deep: leaf, sparse: false, snow: false };
@@ -149,9 +149,9 @@ function buildModel(species: Species, W: number, sizeIdx: number, season: Season
     const core = { x: fx * W, y: fy * W, rx: frx * W, ry: fry * W };
     model.core = core;
     let n = sp.n[sizeIdx];
-    if (t.sparse) n = Math.max(12, Math.round(n * 0.5));
+    if (t.sparse) n = Math.max(8, Math.round(n * 0.3));
     const area = Math.PI * core.rx * core.ry;
-    const baseR = sp.rK * (t.sparse ? 0.7 : 1) * Math.sqrt(area / (n * Math.PI));
+    const baseR = sp.rK * (t.sparse ? 0.55 : 1) * Math.sqrt(area / (n * Math.PI));
     const pts = scatter(r, n, core);
     const trunkW = Math.max(3, Math.round(sp.trunkW * W));
     model.trunk = { ...model.trunk, w: trunkW, top: Math.round(sp.trunkTop * W), lean: sp.lean * W, flare: species === "birch" ? 0.45 : 0.85 };
@@ -173,11 +173,11 @@ function buildModel(species: Species, W: number, sizeIdx: number, season: Season
     // the trunk forks into limbs that reach clusters on the way out
     const sorted = [...clusters.keys()].sort((a, b) => clusters[b].y - clusters[a].y);
     const fork = { x: cx + model.trunk.lean, y: model.trunk.top };
-    const picks = sorted.slice(0, Math.min(sorted.length, sp.branches + 6)).filter((_, i) => i % 2 === 0).slice(0, sp.branches);
+    const picks = sorted.slice(0, Math.min(sorted.length, sp.branches * 2 + 6)).filter((_, i) => t.sparse || i % 2 === 0).slice(0, t.sparse ? sp.branches * 2 : sp.branches);
     picks.sort((a, b) => clusters[a].x - clusters[b].x);
     for (const i of picks) {
       const c = clusters[i];
-      model.branches.push({ ax: fork.x, ay: fork.y + 1, bx: c.x, by: c.y + c.r * 0.5, r: Math.max(0.9, trunkW * (t.sparse ? 0.26 : 0.17)), to: i });
+      model.branches.push({ ax: fork.x, ay: fork.y + 1, bx: c.x, by: c.y + c.r * 0.5, r: Math.max(0.9, trunkW * (t.sparse ? 0.2 : 0.17)), to: i });
     }
     // dark pockets between clusters where the crown is deep
     const holeN = t.sparse ? 0 : Math.round(n / 4);
@@ -442,7 +442,7 @@ export const foliageGenerator: Generator = {
     { key: "size", label: "Size (48 / 64 / 96 px)", type: "select", options: [...FOLIAGE_SIZES], default: "medium" },
     { key: "season", label: "Season", type: "select", options: [...FOLIAGE_SEASONS], default: "summer" },
     { key: "leaf", label: "Leaf material", type: "material", options: ["foliage", "grass", "accent", "cloth2", "gold", "roof"], default: "foliage" },
-    { key: "accent", label: "Fruit / blossom", type: "material", default: "accent" },
+    { key: "accent", label: "Fruit / blossom", type: "material", default: "cloth2" },
     { key: "variant", label: "Variant", type: "number", min: 0, max: 9, step: 1, default: 0 },
   ],
   generate(p: Params, kit: StyleKit, seed: number) {
