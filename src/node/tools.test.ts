@@ -25,7 +25,7 @@ describe("tool contract", () => {
       "get_style_guide", "list_generators", "generate_asset", "generate_variations", "paint_asset", "edit_asset", "list_assets",
       "get_asset", "delete_asset", "export_asset", "import_image", "list_kits", "create_kit", "update_kit", "set_active_kit", "rerender_assets",
       "list_rigs", "list_clips", "list_attachments", "generate_rigged", "attach", "create_rig", "create_clip", "create_attachment",
-      "generate_pack",
+      "generate_pack", "import_svg",
     ]);
     for (const t of TOOLS) expect(t.description.length).toBeGreaterThan(20);
   });
@@ -335,5 +335,60 @@ describe("generate_pack", () => {
     expect(data("generate_pack", { manifest, dry_run: true }).count).toBe(3);
     expect(data("list_assets").assets).toHaveLength(0);
     expect(() => call("generate_pack", {})).toThrow(ToolError);
+  });
+});
+
+describe("svg export/import", () => {
+  const roundtrip = (id: string) => {
+    const before = data("get_asset", { id }).asset;
+    const f = data("export_asset", { id, format: "svg" }).files[0];
+    expect(f.path.endsWith(".svg")).toBe(true);
+    const svg = readFileSync(f.path, "utf8");
+    expect(svg).toContain('id="guides"');
+    expect(svg).toContain('inkscape:groupmode="layer"');
+    const r = data("import_svg", { path: f.path, name: "copy-" + id.slice(-4) }).asset;
+    return { svg, before, r };
+  };
+  const frames = (id: string) => {
+    const a = ws.load().assets.find((x) => x.id === id)!;
+    return a.rows.map((r) => r.frames.map((s) => s.data.join(",")));
+  };
+
+  it("roundtrips procedural, animated, rigged and map assets byte-identically", () => {
+    const ids = [
+      data("generate_asset", { generator: "building", seed: 3, name: "house" }).asset.id,
+      data("generate_asset", { generator: "map", seed: 1, name: "field" }).asset.id,
+      data("generate_asset", { generator: "environment", params: { kind: "paddy-tile" }, name: "paddy" }).asset.id,
+      data("generate_rigged", { rig: "humanoid-normal", attachments: ["straw-hat", "hoe"], clips: ["idle", "walk"], name: "farmer" }).asset.id,
+    ];
+    for (const id of ids) {
+      const { r } = roundtrip(id);
+      expect(frames(r.id)).toEqual(frames(id));
+    }
+    const rigSvg = readFileSync(join(dir, "ws", "characters", "farmer.svg"), "utf8");
+    expect(rigSvg).toContain('inkscape:label="straw-hat"');
+    expect(rigSvg).toContain('inkscape:label="core"');
+    expect(rigSvg).toContain(">walk-down 0<");
+  });
+
+  it("ignores hidden layers and the guides layer, and replace_id keeps name/category", () => {
+    const a = data("generate_asset", { generator: "building", seed: 3, name: "house" }).asset;
+    const f = data("export_asset", { id: a.id, format: "svg" }).files[0].path;
+    let svg = readFileSync(f, "utf8");
+    svg = svg.replace('inkscape:label="roof" inkscape:groupmode="layer"', 'inkscape:label="roof" inkscape:groupmode="layer" style="display:none"');
+    const p = join(dir, "edit.svg");
+    writeFileSync(p, svg);
+    const r = data("import_svg", { path: p, replace_id: a.id }).asset;
+    expect(r.id).toBe(a.id);
+    expect(r.name).toBe("house");
+    expect(r.source.kind).toBe("manual");
+    const mats = new Set(ws.load().assets[0].rows[0].frames[0].data);
+    expect(mats.size).toBeGreaterThan(1);
+    expect(() => call("import_svg", { path: join(dir, "nope.svg") })).toThrow(/Cannot read/);
+  });
+
+  it("generate_pack writes svg next to png by default", () => {
+    const d = data("generate_pack", { manifest: { entries: [{ name: "rock1", generator: "object", params: { kind: "chest" } }] } });
+    expect(d.assets[0].files.some((f: string) => f.endsWith(".svg"))).toBe(true);
   });
 });

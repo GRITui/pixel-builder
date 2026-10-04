@@ -500,9 +500,10 @@ image-reading tool, since looking at the output is part of the workflow.
 
 `get_style_guide`, `list_generators`, `generate_asset`, `generate_variations`,
 `paint_asset`, `edit_asset`, `list_assets`, `get_asset`, `delete_asset`,
-`export_asset`, `import_image`, `list_kits`, `create_kit`, `update_kit`,
+`export_asset` (png, spritesheet, tiled, svg), `import_image`, `import_svg`, `list_kits`, `create_kit`, `update_kit`,
 `set_active_kit`, `rerender_assets`, `list_rigs`, `list_clips`, `list_attachments`,
-`generate_rigged`, `attach`, `create_rig`, `create_clip`, `create_attachment`. MCP also exposes the resources
+`generate_rigged`, `attach`, `create_rig`, `create_clip`, `create_attachment`. `export_asset format=svg` writes a layered SVG (layer per material, per part for rigged assets, locked `guides` layer);
+`import_svg` reads it back: edit by layer, keep `data-material` attrs or use kit colours, the guides layer is ignored. MCP also exposes the resources
 `pixel-builder://project`, `pixel-builder://style-guide` and the prompt
 `asset_pack` (`game`, `count`). Inputs and outputs: see
 [`BUILD_PLAN.md`](BUILD_PLAN.md) ("Agent tool contract") and the skill's cheat-sheet.

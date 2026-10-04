@@ -13,6 +13,7 @@ import { newId } from "../core/kit";
 import { buildLegend, decodeRows, encodeSprite, legendText, type Legend } from "../core/legend";
 import { MATERIALS, PALETTES, RAMP_LEN, type Material } from "../core/palette";
 import type { ProjectFile } from "../core/project";
+import { rigSvgInfo, svgToSprites } from "../core/svg";
 import { renderRig, renderRigFrame, validateRig, type Attachment, type Clip, type RigDef, type RigRecipe } from "../core/rig";
 import { ATTACHMENTS, CLIPS, RIGS, withHumanoidDefaults } from "../core/rigs";
 import { randomSeed, rng } from "../core/rng";
@@ -603,21 +604,35 @@ const exportAssetTool = defineTool({
   name: "export_asset",
   title: "Export asset",
   description:
-    "Write game-ready files for an asset. 'png' = image (animated assets become a spritesheet + .json metadata; maps also get .tiled.json + tilesets); 'spritesheet' = always sheet + .json; 'tiled' = map only. Default folder: <workspace>/<category>s/ (characters/, buildings/, environments/, objects/, maps/ - and ui/ for UI assets, not uis/).",
+    "Write game-ready files for an asset. 'png' = image (animated assets become a spritesheet + .json metadata; maps also get .tiled.json + tilesets); 'spritesheet' = always sheet + .json; 'tiled' = map only; 'svg' = layered vector (a layer per material, per part for rigged assets, plus a locked 'guides' layer with pixel/tile grid, ground line, frame labels, joints) that opens in Inkscape/Figma and comes back with import_svg. Default folder: <workspace>/<category>s/ (characters/, buildings/, environments/, objects/, maps/ - and ui/ for UI assets, not uis/).",
   shape: {
     id: z.string().describe("Asset id (or exact name)."),
-    format: z.enum(["png", "spritesheet", "tiled"]).default("png"),
-    scale: z.number().int().min(1).max(16).default(1).describe("Integer upscale of the PNG (nearest neighbour)."),
+    format: z.enum(["png", "spritesheet", "tiled", "svg"]).default("png"),
+    scale: z.number().int().min(1).max(16).default(1).describe("Integer upscale of the PNG (nearest neighbour); ignored for svg."),
     out_dir: z.string().optional().describe("Output folder (relative to the current directory). Default: <workspace>/<category>s/ (ui/ for UI assets)."),
   },
   positional: "id",
   run(ws, i) {
     const project = ws.load();
     const asset = findAsset(project, i.id);
-    const files = exportAsset(ws, project, asset, { format: i.format, scale: i.scale, outDir: i.out_dir });
+    const files = exportAsset(ws, project, asset, { format: i.format, scale: i.scale, outDir: i.out_dir, rig: i.format === "svg" ? rigInfoOf(project, asset) : undefined });
     return { data: { asset: { id: asset.id, name: asset.name }, files } };
   },
 });
+
+/** Part ownership for a rigged asset's SVG layers (undefined for everything else, or if the recipe no longer resolves). */
+function rigInfoOf(project: ProjectFile, asset: Asset) {
+  const recipe = asset.source.kind === "rigged" ? asset.source.rig : undefined;
+  if (!recipe) return undefined;
+  try {
+    const kit = kitOf(project, asset);
+    const res = renderRecipe(project, kit, recipe);
+    if (res.rows.length !== asset.rows.length) return undefined;
+    return rigSvgInfo({ rig: res.lib.rig, slots: recipe.slots, attachments: res.attachments, clips: res.clips, kit });
+  } catch {
+    return undefined;
+  }
+}
 
 // ---------- import ----------
 
@@ -716,6 +731,63 @@ const importImage = defineTool({
       meta: i.outline ? undefined : { outline: false },
     });
     project.assets.push(asset);
+    ws.save(project);
+    const files = absPaths(exportAsset(ws, project, asset));
+    return { data: { asset: { ...summarize(ws, project, asset), files }, ...(notes.length ? { notes } : {}) }, images: [previewOf(asset, kit)] };
+  },
+});
+
+const importSvg = defineTool({
+  name: "import_svg",
+  title: "Import SVG",
+  description:
+    "Import a layered SVG (from export_asset format 'svg', edited in Inkscape/Figma/by an AI, or any pixel-rect SVG) as an asset, or with replace_id replace an existing asset's frames (name/category kept, source becomes 'manual'). Edit by layer: keep data-material/data-level on rects, or use kit palette colours (a changed fill wins and is snapped to the nearest kit colour). The 'guides' layer and hidden layers are ignored. Saves and exports it.",
+  shape: {
+    path: z.string().describe("Path to an .svg file (relative to the current directory)."),
+    name: z.string().min(1).max(80).optional().describe("Default: the name stored in the SVG, else the file name."),
+    category: categoryEnum.optional().describe("Default: the category stored in the SVG, else 'object'."),
+    replace_id: z.string().optional().describe("Replace the frames of this existing asset (id or name) instead of creating one."),
+    kit_id: kitIdField,
+  },
+  positional: "path",
+  run(ws, i) {
+    const file = resolve(i.path);
+    let text: string;
+    try {
+      text = readFileSync(file, "utf8");
+    } catch (e) {
+      throw new ToolError(`Cannot read '${file}': ${(e as Error).message}`);
+    }
+    const project = ws.load();
+    const existing = i.replace_id ? findAsset(project, i.replace_id) : undefined;
+    const kit = existing ? kitOf(project, existing) : getKit(project, i.kit_id);
+    let parsed;
+    try {
+      parsed = svgToSprites(text, kit);
+    } catch (e) {
+      throw new ToolError(`'${file}': ${(e as Error).message}`);
+    }
+    const notes = [...parsed.notes];
+    if (!parsed.rows.some((r) => r.frames.some((s) => s.data.some((v) => v > 0)))) throw new ToolError("The SVG produced only transparent frames. Check that the pixel rects are visible and outside the 'guides' layer.");
+    let asset: Asset;
+    if (existing) {
+      existing.rows = parsed.rows;
+      existing.source = { kind: "manual" };
+      if (existing.tilemap) { existing.tilemap = undefined; notes.push("tilemap data dropped: the map is now plain pixels"); }
+      existing.updatedAt = Date.now();
+      asset = existing;
+    } else {
+      const stem = file.split(/[\\/]/).pop()!.replace(/\.svg$/i, "");
+      asset = createAsset({
+        name: i.name ?? parsed.name ?? stem,
+        category: i.category ?? parsed.category ?? "object",
+        kit,
+        rows: parsed.rows,
+        fps: parsed.fps ?? 6,
+        source: { kind: "import" },
+      });
+      project.assets.push(asset);
+    }
     ws.save(project);
     const files = absPaths(exportAsset(ws, project, asset));
     return { data: { asset: { ...summarize(ws, project, asset), files }, ...(notes.length ? { notes } : {}) }, images: [previewOf(asset, kit)] };
@@ -1205,6 +1277,7 @@ const generatePack = defineTool({
     only: z.array(z.string()).optional().describe("Keep entries tagged with any of these (or using one of these generator ids; rigged entries count as 'rigged')."),
     kit_id: kitIdField,
     replace: z.boolean().default(true).describe("Delete an existing asset with the same name first, so re-running a pack updates it in place."),
+    svg: z.boolean().default(true).describe("Also write a layered .svg next to each asset's PNG (editable in Inkscape/Figma; re-import with import_svg)."),
     dry_run: z.boolean().default(false),
   },
   positional: "pack",
@@ -1224,6 +1297,11 @@ const generatePack = defineTool({
         const { tags: _t, ...input } = e;
         const r = callTool(ws, isRigged(e) ? "generate_rigged" : "generate_asset", { ...input, ...(i.kit_id ? { kit_id: i.kit_id } : {}) });
         const asset = (r.data as { asset: { name: string; files: string[] } }).asset;
+        if (i.svg) {
+          const project = ws.load();
+          const a = project.assets.find((x) => x.name === asset.name);
+          if (a) asset.files.push(...absPaths(exportAsset(ws, project, a, { format: "svg", rig: rigInfoOf(project, a) })));
+        }
         made.push({ name: asset.name, files: asset.files });
       } catch (err) {
         failed.push({ name: e.name, error: err instanceof Error ? err.message : String(err) });
@@ -1243,5 +1321,5 @@ export const TOOLS: ToolDef[] = [
   getStyleGuide, listGenerators, generateAsset, generateVariations, paintAsset, editAsset, listAssets, getAsset,
   deleteAsset, exportAssetTool, importImage, listKits, createKit, updateKit, setActiveKit, rerenderAssets,
   listRigs, listClips, listAttachments, generateRigged, attach, createRig, createClip, createAttachment,
-  generatePack,
+  generatePack, importSvg,
 ];
