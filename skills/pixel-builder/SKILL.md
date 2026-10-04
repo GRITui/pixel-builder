@@ -37,7 +37,11 @@ hand-write PNGs or invent colours.
 | `list_assets` / `get_asset` / `delete_asset` | manage the library |
 | `export_asset` | `png`, `spritesheet` or `tiled` (maps) at a scale |
 | `import_image` | quantise an existing PNG to the kit palette |
-| `rerender_assets` | regenerate procedural assets after a kit change |
+| `rerender_assets` | regenerate procedural and rigged assets after a kit change |
+| `list_rigs` / `list_clips` / `list_attachments` | rigs, animation clips and accessories (with family); ids for `generate_rigged` |
+| `generate_rigged` | animated character: rig + `slots` + `attachments` + `clips` -> walk/idle rows in 4 directions, exported as a spritesheet |
+| `attach` | add/remove attachments (hat, tool) on a saved rigged asset; re-renders every frame |
+| `create_rig` / `create_clip` / `create_attachment` | author your own rig/clip/attachment as JSON (see `docs/RIG.md`); validated and stored in the project |
 
 Every call that makes or changes an asset returns a **preview image**. Always
 look at it before moving on.

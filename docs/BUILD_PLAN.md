@@ -277,7 +277,13 @@ optional unless marked *; `kit_id` defaults to the active kit.
 | `create_kit` | name*, base_kit_id, changes (partial StyleKit) | kit |
 | `update_kit` | kit_id*, changes* | kit |
 | `set_active_kit` | kit_id* | kit |
-| `rerender_assets` | ids, kit_id | re-generated procedural assets (consistency after a kit change) |
+| `rerender_assets` | ids, kit_id | re-generated procedural and rigged assets (consistency after a kit change) |
+| `list_rigs` / `list_clips` / `list_attachments` | family | rigs / clips / attachments (registry first, then project-defined), with family |
+| `generate_rigged` | rig*, slots, attachments[], clips[] (default walk, idle), name, kit_id, save (true) | character asset (rows `<clip>-<dir>`), spritesheet files, preview |
+| `attach` | id*, add[], remove[] | re-rendered rigged asset, files, preview |
+| `create_rig` | rig* (RigDef JSON), kit_id | validated + stored in the project, 3-view preview |
+| `create_clip` | clip* (Clip JSON), rig, kit_id | validated + stored; preview on `rig` if given |
+| `create_attachment` | attachment* (Attachment JSON), rig, kit_id | validated + stored; preview worn on `rig` if given |
 
 MCP also exposes resources `pixel-builder://project` (the project JSON) and
 `pixel-builder://style-guide`, and a prompt `asset_pack` (args: `game`,

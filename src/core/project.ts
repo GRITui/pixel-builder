@@ -3,6 +3,7 @@
 // palette indices, so a project re-colours itself when a kit changes.
 import { DEFAULT_KIT, KIT_PRESETS } from "./kit";
 import { PALETTE_SIZE } from "./palette";
+import type { Attachment, Clip, RigDef } from "./rig";
 import type { Asset, Category, Sprite, StyleKit } from "./types";
 import { CATEGORIES } from "./types";
 
@@ -15,6 +16,10 @@ export interface ProjectFile {
   activeKitId: string;
   kits: StyleKit[];
   assets: Asset[];
+  /** Agent/user-authored rig parts; resolved after the built-in registry (src/core/rigs). Optional: old files lack them. */
+  rigs?: RigDef[];
+  clips?: Clip[];
+  attachments?: Attachment[];
 }
 
 export function emptyProject(): ProjectFile {
@@ -29,7 +34,11 @@ export function emptyProject(): ProjectFile {
 export function serializeProject(p: ProjectFile): string {
   const kits = JSON.stringify(p.kits, null, 2).replace(/\n/g, "\n  ");
   const assets = p.assets.map((a) => `    ${JSON.stringify(a)}`).join(",\n");
-  return `{\n  "format": ${JSON.stringify(p.format)},\n  "version": ${p.version},\n  "activeKitId": ${JSON.stringify(p.activeKitId)},\n  "kits": ${kits},\n  "assets": [${assets ? `\n${assets}\n  ` : ""}]\n}\n`;
+  const extra = (["rigs", "clips", "attachments"] as const)
+    .filter((k) => p[k]?.length)
+    .map((k) => `,\n  "${k}": [\n${p[k]!.map((x) => `    ${JSON.stringify(x)}`).join(",\n")}\n  ]`)
+    .join("");
+  return `{\n  "format": ${JSON.stringify(p.format)},\n  "version": ${p.version},\n  "activeKitId": ${JSON.stringify(p.activeKitId)},\n  "kits": ${kits},\n  "assets": [${assets ? `\n${assets}\n  ` : ""}]${extra}\n}\n`;
 }
 
 const CATEGORY_IDS = new Set<Category>(CATEGORIES.map((c) => c.id));
@@ -88,8 +97,22 @@ export function parseProject(json: string): { project: ProjectFile; warnings: st
     else warnings.push(`Dropped invalid asset ${(a as Asset)?.name ?? (a as Asset)?.id ?? "?"}`);
   }
 
+  const lib = <T extends { id: string }>(key: "rigs" | "clips" | "attachments", ok: (x: any) => boolean): T[] | undefined => {
+    const v = (raw as Record<string, unknown>)[key];
+    if (!Array.isArray(v)) return undefined;
+    const out = v.filter((x) => {
+      const good = !!x && typeof x === "object" && typeof x.id === "string" && ok(x);
+      if (!good) warnings.push(`Dropped invalid ${key.slice(0, -1)} ${(x as { id?: string })?.id ?? "?"}`);
+      return good;
+    });
+    return out.length ? (out as T[]) : undefined;
+  };
+  const rigs = lib<RigDef>("rigs", (x) => Array.isArray(x.joints) && Array.isArray(x.parts));
+  const clips = lib<Clip>("clips", (x) => x.frames && typeof x.frames === "object");
+  const attachments = lib<Attachment>("attachments", (x) => Array.isArray(x.parts));
+
   const activeKitId = kits.some((k) => k.id === raw.activeKitId) ? raw.activeKitId! : kits[0].id;
-  return { project: { format: PROJECT_FORMAT, version: PROJECT_VERSION, activeKitId, kits, assets }, warnings };
+  return { project: { format: PROJECT_FORMAT, version: PROJECT_VERSION, activeKitId, kits, assets, ...(rigs ? { rigs } : {}), ...(clips ? { clips } : {}), ...(attachments ? { attachments } : {}) }, warnings };
 }
 
 /** Merge `incoming` into `base`: kits/assets with the same id are replaced, new ones appended. */
@@ -99,5 +122,8 @@ export function mergeProjects(base: ProjectFile, incoming: ProjectFile): Project
     for (const x of b) m.set(x.id, x);
     return [...m.values()];
   };
-  return { ...base, kits: byId(base.kits, incoming.kits), assets: byId(base.assets, incoming.assets) };
+  const out: ProjectFile = { ...base, kits: byId(base.kits, incoming.kits), assets: byId(base.assets, incoming.assets) };
+  for (const k of ["rigs", "clips", "attachments"] as const)
+    if (base[k]?.length || incoming[k]?.length) (out as any)[k] = byId<{ id: string }>(base[k] ?? [], incoming[k] ?? []);
+  return out;
 }

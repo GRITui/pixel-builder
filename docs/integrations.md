@@ -501,7 +501,8 @@ image-reading tool, since looking at the output is part of the workflow.
 `get_style_guide`, `list_generators`, `generate_asset`, `generate_variations`,
 `paint_asset`, `edit_asset`, `list_assets`, `get_asset`, `delete_asset`,
 `export_asset`, `import_image`, `list_kits`, `create_kit`, `update_kit`,
-`set_active_kit`, `rerender_assets`. MCP also exposes the resources
+`set_active_kit`, `rerender_assets`, `list_rigs`, `list_clips`, `list_attachments`,
+`generate_rigged`, `attach`, `create_rig`, `create_clip`, `create_attachment`. MCP also exposes the resources
 `pixel-builder://project`, `pixel-builder://style-guide` and the prompt
 `asset_pack` (`game`, `count`). Inputs and outputs: see
 [`BUILD_PLAN.md`](BUILD_PLAN.md) ("Agent tool contract") and the skill's cheat-sheet.
