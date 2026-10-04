@@ -20,7 +20,7 @@ export const GROUND_JOINTS: Record<RigFamily, readonly string[]> = {
 };
 const VIEWS: View[] = ["down", "side", "up"];
 
-export const MAX_OFFSET = 4; // grid units (design grid 32)
+export const MAX_OFFSET = 6; // grid units (design grid 32); built-in clips (chop, mine, graze) reach 6
 export const MAX_OFFSET_JUMP = 8;
 export const MIN_FRAMES = 2;
 export const MAX_FRAMES = 12;

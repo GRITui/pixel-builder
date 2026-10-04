@@ -69,7 +69,7 @@ describe("checkClip validation", () => {
     expect(r.errors[0]).toMatch(/unknown joint 'wing'/);
   });
   it("catches out-of-range offsets (jump allows a little more)", () => {
-    expect(check((o) => (o.frames.side[1].handR = { dx: 0, dy: -5 })).errors[0]).toMatch(/outside \+-4/);
+    expect(check((o) => (o.frames.side[1].handR = { dx: 0, dy: -7 })).errors[0]).toMatch(/outside \+-6/);
     const jump = FIXTURES[3];
     const o = clone(jump.output);
     o.frames.side[2].handR = { dx: 0, dy: -6 };

@@ -186,7 +186,7 @@ Then `generate_rigged` with `clips: ["wai-bow", "idle"]`, look at the sheet, adj
 again with the same id (it replaces). Rules (the server enforces the same ones for `/api/clip`):
 
 - Only joints of the rig's family; an unknown joint is an error.
-- Offsets within +-4 grid units (+-8 when the motion is a jump, hop, leap or flap).
+- Offsets within +-6 grid units (+-8 when the motion is a jump, hop, leap or flap).
 - Planted feet stay on the ground: a foot's own `dy` plus its parents' `dy` must not be > 0 (no sinking), and
   at least one foot stays within 2 units of the ground in every frame, unless the motion leaves the ground on purpose.
 - 2-12 frames per view, the same count in every view, `fps` 1-30.
