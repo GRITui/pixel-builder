@@ -289,6 +289,7 @@ function kitSummary(kit: StyleKit, active: boolean) {
     shade_steps: kit.shadeSteps,
     dither: kit.dither,
     ambient: kit.ambient,
+    detail: kit.detail ?? "standard",
     sizes: kit.sizes,
   };
 }
@@ -303,6 +304,9 @@ function paintingRules(kit: StyleKit): string[] {
       ? "This kit has no outline: paint silhouettes with enough contrast against the background to read."
       : `This kit uses a ${kit.outline} outline. paint_asset adds it automatically (outline=true), so do NOT paint the outline and leave a 1px transparent margin around the silhouette.`,
     kit.dither ? "Dithering is on for this kit: blend between two adjacent shades with a checkerboard, never a long gradient." : "Dithering is off for this kit: use flat bands of shade, no noise or checkerboards.",
+    (kit.detail ?? "standard") === "rich"
+      ? "This kit is detail:rich. Generated assets get hue-shifted shading, per-material outlines, eye highlights, cloth folds and curved-edge anti-aliasing for free — hand-painted rows do NOT get those passes, so match them yourself: a white pixel in each eye, a shade under the brow, folds at the elbows and knees, and keep the silhouette the same size."
+      : "This kit is detail:standard: generated and hand-painted assets both stay on plain shade bands with a single ink outline.",
     `Sizes for this kit: character ${kit.sizes.character}px, building ${kit.sizes.building}px, environment ${kit.sizes.environment}px, object ${kit.sizes.object}px, ui ${kit.sizes.ui}px, tile ${kit.sizes.tile}px. Match them so assets sit together; stand characters, buildings and props on the bottom edge, centred horizontally.`,
     "Keep silhouettes readable at 1x: chunky shapes, a few materials per sprite, no stray single pixels (cleanup=true removes them).",
     "Animation: all frames of an asset share one size and change only a few pixels between frames. For several animation rows pass row_names and give frames in row order (equal frames per row).",
@@ -330,7 +334,7 @@ const getStyleGuide = defineTool({
     const text = [
       `# Style guide: ${kit.name} (${kit.id})`,
       `vibe: ${kit.vibe}`,
-      `palette ${kit.paletteId} | light ${kit.lightDir} | outline ${kit.outline} | shade steps ${kit.shadeSteps} | dither ${kit.dither} | ambient ${kit.ambient}`,
+      `palette ${kit.paletteId} | light ${kit.lightDir} | outline ${kit.outline} | shade steps ${kit.shadeSteps} | dither ${kit.dither} | ambient ${kit.ambient} | detail ${kit.detail ?? "standard"}`,
       `sizes: ${Object.entries(kit.sizes).map(([k, v]) => `${k} ${v}`).join(", ")}`,
       "",
       "## Palette legend (level 0 = darkest, 4 = lightest)",
@@ -1011,6 +1015,7 @@ const kitChanges = z
     shadeSteps: z.number().int().min(2).max(5).describe("Shades used per material (2 = flat/chunky, 5 = smooth)."),
     dither: z.boolean(),
     ambient: z.number().min(0).max(1),
+    detail: z.enum(["standard", "rich"]).describe("Pixel effort: standard (the shipped look) or rich (hue-shifted ramps, per-material outlines, eye/fold/seam micro-detail, curved-edge anti-aliasing at the same resolution). Rich changes only procedural and rigged output; hand-painted rows are left as painted."),
     sizes: z.object({ character: size, building: size, environment: size, object: size, ui: size, tile: size }).partial().strict(),
     vibe: z.string().max(500).describe("Free-text art direction."),
   })
@@ -1039,7 +1044,7 @@ const listKits = defineTool({
 const createKit = defineTool({
   name: "create_kit",
   title: "Create kit",
-  description: "Create a style kit by copying base_kit_id (default: the active kit) and applying `changes` (a partial StyleKit: paletteId, rampOverrides, outline, lightDir, shadeSteps, dither, ambient, sizes, vibe). It is not activated; use set_active_kit.",
+  description: "Create a style kit by copying base_kit_id (default: the active kit) and applying `changes` (a partial StyleKit: paletteId, rampOverrides, outline, lightDir, shadeSteps, dither, ambient, detail, sizes, vibe). It is not activated; use set_active_kit.",
   shape: { name: z.string().min(1).max(60), base_kit_id: z.string().optional(), changes: kitChanges.optional() },
   positional: "name",
   run(ws, i) {
@@ -1066,7 +1071,7 @@ const updateKit = defineTool({
     ws.save(project);
     const used = project.assets.filter((a) => a.kitId === kit.id);
     const procedural = used.filter((a) => a.source.kind === "procedural" || a.source.kind === "rigged").length;
-    const reshape = ["outline", "lightDir", "shadeSteps", "dither", "ambient", "sizes"].some((k) => k in i.changes);
+    const reshape = ["outline", "lightDir", "shadeSteps", "dither", "ambient", "sizes", "detail"].some((k) => k in i.changes);
     return {
       data: {
         kit: next,

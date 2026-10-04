@@ -2,7 +2,7 @@
 // Everything that arrives from the browser or from the model is untrusted.
 import { MATERIALS, PALETTES, RAMP_LEN, hexToRgb, rgbToOklab, type Material, type Ramps } from "../src/core/palette";
 import { DEFAULT_KIT } from "../src/core/kit";
-import { CATEGORIES, type Category, type LightDir, type OutlineMode, type Sprite, type StyleKit } from "../src/core/types";
+import { CATEGORIES, type Category, type DetailMode, type LightDir, type OutlineMode, type Sprite, type StyleKit } from "../src/core/types";
 import { PAINT, coerceParams, type Generator, type ParamSpec, type Params } from "../src/core/generators/types";
 import { buildLegend, encodeSprite, legendText } from "../src/core/legend";
 import { buildInpaintPrompt, type Region } from "../src/core/inpaint";
@@ -24,6 +24,7 @@ export class HttpError extends Error {
 
 const OUTLINES: OutlineMode[] = ["none", "black", "colored", "selective"];
 const LIGHTS: LightDir[] = ["top-left", "top", "top-right"];
+const DETAILS: DetailMode[] = ["standard", "rich"];
 const HEX = /^#[0-9a-f]{6}$/i;
 
 export type JsonSchema = Record<string, unknown>;
@@ -68,6 +69,7 @@ export function normalizeKit(raw: unknown): StyleKit {
     shadeSteps: Math.round(num(k.shadeSteps, 2, RAMP_LEN, DEFAULT_KIT.shadeSteps)),
     dither: typeof k.dither === "boolean" ? k.dither : DEFAULT_KIT.dither,
     ambient: num(k.ambient, 0, 1, DEFAULT_KIT.ambient),
+    detail: DETAILS.includes(k.detail as DetailMode) ? (k.detail as DetailMode) : DEFAULT_KIT.detail,
     sizes,
     vibe: cleanText(k.vibe, 600) || DEFAULT_KIT.vibe,
   };
@@ -143,14 +145,14 @@ export function normalizeSprite(raw: unknown): Sprite | null {
   return { w, h, data: data.map((v) => (typeof v === "number" ? v : 0)) };
 }
 
-export function normalizeReferences(raw: unknown): Sprite[] {
-  if (!Array.isArray(raw)) return [];
 export function normalizeSpriteOrThrow(raw: unknown): Sprite {
   const s = normalizeSprite(raw);
   if (!s) throw new HttpError(400, "`sprite` must be a {w,h,data} sprite of palette indices, or `rows` of legend chars (with width and height).");
   return s;
 }
 
+export function normalizeReferences(raw: unknown): Sprite[] {
+  if (!Array.isArray(raw)) return [];
   return raw.slice(0, 2).map(normalizeSprite).filter((s): s is Sprite => !!s);
 }
 

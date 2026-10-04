@@ -46,12 +46,32 @@ Style Kit fields (`create_kit` / `update_kit` `changes`):
 | `shadeSteps` | 2-5 (fewer = flatter, chunkier) |
 | `dither` | true / false |
 | `ambient` | 0-1 (raises the darkest shade on shadow sides) |
+| `detail` | `standard` (default, the shipped look) or `rich` |
 | `sizes` | `character`, `building`, `environment`, `object`, `ui`, `tile` in px |
 | `vibe` | free text art direction |
 
 Built-in kits: `kit-default` (Cozy RPG), `kit-gameboy` (Handheld Classic),
 `kit-neon` (Neon Dusk). Matching the kit to the game's mood first is the single
 biggest consistency win: pick palette + outline + light, then size the sprites.
+
+### `detail: "rich"`
+
+Opt-in, at the same resolution — nothing gets bigger. Generated and rigged assets
+gain: hue-shifted shading (shadows cool, highlights warm), a per-material outline
+instead of one ink colour, human micro-detail (eye highlights, a nose shade,
+elbow and knee folds, seams and a pocket, a hair specular band, boot soles and
+laces), a rim light on the shadow side, and anti-aliasing on curved silhouettes.
+`standard` output is byte-identical to a kit with no `detail` field.
+
+Two things to know before you turn it on:
+
+- It changes **generated** output only. `paint_asset` rows are left exactly as
+  painted, so a hand-painted sprite in a rich kit is *not* auto-detailed — match
+  the cues yourself or generate instead.
+- The silhouette never grows: the anti-alias band replaces the outline ring rather
+  than adding a ring outside it, so a rich sprite occupies the same pixels on
+  screen as its standard twin and world scale is unchanged.
+- Switching `detail` needs `rerender_assets`, like any other shape-affecting field.
 
 ## Generators (snapshot; call `list_generators` for the exact current specs)
 

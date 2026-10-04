@@ -21,6 +21,12 @@ export const CATEGORIES: { id: Category; label: string }[] = [
 
 export type OutlineMode = "none" | "black" | "colored" | "selective";
 export type LightDir = "top-left" | "top" | "top-right";
+/**
+ * How hard the pixels work for the look. "standard" is the shipped renderer and
+ * must stay byte-identical; "rich" spends the same pixels on richer detail
+ * (hue-shifted ramps, per-material outlines, micro-detail, anti-aliasing).
+ */
+export type DetailMode = "standard" | "rich";
 
 /**
  * The style kit is the single source of truth for "how this game looks".
@@ -39,6 +45,8 @@ export interface StyleKit {
   dither: boolean;
   /** Ambient light 0..1 — raises the darkest shade used on shadow sides. */
   ambient: number;
+  /** Pixel effort level. "standard" is the default renderer; "rich" adds the #36 detail passes. */
+  detail: DetailMode;
   sizes: Record<Exclude<Category, "map">, number> & { tile: number };
   /** Free-text art direction used by the AI ("cozy, chunky, SNES-era"). */
   vibe: string;

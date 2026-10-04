@@ -290,6 +290,38 @@ describe("kits", () => {
     expect(() => call("update_kit", { kit_id: "nope", changes: {} })).toThrow(/Unknown kit/);
     expect(() => call("set_active_kit", { kit_id: "nope" })).toThrow(ToolError);
   });
+
+  it("carries the detail field through create, update, summary and style guide", () => {
+    // `detail` is an agent-facing kit field (#36), so it has to survive the whole
+    // kit tool surface, not just the project file.
+    expect(data("get_style_guide").kit.detail).toBe("standard");
+
+    const rich = data("create_kit", { name: "Rich", changes: { detail: "rich" } }).kit;
+    expect(rich.detail).toBe("rich");
+    expect(data("list_kits").kits.find((k: { id: string }) => k.id === rich.id).detail).toBe("rich");
+
+    const back = data("update_kit", { kit_id: rich.id, changes: { detail: "standard" } }).kit;
+    expect(back.detail).toBe("standard");
+
+    data("set_active_kit", { kit_id: rich.id });
+    const guide = call("get_style_guide").data as { kit: { detail: string }; rules: string[] };
+    expect(guide.kit.detail).toBe("standard");
+    expect(call("get_style_guide").text).toMatch(/detail standard/);
+    expect(guide.rules.join(" ")).toMatch(/detail:standard/);
+
+    data("update_kit", { kit_id: rich.id, changes: { detail: "rich" } });
+    expect(((call("get_style_guide").data as { rules: string[] }).rules).join(" ")).toMatch(/detail:rich/);
+    expect(() => call("create_kit", { name: "x", changes: { detail: "ultra" } })).toThrow(/detail/);
+  });
+
+  it("flags a detail change as needing rerender_assets", () => {
+    const rich = data("create_kit", { name: "Rich", changes: { detail: "rich" } }).kit;
+    data("set_active_kit", { kit_id: rich.id });
+    const gen = data("generate_asset", { generator: "character", params: {}, seed: 1, name: "Detail hero" });
+    const note = data("update_kit", { kit_id: rich.id, changes: { detail: "standard" } }).note;
+    expect(note).toMatch(/rerender_assets/);
+    expect(gen.asset.rows.length).toBeGreaterThan(0);
+  });
 });
 
 describe("svg stays in sync", () => {

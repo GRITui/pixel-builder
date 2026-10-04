@@ -1,6 +1,6 @@
 # pixel-builder
 
-> Vibe-code consistent pixel art for games: characters, buildings, trees and ground tiles, props and items, UI and tile maps, all generated from one Style Kit (palette ramps, one light direction, one outline mode) so everything matches. Drive it from any AI agent through an MCP server (stdio or Streamable HTTP) or a CLI, or use the web app. Procedural generators need no API key.
+> Vibe-code consistent pixel art for games: characters, buildings, trees and ground tiles, props and items, UI and tile maps, all generated from one Style Kit (palette ramps, one light direction, one outline mode, an optional rich-detail tier) so everything matches. Drive it from any AI agent through an MCP server (stdio or Streamable HTTP) or a CLI, or use the web app. Procedural generators need no API key.
 
 Agents making pixel art: read the skill first. Agents editing this repository: read AGENTS.md. The 27 tools have the same names in MCP and in the CLI (kebab-case commands, `--json`).
 

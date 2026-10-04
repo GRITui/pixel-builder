@@ -516,6 +516,28 @@ image-reading tool, since looking at the output is part of the workflow.
 `asset_pack` (`game`, `count`). Inputs and outputs: see
 [`BUILD_PLAN.md`](BUILD_PLAN.md) ("Agent tool contract") and the skill's cheat-sheet.
 
+### Rich detail (`detail: "rich"`)
+
+Every kit has a `detail` field, settable through `create_kit` / `update_kit`
+`changes: { detail: "rich" }`. It is opt-in and affects **generated and rigged**
+assets only, at the same resolution:
+
+- hue-shifted shading (shadows cooler, highlights warmer) across the ramps;
+- a per-material outline instead of one ink colour, so each part is inked in its
+  own darkest shade and overlapping limbs separate;
+- humanoid micro-detail: eye highlights, a nose shade, elbow and knee folds, a
+  shirt seam and pocket, a hair specular band, boot soles and laces;
+- a rim light on the shadow-side edge and anti-aliasing on curved silhouettes.
+
+`standard` (the default) is byte-identical to a kit with no `detail` field, and
+the silhouette never grows — the anti-alias band replaces the outline ring instead
+of adding one outside it, so world scale is unchanged.
+
+**Check:** `pixel-builder get-style-guide --json` reports the kit's `detail`, and
+a before/after `rerender_assets` shows the difference at the same pixel size.
+Hand-painted rows (`paint_asset`) are left exactly as painted, so in a rich kit an
+agent should generate rather than paint, or add the cues by hand.
+
 ### Autotile tilesets (`tileset` generator)
 
 `generate_asset generator=tileset params={lower,upper,layout}` makes one atlas PNG of transition

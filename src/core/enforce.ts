@@ -1,5 +1,6 @@
 import { colorIndex, decodeIndex, makeQuantizer, MATERIALS, OUTLINE_INDEX, PALETTE_SIZE, type Material, type RGB } from "./palette";
-import { lightVector, resolveRamps } from "./kit";
+import { isRich, lightVector, resolveRamps } from "./kit";
+import { richDetail } from "./rigs/detail";
 import { cloneSprite, createSprite, getPx } from "./sprite";
 import type { Sprite, StyleKit } from "./types";
 
@@ -76,10 +77,17 @@ export function sanitize(s: Sprite): Sprite {
   return { w: s.w, h: s.h, data: s.data.map((v) => (Number.isInteger(v) && v > 0 && v < PALETTE_SIZE ? v : 0)) };
 }
 
-/** The standard finishing pass every asset goes through. */
+/**
+ * The standard finishing pass every asset goes through.
+ *
+ * On a `detail: "rich"` kit the one-ink outline is replaced by the #36 passes
+ * (per-material sel-out, curved-edge anti-aliasing, rim light). The rich pass
+ * draws its own outline, so `applyOutline` is skipped rather than run twice.
+ */
 export function finalize(s: Sprite, kit: StyleKit, opts: { outline?: boolean; cleanup?: boolean } = {}): Sprite {
   let out = sanitize(s);
   if (opts.cleanup) out = removeOrphans(out);
+  if (isRich(kit)) return richDetail(out, kit, lightVector(kit.lightDir));
   if (opts.outline !== false) out = applyOutline(out, kit);
   return out;
 }

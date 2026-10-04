@@ -1,5 +1,5 @@
-import { MATERIALS, PALETTES, type Ramps } from "./palette";
-import type { LightDir, StyleKit } from "./types";
+import { hueShiftedRamps, MATERIALS, PALETTES, type Ramps } from "./palette";
+import type { DetailMode, LightDir, StyleKit } from "./types";
 
 export const DEFAULT_KIT: StyleKit = {
   id: "kit-default",
@@ -11,6 +11,7 @@ export const DEFAULT_KIT: StyleKit = {
   shadeSteps: 4,
   dither: false,
   ambient: 0.25,
+  detail: "standard",
   sizes: { character: 32, building: 96, environment: 32, object: 16, ui: 16, tile: 16 },
   vibe: "Cozy top-down fantasy RPG, chunky readable silhouettes, warm lighting, SNES-era charm.",
 };
@@ -43,11 +44,27 @@ export const KIT_PRESETS: StyleKit[] = [
   },
 ];
 
+/**
+ * The ramps a kit actually paints with: the palette's ramps, then the user's
+ * per-material overrides, then the rich-mode hue shift. The shift runs last so
+ * an override is shifted too — a user picking a warm ramp still gets cool
+ * shadows — and only on rich kits, so standard output is untouched.
+ */
 export function resolveRamps(kit: StyleKit): Ramps {
   const base = (PALETTES.find((p) => p.id === kit.paletteId) ?? PALETTES[0]).ramps;
   const out = {} as Ramps;
   for (const m of MATERIALS) out[m] = kit.rampOverrides[m] ?? base[m];
-  return out;
+  return isRich(kit) ? hueShiftedRamps(out) : out;
+}
+
+/** True when the kit asks for the #36 rich detail passes. */
+export function isRich(kit: StyleKit): kit is StyleKit & { detail: "rich" } {
+  return kit.detail === "rich";
+}
+
+/** The detail mode, defaulting to "standard" for kits written before the field existed. */
+export function detailOf(kit: StyleKit): DetailMode {
+  return kit.detail ?? "standard";
 }
 
 /** Light vector in screen space (x right, y down, z toward viewer), normalised. */

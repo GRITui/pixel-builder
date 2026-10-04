@@ -241,6 +241,13 @@ export function KitEditor(props: {
                 <input type="checkbox" checked={draft.dither} onChange={(e) => set("dither", e.target.checked)} />
                 <span>Dither shading</span>
               </label>
+              <label>
+                Detail
+                <select value={draft.detail ?? "standard"} onChange={(e) => set("detail", e.target.value as StyleKit["detail"])}>
+                  <option value="standard">Standard — the shipped look</option>
+                  <option value="rich">Rich — hue shift, per-material outline, micro-detail, AA</option>
+                </select>
+              </label>
             </div>
           </fieldset>
 

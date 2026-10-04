@@ -6,9 +6,9 @@ description: Make consistent pixel art for a game (characters, buildings, trees/
 # pixel-builder: consistent pixel art
 
 pixel-builder generates pixel art from one **Style Kit** (palette ramps, light
-direction, outline mode, shade steps, sprite sizes, vibe). Everything you make
-with it matches because it all goes through that kit. Use the tools below; do not
-hand-write PNGs or invent colours.
+direction, outline mode, shade steps, detail level, sprite sizes, vibe).
+Everything you make with it matches because it all goes through that kit. Use the
+tools below; do not hand-write PNGs or invent colours.
 
 ## Mental model (this is what makes the output consistent)
 
@@ -22,6 +22,12 @@ hand-write PNGs or invent colours.
    (they must tile seamlessly).
 4. **You never bypass the kit.** When you paint, you use only legend characters
    (each = one kit palette entry).
+5. **`detail: "rich"` spends the same pixels harder.** Opt in per kit for
+   hue-shifted shading, per-material outlines, eye highlights, cloth folds,
+   boot soles, a rim light and curved-edge anti-aliasing on *generated* assets —
+   at the same resolution, with the same silhouette. `standard` (the default) is
+   unchanged. Hand-painted rows are never auto-detailed, so in a rich kit prefer
+   generators, or paint the cues yourself.
 
 ## Tools (MCP tool names = CLI commands in kebab-case)
 
@@ -66,9 +72,9 @@ look at it before moving on.
 
 1. **Style first.** `get_style_guide`. If the game has no kit yet (or the active
    one doesn't fit), `create_kit` (name, optional `base_kit_id`, `changes` such as
-   `paletteId`, `outline`, `lightDir`, `shadeSteps`, `dither`, `sizes`, `vibe`),
-   then `set_active_kit`. Do this before generating anything. Changing the kit
-   later means `rerender_assets`.
+   `paletteId`, `outline`, `lightDir`, `shadeSteps`, `dither`, `detail`, `sizes`,
+   `vibe`), then `set_active_kit`. Do this before generating anything. Changing the
+   kit later means `rerender_assets`.
 2. **Pick a generator.** `list_generators` (optionally with `category`). Read the
    param specs; use real option values, materials come from the 18 names.
 3. **Generate.** `generate_asset` with `generator`, `params`, `seed`, `name`.

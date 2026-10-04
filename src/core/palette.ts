@@ -160,6 +160,49 @@ export function rgbToOklab([r, g, b]: RGB): [number, number, number] {
   ];
 }
 
+// ---------- hue-shifted ramps (rich detail) ----------
+
+/**
+ * Rich shading splits a ramp by temperature instead of moving every shadow to
+ * one darker step of the same hue: shadows swing cool (toward blue), midtones
+ * keep their hue and highlights swing warm (toward yellow).
+ *
+ * Degrees are small on purpose — enough to read as "lit" next to the unshifted
+ * ramp, not enough to leave the kit's palette.
+ *
+ * A ramp is only shifted when a hue shift would actually mean something, which
+ * keeps a kit's colour count honest. Two kinds are skipped:
+ *   - achromatic ramps (grey, or any override with no saturation), where a hue
+ *     rotation is a no-op;
+ *   - ramps whose steps are already duplicates of each other, like gameboy's
+ *     four greens repeated across five levels. Shifting those would split one
+ *     shared colour into three and quietly turn a 4-tone kit into a 6-tone one,
+ *     which breaks the identity the kit exists to provide.
+ */
+const COOL_SHIFT = -13;
+const WARM_SHIFT = 11;
+const HUE_RICH_MATERIALS = new Set<Material>([
+  "skin", "hair", "cloth", "cloth2", "leather", "wood", "stone", "roof", "foliage", "grass", "dirt", "sand", "water", "accent",
+]);
+
+/** True when shifting this ramp's hue would add a colour rather than move one. */
+function shiftable(ramp: string[]): boolean {
+  // a duplicated ramp (levels 1 and 2 are the same hex) has no distinct steps to
+  // separate, so shifting it only inflates the palette
+  if (new Set(ramp).size < ramp.length) return false;
+  // an achromatic ramp cannot express hue at all
+  return ramp.some((hex) => rgbToHsl(hexToRgb(hex))[1] > 0.05);
+}
+
+export function hueShiftedRamps(base: Ramps): Ramps {
+  const out = {} as Ramps;
+  for (const m of MATERIALS) {
+    const ramp = base[m];
+    out[m] = HUE_RICH_MATERIALS.has(m) && shiftable(ramp) ? ramp.map((hex, level) => (level === 0 || level === 4 ? hex : adjustColor(hex, { hue: level === 1 ? COOL_SHIFT : level === 2 ? 0 : WARM_SHIFT }))) : ramp;
+  }
+  return out;
+}
+
 // ---------- flattened index table ----------
 // index 0 = transparent; ramp r level l -> 1 + r * RAMP_LEN + l
 

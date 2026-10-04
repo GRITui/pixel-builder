@@ -1,11 +1,12 @@
 import { finalize } from "../enforce";
-import { KIT_PRESETS } from "../kit";
+import { isRich, KIT_PRESETS } from "../kit";
 import { buildLegend } from "../legend";
 import { Painter } from "../painter";
 import { colorIndex, type Material } from "../palette";
 import { clipFrames, renderRig, type Attachment, type Clip, type PartDef } from "../rig";
 import { HUMANOID_RIGS, humanoidRig, femaleCueParts, AGES, torsoWidth, type Age, type Build, type Sex } from "../rigs/humanoid";
 import { attachmentById, clipById } from "../rigs";
+import { microDetailParts } from "../rigs/detail";
 import { WALK } from "../rigs/example";
 import { hairStyleAttachment } from "../rigs/wardrobe";
 import { rng, type Rng } from "../rng";
@@ -191,6 +192,10 @@ function drawHumanoid(p: Params, kit: StyleKit, size: number, t: Traits): FrameS
     if (a) atts.push(a);
   }
   atts.push({ id: "details", name: "Seeded details", parts: detailParts(t, tw, size, hat !== "none" && (!attach(HEADWEAR_ID[hat]) || WARDROBE_HATS.has(hat)) ? 30 : 7, sex === "female" ? (age as Age) : undefined) });
+  // #36 micro-detail: eye glints, folds, seams, boot soles. Only on a rich kit, so
+  // standard output stays byte-identical.
+  if (isRich(kit))
+    atts.push({ id: "micro-detail", name: "Micro detail", parts: microDetailParts({ tw, eyeZ: hat !== "none" && (!attach(HEADWEAR_ID[hat]) || WARDROBE_HATS.has(hat)) ? 30 : 7 }) });
 
   return renderRig({ rig, kit, slots, attachments: atts, size }, [walkClip()]);
 }
