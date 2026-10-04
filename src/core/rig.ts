@@ -74,6 +74,20 @@ export interface Attachment {
   id: string;
   name: string;
   parts: PartDef[];
+  /**
+   * Extra joints the attachment brings (e.g. a hoe's `toolTip`, child of
+   * `handR`). They are added to the rig while rendering, so clips can pose
+   * them and `limb` parts can run from a hand to them (rotating tools).
+   */
+  joints?: Joint[];
+}
+
+/** The rig plus every joint contributed by its attachments. */
+export function withAttachmentJoints(rig: RigDef, attachments: Attachment[] = []): RigDef {
+  const extra = attachments.flatMap((a) => a.joints ?? []);
+  if (!extra.length) return rig;
+  const ids = new Set(rig.joints.map((j) => j.id));
+  return { ...rig, joints: [...rig.joints, ...extra.filter((j) => !ids.has(j.id) && (ids.add(j.id), true))] };
 }
 
 export interface RigRender {
@@ -128,7 +142,7 @@ export function renderRigFrame(r: RigRender, dir: Dir, pose: Pose = {}): Sprite 
   const k = size / rig.grid;
   const view = viewOf(dir);
   const flip = dir === "left";
-  const J = solvePose(rig, view, pose);
+  const J = solvePose(withAttachmentJoints(rig, r.attachments), view, pose);
   const X = (x: number) => (flip ? size - x * k : x * k);
   const Y = (y: number) => y * k;
   const slots = { ...rig.slots, ...(r.slots ?? {}) };
@@ -218,8 +232,9 @@ export interface RigRecipe {
 }
 
 /** Structural checks so hand-written or agent-written rigs fail with a clear message. */
-export function validateRig(rig: RigDef, attachments: Attachment[] = []): string[] {
+export function validateRig(base: RigDef, attachments: Attachment[] = []): string[] {
   const errs: string[] = [];
+  const rig = withAttachmentJoints(base, attachments);
   const ids = new Set(rig.joints.map((j) => j.id));
   if (ids.size !== rig.joints.length) errs.push("duplicate joint ids");
   for (const j of rig.joints) if (j.parent && !ids.has(j.parent)) errs.push(`joint ${j.id}: unknown parent ${j.parent}`);

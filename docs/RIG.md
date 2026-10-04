@@ -17,7 +17,7 @@ light, shade steps and outline. Code: `src/core/rig.ts`; reference rig:
 | `PartDef` | `ellipse` / `box` at a joint, `limb` (capsule) between two joints, `pixels` (legend-char rows pinned at a joint). Common: `id`, `z` (per view allowed), `views`, `slot`, `tone` |
 | `Clip` | `id`, `fps`, `frames`: a list of `Pose`s, or per-view lists |
 | `Pose` | `{ jointId: [dx, dy] }`: offsets in grid units; children inherit their parent's offset |
-| `Attachment` | `id`, `name`, `parts`; a part with an existing id replaces it (e.g. swap the hair) |
+| `Attachment` | `id`, `name`, `parts`, optional `joints` (extra joints such as a tool tip, posed by clips); a part with an existing id replaces it (e.g. swap the hair) |
 
 Views: `down`, `side`, `up`; `left` renders as a mirror of `side` with lighting
 recomputed. `renderRig({ rig, kit, slots, attachments }, clips)` returns rows

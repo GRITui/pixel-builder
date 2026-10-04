@@ -38,6 +38,19 @@ describe("rig core", () => {
     expect(top(hat)).toBeLessThan(top(plain));
   });
 
+  it("attachments can bring joints that clips pose", () => {
+    const kit = KIT_PRESETS[0];
+    const hoe = {
+      id: "t", name: "t",
+      joints: [{ id: "toolTip", parent: "handR", rest: [26, 14] as [number, number] }],
+      parts: [{ id: "shaft", kind: "limb" as const, from: "handR", to: "toolTip", r: 0.8, slot: "wood", z: 9 }],
+    };
+    expect(validateRig(EXAMPLE_RIG, [hoe])).toEqual([]);
+    const a = renderRigFrame({ rig: EXAMPLE_RIG, kit, attachments: [hoe] }, "down", {});
+    const b = renderRigFrame({ rig: EXAMPLE_RIG, kit, attachments: [hoe] }, "down", { toolTip: [-6, 6] });
+    expect(a.data).not.toEqual(b.data);
+  });
+
   it("left is a lit mirror of right, not a flipped copy", () => {
     const kit = KIT_PRESETS[0];
     const l = renderRigFrame({ rig: EXAMPLE_RIG, kit }, "left");
