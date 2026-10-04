@@ -92,19 +92,24 @@ const HB = (id: string, p: { dx: number; dy: number; w: number; h: number; views
 export function hairAttachment(style: HairStyle, fringe: -1 | 0 | 1 = 0): Attachment {
   if (style === "bald") return { id: "hair-bald", name: "Bald", parts: [] };
   const crown: PartDef[] = [
-    H("hair-crown-front", { dy: -2, rx: 7.4, ry: 5, views: ["down"] }),
+    H("hair-crown-front", { dy: -2.6, rx: 7.4, ry: 4.6, views: ["down"] }),
     H("hair-crown-side", { dx: -1, dy: -1.5, rx: 7, ry: 5.2, views: ["side"] }),
     H("hair-crown-up", { rx: 7.4, ry: 6.8, views: ["up"] }),
     HB("hair-back", { dx: -7.2, dy: -2, w: 5, h: 7, views: ["side"] }),
     HB("hair-tuftL", { dx: -7.2, dy: -1, w: 2, h: 5, views: ["down"] }),
     HB("hair-tuftR", { dx: 5.2, dy: -1, w: 2, h: 5, views: ["down"] }),
     { id: "hair-face", kind: "ellipse", joint: "head", dx: fringe * 0.5, dy: 1, rx: 6, ry: 4.6, slot: "skin", z: 6, views: ["down"] },
+    { id: "hair-fringe-shadow", kind: "box", joint: "head", dx: -3.5 + fringe * 0.5, dy: -2.4, w: 7, h: 1, slot: "skin", tone: -1, z: 6.1, views: ["down"] },
+    { id: "hair-fringe-shadow-side", kind: "box", joint: "head", dx: 1, dy: -2.4, w: 6, h: 1, slot: "skin", tone: -1, z: 6.1, views: ["side"] },
+    HB("hair-part-up", { dx: -0.5, dy: -6, w: 1, h: 5, views: ["up"], z: 5.2 }),
+    HB("hair-nape-up", { dx: -5, dy: 3, w: 10, h: 1, views: ["up"], z: 5.2 }),
+    HB("hair-band-up", { dx: -6, dy: 0, w: 12, h: 1, views: ["up"], z: 5.1 }),
     { id: "hair-face-side", kind: "ellipse", joint: "head", dx: 3.8, dy: 1.6, rx: 3.4, ry: 3.8, slot: "skin", z: 6, views: ["side"] },
   ];
   const extra: PartDef[] = [];
   if (style === "long") {
     extra.push(
-      HB("hair-long-up", { dx: -7.2, dy: 0, w: 14.4, h: 9, views: ["up"], z: 5 }),
+      H("hair-long-up", { dy: 3, rx: 7.6, ry: 7.4, views: ["up"], z: 5 }),
       HB("hair-long-side", { dx: -7.2, dy: 0, w: 5, h: 9, views: ["side"] }),
       HB("hair-long-L", { dx: -8, dy: 1, w: 3, h: 8, views: ["down"], z: 6 }),
       HB("hair-long-R", { dx: 5, dy: 1, w: 3, h: 8, views: ["down"], z: 6 }),
@@ -112,11 +117,11 @@ export function hairAttachment(style: HairStyle, fringe: -1 | 0 | 1 = 0): Attach
   } else if (style === "spiky") {
     [-5.6, -1.9, 1.9, 5.6].forEach((dx, i) => {
       const end = i === 0 || i === 3;
-      extra.push(H(`hair-spike${i}`, { dx, dy: end ? -5.8 : -7.6, rx: 2.2, ry: end ? 2.6 : 3.2, views: ["down", "side", "up"], z: 5 }));
+      extra.push(H(`hair-spike${i}`, { dx, dy: end ? -5.8 : -7.4, rx: 1.7, ry: end ? 3 : 3.5, views: ["down", "side", "up"], z: 5 }));
     });
   } else if (style === "ponytail") {
     extra.push(
-      HB("hair-tail-up", { dx: -1.5, dy: 3, w: 3, h: 7, views: ["up"], z: 6 }),
+      HB("hair-tail-up", { dx: -1, dy: 3, w: 2, h: 4, views: ["up"], z: 6 }),
       HB("hair-tail-side", { dx: -10, dy: -1, w: 3, h: 8, views: ["side"], z: 5 }),
     );
   }

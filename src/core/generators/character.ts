@@ -114,8 +114,8 @@ function detailParts(t: Traits, tw: number, size: number, eyeZ: number): PartDef
     { id: "eyeR", kind: "box", joint: "head", dx: 2 + ex, dy: 1, w: 1, h: 2, slot: "ink", tone: -2, z: eyeZ, views: ["down"] },
     { id: "eyeSide", kind: "box", joint: "head", dx: 3, dy: 1, w: 1, h: 2, slot: "ink", tone: -2, z: eyeZ, views: ["side"] },
   ];
+  P.push({ id: "mouth", kind: "box", joint: "head", dx: -0.5, dy: 4, w: 1, h: 1, slot: "skin", tone: -2, z: eyeZ, views: ["down"] });
   if (big) {
-    P.push({ id: "mouth", kind: "box", joint: "head", dx: -0.5, dy: 4, w: 1, h: 1, slot: "skin", tone: -1, z: eyeZ, views: ["down"] });
     if (t.blush) {
       P.push(
         { id: "blushL", kind: "box", joint: "head", dx: -4 - ex, dy: 3, w: 1, h: 1, slot: "cloth2", tone: 1, z: eyeZ, views: ["down"] },
@@ -138,8 +138,8 @@ function capeParts(tw: number): PartDef[] {
   return [
     { id: "capeL", kind: "box", joint: "chest", dx: -tw / 2 - 1.5, dy: 1, w: 2, h: 10, slot: "accent", normal: [-0.5, 0, 0.8], z: -1, views: ["down"] },
     { id: "capeR", kind: "box", joint: "chest", dx: tw / 2 - 0.5, dy: 1, w: 2, h: 10, slot: "accent", normal: [0.5, 0, 0.8], z: -1, views: ["down"] },
-    { id: "capeBack", kind: "box", joint: "chest", dx: -tw / 2 - 1, dy: -1, w: tw + 2, h: 12, slot: "accent", z: 2.7, views: ["up"] },
-    { id: "capeSide", kind: "box", joint: "chest", dx: -tw * 0.4 - 3, dy: 0, w: 3, h: 11, slot: "accent", normal: [-1, 0, 0.6], z: -1, views: ["side"] },
+    { id: "capeBack", kind: "ellipse", joint: "chest", dx: 0, dy: 4.5, rx: tw / 2 + 1.8, ry: 7, flat: 0.35, slot: "accent", z: 2.7, views: ["up"] },
+    { id: "capeSide", kind: "ellipse", joint: "chest", dx: -tw * 0.4 - 1.2, dy: 4.5, rx: 2.8, ry: 6.5, flat: 0.3, slot: "accent", z: -1, views: ["side"] },
   ];
 }
 
