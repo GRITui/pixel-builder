@@ -526,6 +526,12 @@ one repair round, then 422). The result is loaded into the timeline for hand-tun
 `npx tsx scripts/clip-author-demo.ts out.png` runs 9 prompts against a running server and writes a
 contact sheet (`--fixtures` renders the offline fixtures instead).
 
+### Water depth
+
+Water depth (`environment` + `map` + `tileset`): `water-tile` takes `depth` 0 shallow (sandy bottom) .. 3 abyss (absent/-1 = classic), `shore` (letters of `nesw` = land sides: animated foam line + wet sand bank) and `shore_rocks`; props `lily-pad` (`flower`), `reeds`, `cattail`, `river-rock`, `driftwood` (animated) and `small-bridge` (`span` 1-3, `trunk` wood | stone). `map` `water_depth: true` shades water by distance to shore (smooth gradient, foam, wet banks, lily pads, reeds); `river: true` carves a river across meadow/forest/winter. `tileset` `lower_depth` / `upper_depth` make water depth-band autotiles (water over water). Defaults are unchanged. Deep kits use the finer ramp shades for the gradient.
+
+Example: `generate_asset generator=map params={"biome":"meadow","river":true,"water_depth":true}`. Preview: `docs/img/water-depth.png`.
+
 ### Autotile tilesets (`tileset` generator)
 
 `generate_asset generator=tileset params={lower,upper,layout}` makes one atlas PNG of transition
@@ -584,3 +590,11 @@ if a command fails the dialog shows the CLI's error text.
 ## Deep palette ramps
 
 `kit-hd-deep` (HD sizes, rich detail, `rampDepth` 9) shades volumes with 9 shades per material. `get_style_guide` then lists extra legend chars (non-ASCII, `level 0.5` ...) for the in-between shades; the 90 classic chars are unchanged. Aseprite export carries the full 163-entry palette.
+
+## HD trees
+
+`foliage` makes lush leaf-cluster trees (species oak, willow, maple-autumn, birch, fruit-tree, pine-hd, sakura; size small/medium/large; season spring..winter; rows idle + sway):
+
+```bash
+pixel-builder generate-asset foliage --params species=willow,size=large --seed 3 --name "willow"
+```

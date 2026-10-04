@@ -50,9 +50,9 @@ export function blobCanon(m: number): number {
 }
 export const BLOB47_MASKS: number[] = [...new Set(Array.from({ length: 256 }, (_, m) => blobCanon(m)))].sort((a, b) => a - b);
 
-function terrainSprite(terrain: string, variant: number, kit: StyleKit, seed: number): Sprite {
+function terrainSprite(terrain: string, variant: number, kit: StyleKit, seed: number, depth = -1): Sprite {
   const kind = `${terrain}-tile`;
-  return environmentGenerator.generate({ ...defaults(environmentGenerator), kind, variant: terrain === "water" ? 0 : variant }, kit, seed).rows[0].frames[0];
+  return environmentGenerator.generate({ ...defaults(environmentGenerator), kind, variant: terrain === "water" ? 0 : variant, ...(terrain === "water" && depth >= 0 ? { depth } : {}) }, kit, seed).rows[0].frames[0];
 }
 
 /** Rounded `lower` region of a wang tile (1 = lower); edge pixels depend only on the two corners of that edge. */
@@ -125,7 +125,7 @@ function ring(T: number, f: (x: number, y: number) => number): Uint8Array {
 }
 
 /** Upper base with `lower` laid over the pixels flagged in `lowerMask` (lips and foam as in blendTile). */
-function composeWang(upper: Sprite, lower: Sprite, lowerMask: Uint8Array, foam: boolean): Sprite {
+function composeWang(upper: Sprite, lower: Sprite, lowerMask: Uint8Array, foam: boolean, soft = false): Sprite {
   const T = upper.w;
   const out = createSprite(T, T);
   const at = (x: number, y: number) => lowerMask[(y + 1) * (T + 2) + x + 1];
@@ -138,7 +138,7 @@ function composeWang(upper: Sprite, lower: Sprite, lowerMask: Uint8Array, foam: 
       const edge = [at(x, y - 1), at(x - 1, y), at(x + 1, y), at(x, y + 1)].some((n) => n !== own);
       if (!edge) continue;
       if (own && foam) next[y * T + x] = foamIdx;
-      else if (!own) {
+      else if (!own && !soft) {
         const d = decodeIndex(out.data[y * T + x]);
         if (d) next[y * T + x] = colorIndex(d.mat, Math.max(0, d.level - 1));
       }
@@ -168,6 +168,8 @@ export const tilesetGenerator: Generator = {
     { key: "upper", label: "Upper terrain", type: "select", options: TERRAINS, default: "grass" },
     { key: "layout", label: "Layout", type: "select", options: [...TILESET_LAYOUTS], default: "wang16" },
     { key: "variant", label: "Variant", type: "number", min: 0, max: 9, step: 1, default: 0 },
+    { key: "lower_depth", label: "Lower water depth (-1 classic, 0 shallow .. 3 abyss; water terrain only)", type: "number", min: -1, max: 3, step: 1, default: -1 },
+    { key: "upper_depth", label: "Upper water depth (-1 classic, 0 shallow .. 3 abyss; water terrain only)", type: "number", min: -1, max: 3, step: 1, default: -1 },
   ],
   generate: (p, kit, seed) => generateTileset(p, kit, seed),
 };
@@ -178,9 +180,11 @@ function generateTileset(p: Params, kit: StyleKit, seed: number): GenResult {
   const layout = (TILESET_LAYOUTS as readonly string[]).includes(str(p, "layout")) ? (str(p, "layout") as TilesetLayout) : "wang16";
   const variant = Math.max(0, Math.min(9, Math.round(num(p, "variant") || 0)));
   const T = kit.sizes.tile;
-  const upper = terrainSprite(upperName, variant, kit, seed);
-  const lower = terrainSprite(lowerName, variant, kit, seed);
+  const upper = terrainSprite(upperName, variant, kit, seed, Math.round(num(p, "upper_depth")));
+  const lower = terrainSprite(lowerName, variant, kit, seed, Math.round(num(p, "lower_depth")));
   const foam = lowerName === "water" && upperName !== "water";
+  // water bands (water over water): a soft dithered-free seam, no lip line
+  const soft = lowerName === "water" && upperName === "water" && (num(p, "lower_depth") >= 0 || num(p, "upper_depth") >= 0);
   const { cols, rows, tiles } = tilesetTiles(layout, T);
   const atlas = createSprite(cols * T, rows * T);
   const put = (i: number, s: Sprite) => {
@@ -190,8 +194,8 @@ function generateTileset(p: Params, kit: StyleKit, seed: number): GenResult {
   for (const t of tiles) {
     const sp =
       layout === "wang16"
-        ? t.mask === 15 ? upper : t.mask === 0 ? lower : composeWang(upper, lower, wangLower(T, t.mask), foam)
-        : composeWang(upper, lower, blobLower(T, t.mask), foam);
+        ? t.mask === 15 ? upper : t.mask === 0 ? lower : composeWang(upper, lower, wangLower(T, t.mask), foam, soft)
+        : composeWang(upper, lower, blobLower(T, t.mask), foam, soft);
     put(t.index, sp);
   }
   if (layout === "blob47") put(47, lower);
