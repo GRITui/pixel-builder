@@ -38,7 +38,7 @@ const SPOTS: Record<number, [number, number, number, number][]> = {
 
 function build(s: Spec, variant = 0): RigDef {
   const bodyU = 1, headU = bodyU + s.bru * 0.72, tailU = bodyU - s.bru * 0.85;
-  const front = headU - 0.5 + s.hru, back = tailU - 1.2 - s.tru;
+  const front = headU - 0.5 + s.hru, back = tailU - 1.2 - 2 * s.tru - 1.2;
   const uc = (front + back) / 2; // centre the fish on the canvas along its heading in every view
   const U = (u: number) => u - uc;
 
@@ -50,8 +50,8 @@ function build(s: Spec, variant = 0): RigDef {
     jd("head", "body", headU, 0),
     jd("tail", "body", tailU, 0),
     jd("finTop", "body", bodyU - 0.5, 0),
-    jd("finL", "body", bodyU + 1.5, -s.fin_v),
-    jd("finR", "body", bodyU + 1.5, s.fin_v),
+    jd("finL", "body", bodyU + 1.2, -s.fin_v),
+    jd("finR", "body", bodyU + 1.2, s.fin_v),
   ];
 
   const parts: PartDef[] = [];
@@ -72,14 +72,15 @@ function build(s: Spec, variant = 0): RigDef {
     }
   };
 
-  // fins sit under the body so only their tips show
+  // pectoral fins: small swept-back leaves tucked against the flank, under the body
   for (const [id, sgn] of [["finL", -1], ["finR", 1]] as const) {
-    parts.push({ id: `${id}Limb`, kind: "limb", from: "body", to: id, r: s.baby ? 0.9 : 1.1, slot: "fin", tone: -1, z: 1 });
-    E(`${id}Tip`, id, -1.2, sgn * 0.3, s.baby ? 2 : 3, s.baby ? 1.2 : 1.6, "fin", -1, 1.1);
+    E(`${id}Tip`, id, -0.9, sgn * 0.6, s.baby ? 1.6 : 2.3, s.baby ? 0.8 : 1.1, "fin", -1, 1.1);
   }
-  // tail fin spreads across the heading; the peduncle joins it to the body and bends with it
-  E("tailFin", "tail", -2, 0, s.tru, s.trv, "fin", -1, 1);
-  E("peduncle", "tail", 2.2, 0, s.bru * 0.55, s.brv * 0.5, "body", 0, 1.5);
+  // tail: a slim stalk (bends with the joint) ending in a forked fan, two lobes with a notch between
+  const lu = -(s.tru + 1.2), lv = s.trv * 0.45;
+  E("peduncle", "tail", -1.2, 0, s.baby ? 2.4 : 3, s.baby ? 1 : 1.3, "body", 0, 1.5);
+  E("tailBase", "tail", lu + s.tru * 0.5, 0, s.tru * 0.5, lv * 0.7, "fin", -1, 1);
+  for (const sgn of [-1, 1]) E(`tailLobe${sgn}`, "tail", lu, sgn * lv, s.tru, s.trv * 0.3 + 0.4, "fin", -1, 1);
   E("body", "body", 0, 0, s.bru, s.brv, "body", 0, 2);
   if (s.spot) {
     for (const [u, v, ru, rv] of SPOTS[variant] ?? []) E(`spot${parts.length}`, "body", u * s.bru, v * s.brv, ru * s.bru, rv * s.brv, "spot", 0, 2.5);
@@ -87,9 +88,12 @@ function build(s: Spec, variant = 0): RigDef {
   }
   E("head", "head", -0.5, 0, s.hru, s.hrv, "body", 0, 2.2);
   // dorsal ridge seen from above: a darker stripe along the spine
-  E("finTopStripe", "finTop", -0.5, 0, s.bru * 0.6, 0.8, "fin", -1, 2.4);
-  if (s.whiskers) for (const sgn of [-1, 1]) E(`whisker${sgn}`, "head", s.hru * 0.9, sgn * s.hrv * 0.7, 2.4, 0.55, "ink", 2, 2.1);
-  for (const sgn of [-1, 1]) dot(`eye${sgn}`, "head", s.hru * 0.35, sgn * s.hrv * 0.55, 9);
+  E("finTopStripe", "finTop", -0.5, 0, s.bru * 0.6, 0.6, "fin", -1, 2.4);
+  if (s.whiskers) for (const sgn of [-1, 1]) {
+    E(`whiskerA${sgn}`, "head", s.hru * 0.5 + 1.4, sgn * (s.hrv * 0.6 + 1), 2.2, 0.45, "ink", 1, 2.1);
+    E(`whiskerB${sgn}`, "head", s.hru * 0.1, sgn * (s.hrv + 1), 1.4, 0.45, "ink", 1, 2.1);
+  }
+  for (const sgn of [-1, 1]) dot(`eye${sgn}`, "head", s.hru * 0.4, sgn * s.hrv * 0.6, 9);
 
   return {
     id: s.id, name: s.name, grid: 32, joints, parts,
@@ -97,12 +101,12 @@ function build(s: Spec, variant = 0): RigDef {
   };
 }
 
-const ADULT: Omit<Spec, "id" | "name" | "body" | "fin"> = { bru: 6.6, brv: 4.2, hru: 3.4, hrv: 3.0, tru: 4, trv: 5.4, fin_v: 6.6 };
-const BABY: Omit<Spec, "id" | "name" | "body" | "fin"> = { bru: 4.2, brv: 3.0, hru: 3.4, hrv: 3.1, tru: 2.6, trv: 3.4, fin_v: 4.6, baby: true };
+const ADULT: Omit<Spec, "id" | "name" | "body" | "fin"> = { bru: 6.8, brv: 3.8, hru: 3.4, hrv: 2.8, tru: 3, trv: 5.4, fin_v: 4.6 };
+const BABY: Omit<Spec, "id" | "name" | "body" | "fin"> = { bru: 4.6, brv: 2.6, hru: 2.6, hrv: 2.2, tru: 2, trv: 3.8, fin_v: 3.2, baby: true };
 
 const SPECIES: Spec[] = [
   { id: "fish-carp", name: "Carp", body: "gold", fin: "gold", spot: "cloth2", ...ADULT },
-  { id: "fish-catfish", name: "Catfish", body: "stone", fin: "stone", whiskers: true, ...ADULT, hru: 3.9, hrv: 3.6, brv: 4, tru: 3.2, trv: 4.4 },
+  { id: "fish-catfish", name: "Catfish", body: "stone", fin: "stone", whiskers: true, ...ADULT, hru: 3.4, hrv: 3.5, brv: 3.2, tru: 2.4, trv: 4.4 },
   { id: "fish-carp-baby", name: "Carp fry", body: "gold", fin: "gold", spot: "cloth2", ...BABY },
   { id: "fish-catfish-baby", name: "Catfish fry", body: "stone", fin: "stone", whiskers: true, ...BABY },
 ];

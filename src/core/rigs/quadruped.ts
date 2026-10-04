@@ -55,10 +55,10 @@ const PATCHES: Record<number, [number, number, number, number, number][]> = {
 
 /** Cow markings per variant: [dx, dy, rx, ry, tone] on the body (side), fractions of the body radii. */
 const COW_PATCHES: Record<number, [number, number, number, number, number][]> = {
-  0: [[-0.4, -0.1, 0.42, 0.6, -1], [0.4, 0.2, 0.34, 0.5, -1], [0.0, -0.55, 0.22, 0.3, -1]],
-  1: [[0.05, -0.05, 0.5, 0.65, -1], [-0.62, 0.25, 0.24, 0.35, -1]],
-  2: [[0.5, -0.2, 0.3, 0.45, -1], [-0.3, 0.1, 0.42, 0.55, -1], [-0.78, -0.25, 0.16, 0.3, -1]],
-  3: [[-0.15, 0.0, 0.62, 0.42, -1], [0.5, 0.35, 0.24, 0.32, -1]],
+  0: [[-0.4, -0.1, 0.42, 0.6, -2], [0.4, 0.2, 0.34, 0.5, -2], [0.0, -0.55, 0.22, 0.3, -2]],
+  1: [[0.05, -0.05, 0.5, 0.65, -2], [-0.62, 0.25, 0.24, 0.35, -2]],
+  2: [[0.5, -0.2, 0.3, 0.45, -2], [-0.3, 0.1, 0.42, 0.55, -2], [-0.78, -0.25, 0.16, 0.3, -2]],
+  3: [[-0.15, 0.0, 0.62, 0.42, -2], [0.5, 0.35, 0.24, 0.32, -2]],
 };
 
 /** A calf/foal/pup: smaller body, much shorter legs, bigger head (relative), no horns. */
@@ -148,15 +148,15 @@ function build(s: Spec, variant = 0): RigDef {
   );
   const markSlot = s.cow ? "patch" : "coat";
   for (const [px, py, prx, pry, pt] of (s.cow ? COW_PATCHES : PATCHES)[variant] ?? []) add(
-    { id: `patch${parts.length}`, kind: "ellipse", joint: "body", dx: px * bodyRx, dy: py * ry, rx: prx * bodyRx, ry: pry * ry, slot: markSlot, tone: pt, flat: s.cow ? 0.7 : undefined, z: 2.5, views: ["side"] },
+    { id: `patch${parts.length}`, kind: "ellipse", joint: "body", dx: px * bodyRx, dy: py * ry, rx: prx * bodyRx, ry: pry * ry, slot: markSlot, tone: pt, flat: s.cow ? 1 : undefined, z: 2.5, views: ["side"] },
   );
   if (variant || s.cow) add(
-    { id: "patchD", kind: "ellipse", joint: "body", dx: variant === 2 ? 1.2 : -1.4, dy: -ry * 0.6, rx: ry * 0.45, ry: ry * 0.4, slot: markSlot, tone: s.cow ? 0 : variant === 2 ? 1 : -1, flat: s.cow ? 0.7 : undefined, z: 2.6, views: ["down"] },
-    { id: "patchU", kind: "ellipse", joint: "body", dx: variant === 2 ? -1.2 : 1.4, dy: ry * 0.3, rx: ry * 0.45, ry: ry * 0.5, slot: markSlot, tone: s.cow ? 0 : variant === 2 ? 1 : -1, flat: s.cow ? 0.7 : undefined, z: 2.6, views: ["up"] },
+    { id: "patchD", kind: "ellipse", joint: "body", dx: variant === 2 ? 1.2 : -1.4, dy: -ry * 0.6, rx: ry * 0.45, ry: ry * 0.4, slot: markSlot, tone: s.cow ? -2 : variant === 2 ? 1 : -1, flat: s.cow ? 1 : undefined, z: 2.6, views: ["down"] },
+    { id: "patchU", kind: "ellipse", joint: "body", dx: variant === 2 ? -1.2 : 1.4, dy: ry * 0.3, rx: ry * 0.45, ry: ry * 0.5, slot: markSlot, tone: s.cow ? -2 : variant === 2 ? 1 : -1, flat: s.cow ? 1 : undefined, z: 2.6, views: ["up"] },
   );
   if (s.cow && variant !== 1 && variant !== 3) add(
-    { id: "patchHead", kind: "ellipse", joint: "head", dx: -s.headRx * 0.25, dy: -s.headRy * 0.3, rx: s.headRx * 0.45, ry: s.headRy * 0.4, slot: "patch", flat: 0.7, z: 4.5, views: ["side"] },
-    { id: "patchHeadF", kind: "ellipse", joint: "head", dx: variant === 2 ? 1 : -1, dy: -s.headRx * 0.55, rx: 1.5, ry: 1.3, slot: "patch", flat: 0.7, z: 4.5, views: ["down"] },
+    { id: "patchHead", kind: "ellipse", joint: "head", dx: -s.headRx * 0.25, dy: -s.headRy * 0.3, rx: s.headRx * 0.45, ry: s.headRy * 0.4, slot: "patch", tone: -2, flat: 1, z: 4.5, views: ["side"] },
+    { id: "patchHeadF", kind: "ellipse", joint: "head", dx: variant === 2 ? 1 : -1, dy: -s.headRx * 0.55, rx: 1.5, ry: 1.3, slot: "patch", tone: -2, flat: 1, z: 4.5, views: ["down"] },
   );
   if (s.udder) add({ id: "udder", kind: "ellipse", joint: "body", dx: -bodyRx * 0.3, dy: ry * 0.95, rx: 2, ry: 1.3, slot: "muzzle", tone: 0, z: 1.5, views: ["side"] });
   if (s.wool) {
