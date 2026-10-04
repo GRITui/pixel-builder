@@ -1,4 +1,4 @@
-import { colorIndex, type Material } from "./palette";
+import { colorIndex, colorIndexFine, normalizeDepth, type Material } from "./palette";
 import { lightVector } from "./kit";
 import { createSprite } from "./sprite";
 import type { Sprite, StyleKit } from "./types";
@@ -307,7 +307,9 @@ export class Painter {
     const levels = LEVELS[Math.max(2, Math.min(5, Math.round(this.kit.shadeSteps)))];
     const S = levels.length;
     // Ordered dither only reads as a gradient on larger surfaces; on small sprites it is just noise.
-    const dither = this.kit.dither && Math.min(this.w, this.h) >= DITHER_MIN_SIZE;
+    const depth = normalizeDepth(this.kit.rampDepth);
+    // Deep kits shade continuously over the extra shades, so there is nothing for dither to blend.
+    const dither = depth === 5 && this.kit.dither && Math.min(this.w, this.h) >= DITHER_MIN_SIZE;
     for (let y = 0; y < this.h; y++)
       for (let x = 0; x < this.w; x++) {
         const i = y * this.w + x;
@@ -317,6 +319,12 @@ export class Painter {
         let level: number;
         if (this.fixed[i] >= 0) {
           level = this.fixed[i];
+        } else if (depth > 5) {
+          // continuous light -> position in classic-level units across the kit's lit range
+          const c = Math.max(0, Math.min(S - 1, this.light[i] * S - 0.5));
+          const pos = levels[0] + (S > 1 ? (c / (S - 1)) * (levels[S - 1] - levels[0]) : 0) + this.tone[i];
+          s.data[i] = colorIndexFine(m, Math.max(0, Math.min(4, pos)) / 4, depth);
+          continue;
         } else {
           let q = this.light[i] * S;
           if (dither && this.onGradient(x, y, S)) q += (BAYER4[(y & 3) * 4 + (x & 3)] - 0.5) * 0.6;

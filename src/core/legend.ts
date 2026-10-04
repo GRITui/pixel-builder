@@ -1,11 +1,12 @@
 // Palette legend: one printable ASCII char per palette index so a language
 // model (or CLI / MCP client) can "paint" with text rows. Index 0 (transparent)
 // is '.'; the other 90 indices get a fixed char each (5 consecutive chars per
-// material, dark -> light). The alphabet depends on neither the kit nor the
+// material, dark -> light). Deep kits (rampDepth 7/9) add 4 more chars per material for the
+// shades between levels (see FINE_ALPHABET); classic kits never list them. The alphabet depends on neither the kit nor the
 // materials filter, so art written against one legend decodes with any other
 // (only the hex colours shown in the table come from the kit).
 // No quotes or backslash (they would need JSON escaping) and no space.
-import { MATERIALS, PALETTE_SIZE, RAMP_LEN, decodeIndex, flattenRamps, type Material } from "./palette";
+import { FINE_SLOTS, FINE_START, MATERIALS, PALETTE_SIZE_CLASSIC, PALETTE_SIZE, RAMP_LEN, decodeIndex, flattenRamps, type Material } from "./palette";
 import { resolveRamps } from "./kit";
 import type { Sprite, StyleKit } from "./types";
 
@@ -32,7 +33,16 @@ const ALPHABET =
   "abcdefghijklmnopqrstuvwxyz" + "ABCDEFGHIJKLMNOPQRSTUVWXYZ" + "0123456789" + "!#$%&()*+,-/:;<=>?@[]^_`{|}~";
 
 /** Index -> char for the whole palette (index 0 = '.'). */
-const CHARS: string[] = [TRANSPARENT, ...ALPHABET];
+// Extra shades of deep kits (indices 91+) use non-ASCII letters: Latin-1 letters then lowercase Greek.
+// Printable ASCII is exhausted, and these survive JSON and tokenisers fine.
+const FINE_ALPHABET = (() => {
+  const out: string[] = [];
+  for (let c = 0xc0; c <= 0xff; c++) if (c !== 0xd7 && c !== 0xf7) out.push(String.fromCharCode(c));
+  for (let c = 0x3b1; c <= 0x3c9; c++) if (c !== 0x3c2) out.push(String.fromCharCode(c));
+  return out;
+})();
+
+const CHARS: string[] = [TRANSPARENT, ...ALPHABET, ...FINE_ALPHABET.slice(0, PALETTE_SIZE - PALETTE_SIZE_CLASSIC)];
 if (CHARS.length !== PALETTE_SIZE || new Set(CHARS).size !== PALETTE_SIZE) {
   throw new Error(`legend alphabet must have exactly ${PALETTE_SIZE} unique chars`);
 }
@@ -43,6 +53,7 @@ if (CHARS.length !== PALETTE_SIZE || new Set(CHARS).size !== PALETTE_SIZE) {
  */
 export function buildLegend(kit: StyleKit, materials?: Material[]): Legend {
   const flat = flattenRamps(resolveRamps(kit));
+  const deep = flat.length > PALETTE_SIZE_CLASSIC;
   const listed = materials ? MATERIALS.filter((m) => materials.includes(m)) : MATERIALS;
   const entries: LegendEntry[] = [];
   const byChar = new Map<string, number>([[TRANSPARENT, 0]]);
@@ -56,6 +67,14 @@ export function buildLegend(kit: StyleKit, materials?: Material[]): Legend {
       byChar.set(char, index);
       byIndex.set(index, char);
     }
+    if (deep)
+      for (let k = 0; k < FINE_SLOTS; k++) {
+        const index = FINE_START + r * FINE_SLOTS + k;
+        const char = CHARS[index];
+        entries.push({ char, index, material, level: k + 0.5, hex: flat[index] ?? "#000000" });
+        byChar.set(char, index);
+        byIndex.set(index, char);
+      }
   }
   return { entries, byChar, byIndex };
 }
@@ -74,7 +93,8 @@ function charFor(index: number, legend: Legend): string {
   let best: LegendEntry | undefined;
   for (const e of legend.entries) {
     if (e.material !== d.mat) continue;
-    if (!best || Math.abs(e.level - d.level) < Math.abs(best.level - d.level)) best = e;
+    const at = d.fine !== undefined ? d.fine + 0.5 : d.level;
+    if (!best || Math.abs(e.level - at) < Math.abs(best.level - at)) best = e;
   }
   return best ? best.char : TRANSPARENT;
 }

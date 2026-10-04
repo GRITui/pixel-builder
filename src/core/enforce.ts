@@ -1,4 +1,4 @@
-import { colorIndex, decodeIndex, makeQuantizer, MATERIALS, OUTLINE_INDEX, PALETTE_SIZE, type Material, type RGB } from "./palette";
+import { colorIndex, decodeIndex, fineSlotIndex, makeQuantizer, MATERIALS, OUTLINE_INDEX, PALETTE_SIZE_CLASSIC, PALETTE_SIZE, normalizeDepth, type Material, type RGB } from "./palette";
 import { lightVector, resolveRamps } from "./kit";
 import { cloneSprite, createSprite, getPx } from "./sprite";
 import type { Sprite, StyleKit } from "./types";
@@ -106,8 +106,10 @@ export function smoothCurves(s: Sprite): Sprite {
           if (runH !== runV) hit = true;
         }
       if (!hit) continue;
-      const idx = colorIndex(d.mat, d.level - 1);
-      if (N8.some(([dx, dy]) => getPx(s, x + dx, y + dy) === idx)) out.data[y * s.w + x] = idx;
+      // deep kits step half a level first: the extra shade between level-1 and level
+      const cands = d.fine !== undefined ? [colorIndex(d.mat, d.fine)] : [fineSlotIndex(d.mat, d.level - 1), colorIndex(d.mat, d.level - 1)];
+      const idx = cands.find((c) => N8.some(([dx, dy]) => getPx(s, x + dx, y + dy) === c));
+      if (idx !== undefined) out.data[y * s.w + x] = idx;
     }
   return out;
 }
@@ -127,13 +129,25 @@ export function removeOrphans(s: Sprite): Sprite {
 }
 
 /** Clamp any out-of-range values to valid palette indices. */
-export function sanitize(s: Sprite): Sprite {
-  return { w: s.w, h: s.h, data: s.data.map((v) => (Number.isInteger(v) && v > 0 && v < PALETTE_SIZE ? v : 0)) };
+export function sanitize(s: Sprite, kit?: StyleKit): Sprite {
+  // Fine (extra-shade) indices only exist in deep kits; elsewhere they fall back to their classic level.
+  const deep = !kit || normalizeDepth(kit.rampDepth) > 5;
+  const max = deep ? PALETTE_SIZE : PALETTE_SIZE_CLASSIC;
+  return {
+    w: s.w,
+    h: s.h,
+    data: s.data.map((v) => {
+      if (!Number.isInteger(v) || v <= 0 || v >= PALETTE_SIZE) return 0;
+      if (v < max) return v;
+      const d = decodeIndex(v);
+      return d ? colorIndex(d.mat, d.level) : 0;
+    }),
+  };
 }
 
 /** The standard finishing pass every asset goes through. */
 export function finalize(s: Sprite, kit: StyleKit, opts: { outline?: boolean; cleanup?: boolean } = {}): Sprite {
-  let out = sanitize(s);
+  let out = sanitize(s, kit);
   if (opts.cleanup) out = removeOrphans(out);
   if (opts.outline !== false) out = applyOutline(out, kit);
   if (kit.detail === "rich" && opts.outline !== false && kit.outline !== "none") out = smoothCurves(out);

@@ -578,3 +578,7 @@ Aseprite may not inherit your shell `PATH`; use absolute paths if it cannot find
 extension and an MCP agent can use the same workspace folder. The first run may ask Aseprite for
 permission to run scripts / access the file system. The Lua was not run inside Aseprite in CI;
 if a command fails the dialog shows the CLI's error text.
+
+## Deep palette ramps
+
+`kit-hd-deep` (HD sizes, rich detail, `rampDepth` 9) shades volumes with 9 shades per material. `get_style_guide` then lists extra legend chars (non-ASCII, `level 0.5` ...) for the in-between shades; the 90 classic chars are unchanged. Aseprite export carries the full 163-entry palette.
