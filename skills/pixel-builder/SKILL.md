@@ -45,7 +45,7 @@ hand-write PNGs or invent colours.
 | `create_rig` / `create_clip` / `create_attachment` | author your own rig/clip/attachment as JSON (see `docs/RIG.md`); validated and stored in the project |
 | `generate_pack` | build a whole starter set in one call: built-in `farming-v1` (104 assets) or your own `manifest` of generate_asset/generate_rigged inputs; `only` filters by tag (`sea`, `normal`, `building`, `tool`...), re-running replaces in place, writes `.svg` too |
 
-**SVG round trip.** `export_asset format=svg` (and `generate_pack`, by default) writes `<slug>.svg`: one layer per material (per part for rigged assets: core, hair, hat...), frames as a grid, and a locked `guides` layer (pixel/tile grid, ground line, frame labels, joints). Open it in Inkscape/Figma or edit the XML, then `import_svg`.
+**SVG round trip.** `export_asset format=svg` (and `generate_pack`, by default) writes `<slug>.svg`: one layer per material (per part for rigged assets: core, hair, hat...), frames as a grid, and a locked `guides` layer (pixel/tile grid, ground line, frame labels, joints). Pixels are rectangle `<path>`s (one per colour per frame; `fill`/`data-material`/`data-level` sit on the layer and colour groups, repeated map tiles are `<symbol>`/`<use>`), and plain `<rect>`s are read too. Any tool that re-exports an asset's PNG (`rerender_assets`, `attach`, `edit_asset`, ...) also rewrites its `.svg` if one exists, so it never goes stale. Open it in Inkscape/Figma or edit the XML, then `import_svg`.
 
 Every call that makes or changes an asset returns a **preview image**. Always
 look at it before moving on.

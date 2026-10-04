@@ -103,8 +103,10 @@ describe("generate_asset / generate_variations", () => {
   });
 
   it("gives actionable errors for unknown generators and params", () => {
-    expect(() => call("generate_asset", { generator: "tre" })).toThrow(/Unknown generator 'tre'.*'environment' with params \{"kind":"dead-tree"\}/);
-    expect(() => call("generate_asset", { generator: "oak" })).toThrow(/Did you mean 'environment' with params \{"kind":"oak"\}/);
+    expect(() => call("generate_asset", { generator: "tre" })).toThrow(/Unknown generator 'tre'\. Generators: character,/);
+    expect(() => call("generate_asset", { generator: "oak" })).toThrow(/Unknown generator 'oak'\. Generators: /);
+    expect(() => call("generate_asset", { generator: "nope" })).toThrow(/^(?!.*with params)/);
+    expect(() => call("generate_asset", { generator: "enviroment" })).toThrow(/Did you mean 'environment'\?/);
     expect(() => call("generate_asset", { generator: "environment", params: { kind: "tre" } })).toThrow(/Param 'kind'.*Did you mean 'dead-tree'/);
     expect(() => call("generate_asset", { generator: "environment", params: { knd: "oak" } })).toThrow(/no param 'knd'.*Did you mean 'kind'/);
     expect(() => call("generate_asset", { generator: "environment", params: { foliage: "stone-ish" } })).toThrow(/must be a material/);
@@ -287,6 +289,26 @@ describe("kits", () => {
     expect(() => call("create_kit", { name: "x", changes: { paletteId: "nope" } })).toThrow(/paletteId/);
     expect(() => call("update_kit", { kit_id: "nope", changes: {} })).toThrow(/Unknown kit/);
     expect(() => call("set_active_kit", { kit_id: "nope" })).toThrow(ToolError);
+  });
+});
+
+describe("svg stays in sync", () => {
+  it("rerender_assets and attach rewrite an existing .svg", () => {
+    const oak = data("generate_asset", { generator: "environment", params: { kind: "oak" }, seed: 9, name: "Oak" }).asset;
+    data("export_asset", { id: oak.id, format: "svg" });
+    const svgPath = join(ws.dir, "environments", "oak.svg");
+    const before = readFileSync(svgPath, "utf8");
+    call("update_kit", { kit_id: "kit-default", changes: { outline: "black", shadeSteps: 2 } });
+    call("rerender_assets");
+    expect(readFileSync(svgPath, "utf8")).not.toBe(before);
+
+    const f = data("generate_rigged", { rig: "humanoid-normal", attachments: ["straw-hat"], clips: ["idle"], name: "farmer" }).asset;
+    expect(existsSync(join(ws.dir, "characters", "farmer.svg"))).toBe(false); // no svg requested: none created
+    data("export_asset", { id: f.id, format: "svg" });
+    const farmerSvg = join(ws.dir, "characters", "farmer.svg");
+    expect(readFileSync(farmerSvg, "utf8")).not.toContain('inkscape:label="hoe"');
+    data("attach", { id: f.id, add: ["hoe"] });
+    expect(readFileSync(farmerSvg, "utf8")).toContain('inkscape:label="hoe"');
   });
 });
 

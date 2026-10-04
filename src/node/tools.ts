@@ -21,9 +21,10 @@ import { CATEGORIES, type Asset, type Category, type Sprite, type StyleKit } fro
 import { decodePng, contactSheet, encodePng, previewScale, sheetImage, spriteImage, type RgbaImage } from "./png";
 import { isRigged, packById, PACKS, type PackEntry } from "./packs";
 import {
-  ToolError, Workspace, assetFiles, exportAsset, findAsset, getKit, isAnimated, kitOf, removeAssetFiles,
-  type ExportedFile,
+  ToolError, Workspace, assetFiles, exportAsset as exportAssetRaw, findAsset, getKit, isAnimated, kitOf, removeAssetFiles,
+  type ExportedFile, type ExportOptions,
 } from "./workspace";
+import { svgExists } from "./workspace";
 
 export { ToolError };
 
@@ -133,17 +134,8 @@ function resolveGenerator(id: string): Generator {
   const g = generatorById(id) ?? GENERATORS.find((x) => x.id === id.toLowerCase());
   if (g) return g;
   const hints: string[] = nearest(id, GENERATORS.map((x) => x.id), 2).map((n) => `'${n}'`);
-  const q = id.toLowerCase();
-  const optionHints = (fuzzy: boolean) =>
-    GENERATORS.flatMap((gen) =>
-      gen.params.flatMap((s) =>
-        s.type !== "select" ? [] : s.options.filter((o) => (fuzzy ? nearest(q, [o], 1).length > 0 : o === q || o.includes(q))).slice(0, 2).map((o) => `'${gen.id}' with params {"${s.key}":"${o}"}`),
-      ),
-    );
-  const byOption = optionHints(false);
-  hints.push(...(byOption.length ? byOption : optionHints(true)));
   throw new ToolError(
-    `Unknown generator '${id}'.` + (hints.length ? ` Did you mean ${[...new Set(hints)].slice(0, 4).join(" or ")}?` : "") + ` Generators: ${GENERATORS.map((x) => x.id).join(", ")} (see list_generators).`,
+    `Unknown generator '${id}'.` + (hints.length ? ` Did you mean ${hints.join(" or ")}?` : "") + ` Generators: ${GENERATORS.map((x) => x.id).join(", ")} (see list_generators).`,
   );
 }
 
@@ -619,6 +611,17 @@ const exportAssetTool = defineTool({
     return { data: { asset: { id: asset.id, name: asset.name }, files } };
   },
 });
+
+/**
+ * Every re-export of an asset's PNG also refreshes its editable .svg when one already
+ * exists, so the vector never goes stale (rerender, attach, edit, import replace, ...).
+ */
+function exportAsset(ws: Workspace, project: ProjectFile, asset: Asset, opts: ExportOptions = {}): ExportedFile[] {
+  const files = exportAssetRaw(ws, project, asset, opts);
+  if ((opts.format ?? "png") !== "svg" && svgExists(ws, project, asset, opts.outDir))
+    files.push(...exportAssetRaw(ws, project, asset, { format: "svg", outDir: opts.outDir, rig: rigInfoOf(project, asset) }));
+  return files;
+}
 
 /** Part ownership for a rigged asset's SVG layers (undefined for everything else, or if the recipe no longer resolves). */
 function rigInfoOf(project: ProjectFile, asset: Asset) {
