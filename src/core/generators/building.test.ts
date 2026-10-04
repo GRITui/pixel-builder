@@ -143,3 +143,17 @@ describe("building generator: farm buildings", () => {
     });
   });
 });
+
+describe("large barn silhouette", () => {
+  it.each(KIT_PRESETS.map((k, i) => [k.id, i] as const))("is mirror-symmetric per row in %s", (_id, kitIdx) => {
+    for (const extra of [{} as Record<string, string>, { wall: "cloth2", trim: "sand" }]) {
+      const s = gen({ style: "barn", size: "large", ...extra }, kitIdx).rows[0].frames[0];
+      for (let y = 0; y < s.h; y++) {
+        let l = -1, r = -1;
+        for (let x = 0; x < s.w; x++) if (getPx(s, x, y)) { if (l < 0) l = x; r = x; }
+        if (l < 0) continue;
+        expect(s.w - 1 - r, `row ${y}`).toBe(l);
+      }
+    }
+  });
+});
