@@ -33,7 +33,7 @@ export const CLIPS: { clip: Clip; family: RigFamily }[] = [
 export const ATTACHMENTS: { attachment: Attachment; family: RigFamily }[] = [
   ...(HUMANOID_ATTACHMENTS.length ? HUMANOID_ATTACHMENTS : [NGOB_HAT]).map((attachment) => ({ attachment, family: "humanoid" as const })),
   ...TOOL_ATTACHMENTS.map((attachment) => ({ attachment, family: "humanoid" as const })),
-  ...[...HAIR_STYLES.map((s) => hairAttachment(s)), FACE, NO_FACE].map((attachment) => ({ attachment, family: "humanoid" as const })),
+  ...[...HAIR_STYLES.map((s) => hairAttachment(s)), FACE, femaleFace("young-adult"), NO_FACE].map((attachment) => ({ attachment, family: "humanoid" as const })),
   ...WARDROBE_NEW_ATTACHMENTS.map((attachment) => ({ attachment, family: "humanoid" as const })),
 ];
 
