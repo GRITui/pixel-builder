@@ -50,7 +50,7 @@ look at it before moving on.
 
 - `character`: rigged humanoids (builds, hair styles, headwear and held items from the attachment catalog), 4-direction walk.
 - `animal`: rigged water buffalo, dog, cat, horse, pig, chicken, rooster, duck with idle/walk/graze (or peck/flap).
-- `building`: cottage, shop, tower, keep, barn and `stilt-house` (raised Southeast-Asian house; `access` stairs/ladder); roofs gable, hip, flat, dome, spire, `corrugated` (use `roof: "metal"` for zinc).
+- `building`: cottage, shop, tower, keep, barn, `stilt-house` (raised Southeast-Asian house; `access` stairs/ladder) and `half-brick` (two-storey Thai house: masonry ground floor, wooden upper floor, balcony gable; 1.5x building width); roofs gable, hip, flat, dome, spire, `corrugated` (use `roof: "metal"` for zinc).
 - `environment`: props plus seamless tiles incl. animated `water-tile` and `paddy-tile` (rice paddy).
 - `map`: biomes meadow, forest, island, desert, winter, `rice-village`.
 - Rigged assets (`generate_rigged`): any rig + clips (idle, walk, run, attack, farm, carry, sit) + attachments (e.g. `ngob-hat`, `hoe`, `shoulder-pole`); add/remove accessories later with `attach`.

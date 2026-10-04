@@ -63,3 +63,24 @@ describe("building generator: stilt-house and corrugated roofs", () => {
     });
   });
 });
+
+describe("building generator: half-brick house", () => {
+  describe.each(KIT_PRESETS.map((k, i) => [k.id, i] as const))("%s", (_id, kitIdx) => {
+    const kit = KIT_PRESETS[kitIdx];
+    it.each<Record<string, string | boolean>>([{}, { width: "wide", roof_style: "gable" }, { width: "narrow", lit_windows: false }])("%o is wider than tall, two door-heights high, with a 1px margin", (c) => {
+      const s = gen({ style: "half-brick", ...c }, kitIdx).rows[0].frames[0];
+      expect(s.w).toBe(Math.round(kit.sizes.building * 1.5));
+      const b = bounds(s)!;
+      expect(b.x1 - b.x0 + 1).toBeGreaterThan(b.y1 - b.y0 + 1);
+      expect(b.y1 - b.y0 + 1).toBeGreaterThan(proportions(kit).door * 2);
+      for (let x = 0; x < s.w; x++) expect(getPx(s, x, 0)).toBe(0);
+      for (let y = 0; y < s.h; y++) {
+        expect(getPx(s, 0, y)).toBe(0);
+        expect(getPx(s, s.w - 1, y)).toBe(0);
+      }
+    });
+    it("is deterministic per seed", () => {
+      expect(gen({ style: "half-brick" }, kitIdx, 3).rows[0].frames[0].data).toEqual(gen({ style: "half-brick" }, kitIdx, 3).rows[0].frames[0].data);
+    });
+  });
+});

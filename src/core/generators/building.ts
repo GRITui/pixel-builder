@@ -225,13 +225,138 @@ function stiltHouse(p: Params, kit: StyleKit, r: Rng): GenResult {
   return { rows: [{ name: "idle", frames: [finalize(P.toSprite(), kit)] }], fps: 1 };
 }
 
+/** Louvred window: trim frame, horizontal slats; lit windows glow between the slats. */
+function louvre(P: Painter, trim: Material, x: number, y: number, w: number, h: number, lit: boolean) {
+  P.box(x - 1, y - 1, w + 2, h + 2, trim, [0, -0.3, 1]);
+  for (let yy = y; yy < y + h; yy++) P.rect(x, yy, w, 1, (yy - y) % 2 ? trim : lit ? "gold" : trim, (yy - y) % 2 ? 3 : lit ? 3 : 0);
+  if (w >= 5) P.rect(x + Math.floor(w / 2), y, 1, h, trim, 1);
+}
+
+/**
+ * Two-storey "half-brick, half-wood" house (Thai ban khrueng tuek khrueng mai): a rendered
+ * masonry ground floor with a vent-block band, a plank upper floor with louvred windows, a
+ * side-gable roof over the main block and a front-facing gable wing whose upper floor is an
+ * open balcony on posts above a shaded porch.
+ */
+function halfBrickHouse(p: Params, kit: StyleKit, r: Rng): GenResult {
+  const S = kit.sizes.building;
+  const k = S / 64;
+  // two storeys at character scale only read as a house when spread wide, so this style is 1.5x building width
+  const W = Math.round(S * 1.5);
+  const pr = proportions(kit);
+  const upper = mat(p, "wall"), trim = mat(p, "trim");
+  const lower: Material = upper === "sand" ? "stone" : "sand";
+  const roof = corr0(p) ? "metal" : mat(p, "roof");
+  const rs = str(p, "roof_style");
+  const corr = rs === "corrugated" || rs === "auto";
+  const lit = bool(p, "lit_windows");
+  const frac = str(p, "width") === "narrow" ? 0.8 : str(p, "width") === "wide" ? 1 : 0.92;
+  const over = Math.max(2, Math.round(3 * k));
+  const tw = Math.round((W - 4 - 2 * over) * frac);
+  const left = Math.round((W - tw) / 2);
+  const flip = r.chance(0.5); // wing on the right or left
+  const mainW = Math.round(tw * 0.58), wingW = tw - mainW;
+  const mainX = flip ? left + wingW : left, wingX = flip ? left : left + mainW;
+  const gh = pr.door + Math.round(4 * k), uh = pr.door + Math.round(3 * k);
+  const fb = Math.max(2, Math.round(2 * k));
+  const hw = wingW / 2 + over;
+  const rhW = Math.max(6, Math.min(Math.round(hw * 0.75), Math.round(uh * 0.7)));
+  const rhM = Math.max(5, Math.round(rhW * 0.7));
+  const H = gh + fb + uh + rhW + 3;
+  const P = new Painter(W, H, kit);
+  const G = H - 1;
+  const yF = G - gh; // top of the ground floor
+  const wy = yF - fb - uh; // eaves
+
+  // --- ground floor: rendered blocks, darker damp plinth, vent-block band under the beam
+  const masonry = (x: number, w: number, tone: number) => {
+    P.box(x, yF, w, gh, lower, [0, 0.1, 1], { tone });
+    // staggered block joints, faint so the render still reads smooth
+    for (let yy = yF + 5, row = 0; yy < G - 2; yy += 5, row++)
+      for (let xx = x + (row % 2 ? 2 : 6); xx < x + w - 1; xx += 8) { P.box(xx, yy, Math.min(5, x + w - 1 - xx), 1, lower, [0, 0, 1], { tone: tone - 1 }); P.px(xx - 1, yy - 2, lower, 2 + tone); }
+    P.box(x, G - 2, w, 2, lower, [0, 0, 1], { tone: tone - 1 });
+    for (let xx = x + 2; xx < x + w - 2; xx += 3) P.box(xx, yF + 2, 2, 1, lower, [0, 0, 1], { tone: tone - 2 });
+  };
+  masonry(mainX, mainW, 0);
+  masonry(wingX, wingW, -1); // under the balcony, in shade
+  const winW = pr.window + 1, winH = Math.round(pr.window * 1.4);
+  const nGW = mainW >= winW * 3 + 8 ? 2 : 1;
+  for (let i = 0; i < nGW; i++) louvre(P, trim, Math.round(mainX + ((i + 1) * mainW) / (nGW + 1) - winW / 2), yF + Math.round(gh * 0.32), winW, winH, lit);
+  const dw = pr.doorW, dh = Math.min(pr.door, gh - 5);
+  const dx = Math.round(wingX + wingW / 2 - dw / 2);
+  P.box(dx - 1, G - dh - 1, dw + 2, dh + 1, trim, [0, 0, 1]);
+  P.rect(dx, G - dh, dw, dh, trim, 0);
+  P.rect(dx, G - dh, 1, dh, trim, 1);
+
+  // --- upper floor: horizontal planks, corner boards, louvred shutters
+  P.box(mainX, wy, mainW, uh, upper, [0, 0.1, 1]);
+  wallTexture(P, mainX, wy, mainW, uh, upper, r);
+  P.box(wingX, wy, wingW, uh, upper, [0, 0.1, 1], { tone: -2 }); // recessed balcony wall under the gable
+  for (let yy = wy + 2; yy < yF - fb; yy += 3) P.rect(wingX, yy, wingW, 1, upper, 0);
+  for (const x of [mainX, mainX + mainW - 2]) P.box(x, wy, 2, uh, trim, [x === mainX ? -0.4 : 0.4, 0, 1]);
+  const uwH = Math.round(uh * 0.5);
+  const nUW = mainW >= winW * 3 + 8 ? 2 : 1;
+  for (let i = 0; i < nUW; i++) louvre(P, trim, Math.round(mainX + ((i + 1) * mainW) / (nUW + 1) - winW / 2), wy + Math.round(uh * 0.3), winW, uwH, lit);
+  const bdh = Math.min(pr.door, uh - 4);
+  P.box(dx - 1, yF - fb - bdh - 1, dw + 2, bdh + 1, trim, [0, -0.3, 1]);
+  P.box(dx, yF - fb - bdh, dw, bdh, trim, [0, 0, 1], { tone: -1 });
+  for (let xx = dx + 2; xx < dx + dw - 1; xx += 3) P.box(xx, yF - fb - bdh, 1, bdh, trim, [0, 0, 1], { tone: -2 });
+
+  // floor beam / balcony slab
+  P.box(left, yF - fb, tw, fb, trim, [0, -0.4, 0.9]);
+  P.box(wingX, yF - fb, wingW, 1, trim, [0, -1, 0.5], { tone: 1 });
+
+  // balcony rail with close balusters, then the posts that carry the wing roof down to the ground
+  const rail = Math.max(5, Math.round(pr.door * 0.36));
+  const ry = yF - fb - rail;
+  P.box(wingX, ry, wingW, 2, trim, [0, -0.7, 0.7], { tone: 1 });
+  for (let x = wingX + 1; x < wingX + wingW - 1; x += 2) P.box(x, ry + 2, 1, rail - 2, trim, [0, 0, 1]);
+  const pw = Math.max(2, Math.round(2 * k));
+  for (const x of [wingX, wingX + wingW - pw]) {
+    P.cylinder(x, wy, pw, G - wy, trim);
+    P.cylinder(x - 1, G - 2, pw + 2, 2, "stone", { flat: 0.3 });
+  }
+
+  // --- roofs: side-gable over the main block, front gable over the wing (drawn on top)
+  const ma = flip ? wingX + wingW - 2 : mainX - over, mb = flip ? mainX + mainW + over : wingX + 2;
+  // the outer end slopes down like a gable end seen at 3/4
+  const ins = Math.round(rhM * 0.9);
+  for (let x = ma; x < mb; x++) {
+    const e = flip ? mb - 1 - x : x - ma;
+    const top = Math.round(wy - rhM + (e < ins ? rhM * (1 - (e + 0.5) / ins) : 0));
+    if (corr) corrColumn(P, roof, x, x - ma, top, wy);
+    else {
+      P.box(x, top, 1, wy + 1 - top, roof, [0, -0.35, 0.95]);
+      for (let yy = wy - 1; yy > top; yy -= 3) P.box(x, yy, 1, 1, roof, [0, 0.2, 1], { tone: -1 });
+    }
+    P.box(x, top, 1, 1, roof, [0, -1, 0.4], { tone: 1 });
+  }
+  P.box(mainX, wy + 1, mainW, 2, upper, [0, 1, 0.3], { tone: -2 }); // eave shadow
+  const ga = wingX - over, gb = wingX + wingW + over, cx = (ga + gb) / 2;
+  const band = Math.max(2, Math.round(3 * k));
+  for (let x = ga; x < gb; x++) {
+    const u = (x + 0.5 - cx) / hw;
+    const top = Math.round(wy + 1 - rhW * (1 - Math.abs(u)));
+    if (top > wy) continue;
+    // pediment: shaded boards with vent slats, then the roof sheet along the rake
+    P.box(x, top, 1, wy + 1 - top, upper, [0, 0.2, 1], { tone: -2 });
+    for (let yy = wy - 2; yy > top + band; yy -= 2) if (Math.abs(u) < 0.55) P.px(x, yy, upper, 0);
+    const bh = Math.min(band, wy + 1 - top);
+    if (corr) P.rect(x, top, 1, bh, roof, ((x - ga) >> 1) % 2 ? 3 : 2);
+    else P.box(x, top, 1, bh, roof, [u * 0.9, -0.35, 0.8]);
+    P.box(x, top, 1, 1, roof, [0, -1, 0.4], { tone: 1 });
+  }
+  P.box(ga + 1, wy, gb - ga - 2, 1, trim, [0, 1, 0.3], { tone: -1 }); // tie beam
+  return { rows: [{ name: "idle", frames: [finalize(P.toSprite(), kit)] }], fps: 1 };
+}
+
 export const buildingGenerator: Generator = {
   id: "building",
   category: "building",
   label: "Building",
-  description: "Front-facing 3/4 view building: cottage, shop, tower, keep, barn or raised stilt-house (open ground floor, stairs/ladder, veranda) with wall/roof materials, floors, windows, chimney.",
+  description: "Front-facing 3/4 view building: cottage, shop, tower, keep, barn raised stilt-house (open ground floor, stairs/ladder, veranda) or two-storey half-brick house (masonry ground floor, wooden upper floor, gabled balcony wing) with wall/roof materials, floors, windows, chimney.",
   params: [
-    { key: "style", label: "Style", type: "select", options: ["cottage", "shop", "tower", "keep", "barn", "stilt-house"], default: "cottage" },
+    { key: "style", label: "Style", type: "select", options: ["cottage", "shop", "tower", "keep", "barn", "stilt-house", "half-brick"], default: "cottage" },
     { key: "wall", label: "Walls", type: "material", options: WALLS, default: "wood" },
     { key: "roof", label: "Roof", type: "material", options: ROOFS, default: "roof" },
     { key: "roof_style", label: "Roof style", type: "select", options: ["auto", "gable", "hip", "flat", "dome", "spire", "corrugated"], default: "auto" },
@@ -249,6 +374,7 @@ export const buildingGenerator: Generator = {
     const pr = proportions(kit);
     const style = str(p, "style");
     if (style === "stilt-house") return stiltHouse(p, kit, r);
+    if (style === "half-brick") return halfBrickHouse(p, kit, r);
     const wall = mat(p, "wall"), roof = mat(p, "roof"), trim = mat(p, "trim");
     let roofStyle = str(p, "roof_style");
     if (roofStyle === "auto") roofStyle = "gable";

@@ -313,24 +313,34 @@ export const mapGenerator: Generator = {
       const near1 = dilate(path, cols, rows);
       const cand = spots.filter((i) => near1.has(i));
       for (let k = cand.length - 1; k > 0; k--) { const j = hr.int(0, k); [cand[k], cand[j]] = [cand[j], cand[k]]; }
-      const houses: number[] = [];
       const nHouse = Math.max(2, Math.min(4, Math.round(cols / 8)));
       const hv = ["", "-b"];
-      for (const i of cand) {
-        if (houses.length >= nHouse) break;
-        const x = i % cols, y = Math.floor(i / cols);
-        if (houses.some((h) => Math.abs((h % cols) - x) < 7 && Math.abs(Math.floor(h / cols) - y) < 7)) continue;
-        let clearUp = y >= 5;
-        for (let d = 1; clearUp && d <= 5; d++) for (let dx = -2; dx <= 2; dx++) { const g = ground[(y - d) * cols + Math.max(0, Math.min(cols - 1, x + dx))]; if (g === "paddy" || (g === "dirt" && !path.has((y - d) * cols + x + dx))) clearUp = false; }
-        if (!clearUp) continue;
-        houses.push(i);
-      }
-      houses.forEach((i, n) => {
+      // mostly stilt houses; every third is a wider two-storey half-brick house
+      const houseSprite = (n: number) => {
+        const style = n % 3 === 1 ? "half-brick" : "stilt-house";
         const access = n % 2 ? "ladder" : "stairs";
         const variant = ((seed + n * 7) >>> 0) % HOUSE_VARIANTS;
-        const sp = cachedSprite(kit, `house:${access}:${variant}`, () => buildingGenerator.generate({ ...defaults(buildingGenerator), style: "stilt-house", access }, kit, variant).rows[0].frames[0]);
-        tm.deco[i] = ensureTile(tm, `stilt-house-${n}${hv[n % 2]}`, sp, true);
-        for (let dx = -1; dx <= 1; dx++) reserved.add(i + dx);
+        return { style, sp: cachedSprite(kit, `house:${style}:${access}:${variant}`, () => buildingGenerator.generate({ ...defaults(buildingGenerator), style, access }, kit, variant).rows[0].frames[0]) };
+      };
+      // sprites are bottom-centred on their cell: keep the whole footprint on the map and clear of paddies
+      const houses: { i: number; e: number }[] = [];
+      for (const i of cand) {
+        if (houses.length >= nHouse) break;
+        const { sp } = houseSprite(houses.length);
+        const e = Math.ceil((sp.w / 2 - T / 2) / T), up = Math.ceil(sp.h / T) - 1;
+        const x = i % cols, y = Math.floor(i / cols);
+        if (x - e < 0 || x + e >= cols || y < up) continue;
+        if (houses.some((h) => Math.abs((h.i % cols) - x) < h.e + e + 2 && Math.abs(Math.floor(h.i / cols) - y) < 7)) continue;
+        let clear = true;
+        for (let d = 0; clear && d <= up; d++) for (let dx = -e; dx <= e; dx++) { const j = (y - d) * cols + x + dx; const g = ground[j]; if (g === "paddy" || g === "water" || (g === "dirt" && !path.has(j))) clear = false; }
+        if (!clear) continue;
+        houses.push({ i, e });
+      }
+      houses.forEach(({ i, e }, n) => {
+        const { style, sp } = houseSprite(n);
+        tm.deco[i] = ensureTile(tm, `${style}-${n}${hv[n % 2]}`, sp, true);
+        // the footprint and three rows in front stay free so tall props (palms) do not hide the doors
+        for (let dy = 0; dy <= 3; dy++) for (let dx = -e; dx <= e; dx++) if (i + dy * cols + dx < cols * rows) reserved.add(i + dy * cols + dx);
         reserved.add(i - cols);
       });
       const animals = ["water-buffalo", "chicken", "chicken"];
