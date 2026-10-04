@@ -11,6 +11,7 @@ import { buildLegend } from "./legend";
 import { Painter } from "./painter";
 import { decodeIndex, MATERIALS, type Material } from "./palette";
 import { richParts, richShade } from "./rigs/detail";
+import { applyPattern, patternsOf } from "./rigs/shapes-pattern";
 import type { FrameSet, Sprite, StyleKit } from "./types";
 
 /** Drawing views. "left" is rendered as the mirror of "side" (lighting is recomputed, not flipped). */
@@ -276,7 +277,15 @@ export function renderRig(r: RigRender, clips: Clip[], opts: RenderOptions = {})
       const frames = clipFrames(clip, viewOf(dir));
       rows.push({ name: `${clip.id}-${dir}`, frames: (frames.length ? frames : [{}]).map((pose) => renderRigFrame(r, dir, pose)) });
     }
-  return rows;
+  // `pattern-<kind>[:slot]` attachments (rigged recipes) pattern the garment between neck and hip,
+  // the same band the character generator uses
+  const pats = patternsOf(r.attachments ?? [], { ...r.rig.slots, ...(r.slots ?? {}) } as Record<string, Material>);
+  const ids = new Set(r.rig.joints.map((j) => j.id));
+  if (!pats.length || !ids.has("neck") || !ids.has("hip")) return rows;
+  const k = (r.size ?? r.kit.sizes.character) / r.rig.grid;
+  const pose = solvePose(r.rig, "down");
+  const yMin = Math.round(pose.neck[1] * k), yMax = Math.round((pose.hip[1] + 6) * k);
+  return rows.map((row) => ({ ...row, frames: row.frames.map((f) => pats.reduce((sp, pt) => applyPattern(sp, { pattern: pt.pattern, mat: pt.mat, kit: r.kit, yMin, yMax }), f)) }));
 }
 
 /**

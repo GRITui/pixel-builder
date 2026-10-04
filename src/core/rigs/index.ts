@@ -8,6 +8,7 @@ import { FISH_CLIPS, FISH_RIGS } from "./fish";
 import { EXAMPLE_RIG, IDLE, NGOB_HAT, WALK } from "./example";
 import { AGES, FACE, femaleFace, HAIR_STYLES, hairAttachment, HUMANOID_RIGS, HUMAN_RIGS, NO_FACE } from "./humanoid";
 import { WARDROBE_NEW_ATTACHMENTS } from "./wardrobe";
+import { PATTERN_ATTACHMENTS, patternAttachment } from "./shapes-pattern";
 import { QUADRUPED_CLIPS, QUADRUPED_RIGS } from "./quadruped";
 import { TOOL_ATTACHMENTS } from "./tools";
 
@@ -33,7 +34,7 @@ export const CLIPS: { clip: Clip; family: RigFamily }[] = [
 export const ATTACHMENTS: { attachment: Attachment; family: RigFamily }[] = [
   ...(HUMANOID_ATTACHMENTS.length ? HUMANOID_ATTACHMENTS : [NGOB_HAT]).map((attachment) => ({ attachment, family: "humanoid" as const })),
   ...TOOL_ATTACHMENTS.map((attachment) => ({ attachment, family: "humanoid" as const })),
-  ...[...HAIR_STYLES.map((s) => hairAttachment(s)), FACE, femaleFace("young-adult"), NO_FACE].map((attachment) => ({ attachment, family: "humanoid" as const })),
+  ...[...HAIR_STYLES.map((s) => hairAttachment(s)), FACE, femaleFace("young-adult"), NO_FACE, ...PATTERN_ATTACHMENTS, ...PATTERN_ATTACHMENTS.map((a) => patternAttachment(a.id.slice("pattern-".length) as "plaid", "accent"))].map((attachment) => ({ attachment, family: "humanoid" as const })),
   ...WARDROBE_NEW_ATTACHMENTS.map((attachment) => ({ attachment, family: "humanoid" as const })),
 ];
 
