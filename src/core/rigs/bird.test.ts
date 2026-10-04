@@ -6,8 +6,8 @@ import { BIRD_CLIPS, BIRD_RIGS } from "./bird";
 import { BIRD_JOINTS } from "./joints";
 
 describe("bird rigs", () => {
-  it("has the three species and four clips", () => {
-    expect(BIRD_RIGS.map((r) => r.id)).toEqual(["chicken", "rooster", "duck"].map((s) => `bird-${s}`));
+  it("has the species (+ chick) and four clips", () => {
+    expect(BIRD_RIGS.map((r) => r.id)).toEqual(["chicken", "rooster", "duck", "chicken-baby"].map((s) => `bird-${s}`));
     expect(BIRD_CLIPS.map((c) => c.id)).toEqual(["idle", "walk", "peck", "flap"]);
   });
   for (const rig of BIRD_RIGS) {

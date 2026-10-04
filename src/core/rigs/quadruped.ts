@@ -20,6 +20,8 @@ interface Spec {
   snoutDx: number; snoutRx: number; snoutRy: number;
   neckR: number;
   ears: Ears; horns?: boolean; mane?: boolean; tail: Tail;
+  /** Farm extras: dark head/legs (sheep), wool puffs, cow patches, udder, horn size, pink muzzle. */
+  face?: Material; muzzle?: Material; wool?: boolean; cow?: boolean; udder?: boolean; hornScale?: number; lift?: number;
 }
 
 const GROUND = 28;
@@ -51,8 +53,32 @@ const PATCHES: Record<number, [number, number, number, number, number][]> = {
   3: [[0.45, 0.35, 0.5, 0.35, -1], [-0.2, -0.45, 0.28, 0.3, -1], [-0.65, 0.1, 0.2, 0.3, -1]],
 };
 
+/** Cow markings per variant: [dx, dy, rx, ry, tone] on the body (side), fractions of the body radii. */
+const COW_PATCHES: Record<number, [number, number, number, number, number][]> = {
+  0: [[-0.4, -0.1, 0.42, 0.6, -1], [0.4, 0.2, 0.34, 0.5, -1], [0.0, -0.55, 0.22, 0.3, -1]],
+  1: [[0.05, -0.05, 0.5, 0.65, -1], [-0.62, 0.25, 0.24, 0.35, -1]],
+  2: [[0.5, -0.2, 0.3, 0.45, -1], [-0.3, 0.1, 0.42, 0.55, -1], [-0.78, -0.25, 0.16, 0.3, -1]],
+  3: [[-0.15, 0.0, 0.62, 0.42, -1], [0.5, 0.35, 0.24, 0.32, -1]],
+};
+
+/** A calf/foal/pup: smaller body, much shorter legs, bigger head (relative), no horns. */
+function babyOf(s: Spec): Spec {
+  const rx = s.bodyRx * 0.78, ry = s.bodyRy * 0.82;
+  const legLen = (GROUND - (s.by + s.bodyRy * 0.45)) * 0.62;
+  return {
+    ...s, id: `${s.id}-baby`, name: `${s.name} (baby)`,
+    bodyRx: rx, bodyRy: ry, by: GROUND - legLen - ry * 0.45,
+    legR: Math.max(1.15, s.legR * 0.85),
+    neck: [s.neck[0] * 0.7, s.neck[1] * 0.45], head: [s.head[0] * 0.75, s.head[1] * 0.6],
+    headRx: s.headRx * 1.02, headRy: s.headRy * 1.08,
+    snoutRx: s.snoutRx * 0.85, snoutRy: s.snoutRy * 0.9, neckR: s.neckR * 0.85,
+    horns: false, udder: false, mane: false,
+  };
+}
+
 function build(s: Spec, variant = 0): RigDef {
   const { by, bodyRx, bodyRy: ry } = s;
+  const hs = s.face ? "face" : "coat"; // slot for head, legs and ears
   const legTop = by + ry * 0.45;
   const knee = (legTop + GROUND) / 2;
   const fx = BX + bodyRx * 0.55, bx = BX - bodyRx * 0.55;
@@ -105,8 +131,8 @@ function build(s: Spec, variant = 0): RigDef {
     const z = { down: back ? 0 : 3, side: far ? 0 : 3, up: back ? 3 : 0 };
     const tone = { tone: far ? -2 : 0 };
     add(
-      { id: `thigh${lg}`, kind: "limb", from: sh, to: kn, r: s.legR * (back ? 1.1 : 1), slot: "coat", z, ...tone },
-      { id: `shin${lg}`, kind: "limb", from: kn, to: ft, r: s.legR * 0.85, slot: "coat", z, ...tone },
+      { id: `thigh${lg}`, kind: "limb", from: sh, to: kn, r: s.legR * (back ? 1.1 : 1), slot: hs, z, ...tone },
+      { id: `shin${lg}`, kind: "limb", from: kn, to: ft, r: s.legR * 0.85, slot: hs, z, ...tone },
     );
     if (s.hoof) add({ id: `hoof${lg}`, kind: "ellipse", joint: ft, dy: -0.3, rx: s.legR * 0.95, ry: 1, slot: "hoof", z, tone: far ? -1 : 0 });
   }
@@ -120,13 +146,39 @@ function build(s: Spec, variant = 0): RigDef {
     { id: "chestU", kind: "ellipse", joint: "body", dy: -ry * 0.7, rx: ry * 1.35, ry: ry * 0.75, slot: "coat", tone: 0, z: 1.5, views: ["up"] },
     { id: "rumpU", kind: "ellipse", joint: "body", dy: ry * 0.1, rx: ry * 0.78, ry: ry * 0.9, slot: "coat", z: 2, views: ["up"] },
   );
-  for (const [px, py, prx, pry, pt] of PATCHES[variant] ?? []) add(
-    { id: `patch${parts.length}`, kind: "ellipse", joint: "body", dx: px * bodyRx, dy: py * ry, rx: prx * bodyRx, ry: pry * ry, slot: "coat", tone: pt, z: 2.5, views: ["side"] },
+  const markSlot = s.cow ? "patch" : "coat";
+  for (const [px, py, prx, pry, pt] of (s.cow ? COW_PATCHES : PATCHES)[variant] ?? []) add(
+    { id: `patch${parts.length}`, kind: "ellipse", joint: "body", dx: px * bodyRx, dy: py * ry, rx: prx * bodyRx, ry: pry * ry, slot: markSlot, tone: pt, flat: s.cow ? 0.7 : undefined, z: 2.5, views: ["side"] },
   );
-  if (variant) add(
-    { id: "patchD", kind: "ellipse", joint: "body", dx: variant === 2 ? 1.2 : -1.4, dy: -ry * 0.6, rx: ry * 0.45, ry: ry * 0.4, slot: "coat", tone: variant === 2 ? 1 : -1, z: 2.6, views: ["down"] },
-    { id: "patchU", kind: "ellipse", joint: "body", dx: variant === 2 ? -1.2 : 1.4, dy: ry * 0.3, rx: ry * 0.45, ry: ry * 0.5, slot: "coat", tone: variant === 2 ? 1 : -1, z: 2.6, views: ["up"] },
+  if (variant || s.cow) add(
+    { id: "patchD", kind: "ellipse", joint: "body", dx: variant === 2 ? 1.2 : -1.4, dy: -ry * 0.6, rx: ry * 0.45, ry: ry * 0.4, slot: markSlot, tone: s.cow ? 0 : variant === 2 ? 1 : -1, flat: s.cow ? 0.7 : undefined, z: 2.6, views: ["down"] },
+    { id: "patchU", kind: "ellipse", joint: "body", dx: variant === 2 ? -1.2 : 1.4, dy: ry * 0.3, rx: ry * 0.45, ry: ry * 0.5, slot: markSlot, tone: s.cow ? 0 : variant === 2 ? 1 : -1, flat: s.cow ? 0.7 : undefined, z: 2.6, views: ["up"] },
   );
+  if (s.cow && variant !== 1 && variant !== 3) add(
+    { id: "patchHead", kind: "ellipse", joint: "head", dx: -s.headRx * 0.25, dy: -s.headRy * 0.3, rx: s.headRx * 0.45, ry: s.headRy * 0.4, slot: "patch", flat: 0.7, z: 4.5, views: ["side"] },
+    { id: "patchHeadF", kind: "ellipse", joint: "head", dx: variant === 2 ? 1 : -1, dy: -s.headRx * 0.55, rx: 1.5, ry: 1.3, slot: "patch", flat: 0.7, z: 4.5, views: ["down"] },
+  );
+  if (s.udder) add({ id: "udder", kind: "ellipse", joint: "body", dx: -bodyRx * 0.3, dy: ry * 0.95, rx: 2, ry: 1.3, slot: "muzzle", tone: 0, z: 1.5, views: ["side"] });
+  if (s.wool) {
+    // overlapping lit puffs around and across the torso
+    const pr = ry * 0.72;
+    for (let i = 0; i < 7; i++) {
+      const a = (i / 7) * Math.PI * 2 + 0.3;
+      add({ id: `puff${i}`, kind: "ellipse", joint: "body", dx: Math.cos(a) * (bodyRx - pr * 0.8), dy: Math.sin(a) * (ry - pr * 0.8), rx: pr, ry: pr, slot: "coat", tone: i % 2 ? 0 : -1, z: 2.2 + Math.sin(a) * 0.1, views: ["side"] });
+    }
+    add({ id: "puffC", kind: "ellipse", joint: "body", dx: 0, dy: 0, rx: bodyRx * 0.62, ry: ry * 0.55, slot: "coat", tone: 0, z: 2.15, views: ["side"] });
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2 + 0.6;
+      add(
+        { id: `puffD${i}`, kind: "ellipse", joint: "body", dx: Math.cos(a) * ry * 0.85, dy: Math.sin(a) * ry * 0.6, rx: pr * 1.05, ry: pr, slot: "coat", tone: i % 2, z: 2.2 + i * 0.01, views: ["down"] },
+        { id: `puffU${i}`, kind: "ellipse", joint: "body", dx: Math.cos(a) * ry * 0.6, dy: Math.sin(a) * ry * 0.75, rx: pr, ry: pr, slot: "coat", tone: i % 2, z: 2.2 + i * 0.01, views: ["up"] },
+      );
+    }
+    add(
+      { id: "forelock", kind: "ellipse", joint: "head", dx: -s.headRx * 0.35, dy: -s.headRy * 0.85, rx: s.headRx * 0.6, ry: s.headRy * 0.5, slot: "coat", tone: 1, z: 6.5, views: ["side"] },
+      { id: "forelockF", kind: "ellipse", joint: "head", dy: -s.headRx * 0.85, rx: s.headRy * 0.8, ry: s.headRx * 0.45, slot: "coat", tone: 1, z: 6.5, views: ["down"] },
+    );
+  }
 
   // tail (variant 3 gets a longer tail)
   const T = s.tail;
@@ -148,13 +200,13 @@ function build(s: Spec, variant = 0): RigDef {
     { id: "neck", kind: "limb", from: "body", to: "head", r: s.neckR, slot: "coat", tone: -1, z: { down: 3, side: 3, up: 1 }, views: ["side"] },
     { id: "neckD", kind: "ellipse", joint: "neck", dy: -0.5, rx: s.neckR * 1.15, ry: s.neckR * 1.2, slot: "coat", tone: -1, z: 3, views: ["down"] },
     { id: "neckU", kind: "ellipse", joint: "neck", rx: s.neckR * 1.05, ry: s.neckR * 0.9, slot: "coat", tone: -1, z: 0.8, views: ["up"] },
-    { id: "head", kind: "ellipse", joint: "head", rx: s.headRx, ry: s.headRy, slot: "coat", z: { down: 4, side: 4, up: 1 }, views: ["side", "up"] },
-    { id: "headFront", kind: "ellipse", joint: "head", rx: hr + 0.6, ry: s.headRx * 0.95, slot: "coat", z: 4, views: ["down"] },
+    { id: "head", kind: "ellipse", joint: "head", rx: s.headRx, ry: s.headRy, slot: hs, z: { down: 4, side: 4, up: 1 }, views: ["side", "up"] },
+    { id: "headFront", kind: "ellipse", joint: "head", rx: hr + 0.6, ry: s.headRx * 0.95, slot: hs, z: 4, views: ["down"] },
     { id: "snout", kind: "ellipse", joint: "jaw", rx: s.snoutRx, ry: s.snoutRy, slot: "muzzle", tone: 1, z: 5, views: ["side"] },
     { id: "snoutF", kind: "ellipse", joint: "jaw", dy: -0.5, rx: s.snoutRy + 0.8, ry: s.snoutRy * 0.85, slot: "muzzle", tone: 1, z: 5, views: ["down"] },
     // throat shadow: separates head from neck
-    { id: "napeShade", kind: "ellipse", joint: "head", dx: -s.headRx * 1.0, dy: 0, rx: 0.9, ry: s.headRy * 0.75, slot: "coat", tone: -2, z: 3.9, views: ["side"] },
-    { id: "jawShade", kind: "ellipse", joint: "head", dx: -s.headRx * 0.3, dy: s.headRy * 0.82, rx: s.headRx * 0.6, ry: 0.75, slot: "coat", tone: -2, z: 5.5, views: ["side"] },
+    { id: "napeShade", kind: "ellipse", joint: "head", dx: -s.headRx * 1.0, dy: 0, rx: 0.9, ry: s.headRy * 0.75, slot: hs, tone: -2, z: 3.9, views: ["side"] },
+    { id: "jawShade", kind: "ellipse", joint: "head", dx: -s.headRx * 0.3, dy: s.headRy * 0.82, rx: s.headRx * 0.6, ry: 0.75, slot: hs, tone: -2, z: 5.5, views: ["side"] },
   );
   if (s.mane) add({ id: "mane", kind: "ellipse", joint: "neck", dx: -1.5, dy: -0.5, rx: 1.6, ry: 4, slot: "mane", z: 2, views: ["side"] },
     { id: "maneUp", kind: "ellipse", joint: "neck", dy: -1, rx: 1.6, ry: 3.5, slot: "mane", z: 1.2, views: ["up"] },
@@ -165,18 +217,19 @@ function build(s: Spec, variant = 0): RigDef {
     const er = e === "flop" ? [1.3, 2.6] : e === "point" ? [1.2, 2.4] : [1.6, 1.6];
     const ey = e === "flop" ? 0 : -s.headRy;
     add(
-      { id: "earNear", kind: "ellipse", joint: "head", dx: -s.headRx * 0.6, dy: ey + (e === "flop" ? 1 : 0), rx: er[0], ry: er[1], slot: "coat", tone: -1, z: 6, views: ["side"] },
-      { id: "earL", kind: "ellipse", joint: "head", dx: -(hr * 0.9), dy: e === "flop" ? 0.5 : -s.headRx * 0.7, rx: er[0], ry: er[1], slot: "coat", tone: -1, z: 6, views: ["down", "up"] },
-      { id: "earR", kind: "ellipse", joint: "head", dx: hr * 0.9, dy: e === "flop" ? 0.5 : -s.headRx * 0.7, rx: er[0], ry: er[1], slot: "coat", tone: -1, z: 6, views: ["down", "up"] },
+      { id: "earNear", kind: "ellipse", joint: "head", dx: -s.headRx * 0.6, dy: ey + (e === "flop" ? 1 : 0), rx: er[0], ry: er[1], slot: hs, tone: -1, z: 6, views: ["side"] },
+      { id: "earL", kind: "ellipse", joint: "head", dx: -(hr * 0.9), dy: e === "flop" ? 0.5 : -s.headRx * 0.7, rx: er[0], ry: er[1], slot: hs, tone: -1, z: 6, views: ["down", "up"] },
+      { id: "earR", kind: "ellipse", joint: "head", dx: hr * 0.9, dy: e === "flop" ? 0.5 : -s.headRx * 0.7, rx: er[0], ry: er[1], slot: hs, tone: -1, z: 6, views: ["down", "up"] },
     );
   }
   if (s.horns) {
     // swept-back crescents: three tapering segments from the brow, back, and up at the tip
-    const L = [1, 1.3, 0.8, 1.15][variant];
+    const L = [1, 1.3, 0.8, 1.15][variant] * (s.hornScale ?? 1);
     const side: [number, number][] = [[-0.5, -3.4], [-3 * L, -5.2 * L], [-6.2 * L, -5 * L], [-8.4 * L, -7.4 * L]];
-    add(...crescent("horn", side, [1.7, 1.35, 1.0, 0.6], 7, "side"));
+    const hr0 = Math.max(0.55, s.hornScale ?? 1);
+    add(...crescent("horn", side, [1.7, 1.35, 1.0, 0.6].map((r) => r * hr0), 7, "side"));
     const front: [number, number][] = [[hr * 0.7, -1.6], [hr * 0.7 + 2.6 * L, -2.6], [hr * 0.7 + 4.4 * L, -1.4 * L - 2.4], [hr * 0.7 + 5.4 * L, -5 * L]];
-    for (const sgn of [-1, 1]) add(...crescent(`hornF${sgn}_`, front, [1.6, 1.3, 1.0, 0.6], 7, "front", sgn));
+    for (const sgn of [-1, 1]) add(...crescent(`hornF${sgn}_`, front, [1.6, 1.3, 1.0, 0.6].map((r) => r * hr0), 7, "front", sgn));
   }
   // eyes: a single ink pixel (box w=1 stays 1px at any kit size)
   add(
@@ -188,9 +241,11 @@ function build(s: Spec, variant = 0): RigDef {
     { id: "noseR", kind: "box", joint: "jaw", dx: 0.8, dy: -0.5, w: 1, h: 1, slot: "ink", tone: -4, z: 9, views: ["down"] },
   );
 
+  // pale coats (white cow, wool) are lifted a ramp step so they read white, not grey
+  if (s.lift) for (const p of parts) if (p.slot === "coat") p.tone = (p.tone ?? 0) + s.lift;
   return {
     id: s.id, name: s.name, grid: 32, joints, parts,
-    slots: { coat: s.coat, accent: s.accent, hoof: "ink", mane: "hair", muzzle: s.coat, ink: "ink" },
+    slots: { coat: s.coat, accent: s.accent, hoof: "ink", mane: "hair", muzzle: s.muzzle ?? s.face ?? s.coat, ink: "ink", ...(s.face ? { face: s.face } : {}), ...(s.cow ? { patch: "ink" as Material } : {}) },
   };
 }
 
@@ -215,13 +270,25 @@ const SPECIES: Spec[] = [
     by: 19.5, bodyRx: 7.8, bodyRy: 5, legR: 1.7, hoof: true,
     neck: [6, -1.5], head: [3.2, 0.8], headRx: 3.7, headRy: 3.4, snoutDx: 2.6, snoutRx: 2, snoutRy: 2.2, neckR: 3,
     ears: "flop", tail: "curl" },
+  { id: "quadruped-cow", name: "Cow", coat: "metal", accent: "sand", muzzle: "skin", cow: true, udder: true, hornScale: 0.4, lift: 1,
+    by: 15.5, bodyRx: 9, bodyRy: 5.2, legR: 1.8, hoof: true,
+    neck: [7, -2.2], head: [3.6, 0.8], headRx: 4.2, headRy: 3.5, snoutDx: 2.8, snoutRx: 2.9, snoutRy: 2.7, neckR: 3.1,
+    ears: "flop", horns: true, tail: "whip" },
+  { id: "quadruped-sheep", name: "Sheep", coat: "metal", accent: "sand", face: "leather", wool: true, lift: 1,
+    by: 17.5, bodyRx: 7.6, bodyRy: 5.6, legR: 1.3, hoof: false,
+    neck: [6, -1], head: [3, 0.8], headRx: 3.2, headRy: 3, snoutDx: 2.2, snoutRx: 2, snoutRy: 1.9, neckR: 2.6,
+    ears: "flop", tail: "curl" },
 ];
+
+const ADULTS = SPECIES.length;
+SPECIES.push(...SPECIES.slice(0, ADULTS).map(babyOf));
 
 export const QUADRUPED_RIGS: RigDef[] = SPECIES.map((s) => build(s));
 
-/** One species by short name ("horse") with a variant 0..3 (coat patches, horn length, tail). */
-export function quadrupedRig(species: string, variant = 0): RigDef {
-  const spec = SPECIES.find((s) => s.id.endsWith(`-${species}`)) ?? SPECIES[0];
+/** One species by short name ("horse") with a variant 0..3 (coat patches, horn length, tail); `baby` gives the calf/foal/pup. */
+export function quadrupedRig(species: string, variant = 0, baby = false): RigDef {
+  const id = `quadruped-${species}${baby ? "-baby" : ""}`;
+  const spec = SPECIES.find((s) => s.id === id) ?? SPECIES.find((s) => s.id.endsWith(`-${species}`)) ?? SPECIES[0];
   return build(spec, Math.max(0, Math.min(3, Math.round(variant))));
 }
 

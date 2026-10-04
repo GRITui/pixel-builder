@@ -4,13 +4,22 @@
 import { proportions } from "../kit";
 import { renderRig, renderRigFrame, type Clip, type PartDef, type RigDef } from "../rig";
 import { BIRD_CLIPS, birdRig } from "../rigs/bird";
+import { FISH_CLIPS, fishRig } from "../rigs/fish";
 import { QUADRUPED_CLIPS, quadrupedRig } from "../rigs/quadruped";
 import type { Material } from "../palette";
 import type { StyleKit } from "../types";
 import { mat, PAINT, str, type Generator } from "./types";
 
-export const ANIMAL_SPECIES = ["water-buffalo", "dog", "cat", "horse", "pig", "chicken", "rooster", "duck"];
+export const ANIMAL_SPECIES = ["water-buffalo", "dog", "cat", "horse", "pig", "chicken", "rooster", "duck", "cow", "sheep", "fish", "catfish"];
 const BIRDS = ["chicken", "rooster", "duck"];
+const FISH = ["fish", "catfish"];
+export const ANIMAL_AGES = ["adult", "baby"];
+
+/** The animals a farm game needs, per setting (names are `animal` species ids). */
+export const FARM_SETS = {
+  normal: ["dog", "cat", "cow", "chicken", "sheep", "fish"],
+  sea: ["dog", "cat", "water-buffalo", "chicken", "pig", "fish"],
+} as const;
 
 /** Standing height as a multiple of the human figure, and the canvas as a multiple of the character canvas. */
 export const ANIMAL_SCALE: Record<string, { height: number; canvas: number }> = {
@@ -22,13 +31,27 @@ export const ANIMAL_SCALE: Record<string, { height: number; canvas: number }> = 
   chicken: { height: 0.35, canvas: 1 },
   duck: { height: 0.35, canvas: 1 },
   rooster: { height: 0.45, canvas: 1 },
+  cow: { height: 1.1, canvas: 1.5 },
+  sheep: { height: 0.75, canvas: 1 },
+  // fish are seen from above: "height" is the body length (they have no ground to stand on)
+  fish: { height: 0.7, canvas: 1 },
+  catfish: { height: 0.8, canvas: 1 },
 };
+
+/** Babies are about this fraction of the adult, but never below their own (smaller) readable floor. */
+export const BABY_RATIO = 0.55;
+export const MIN_READABLE_BABY_HEIGHT = 7;
 
 /** Smallest height (px) at which a creature still reads at 1x; tiny species are clamped up to it on small kits. */
 export const MIN_READABLE_HEIGHT = 9;
-export const animalTargetHeight = (species: string, kit: StyleKit) =>
-  Math.max(Math.min(MIN_READABLE_HEIGHT, kit.sizes.character - 2), proportions(kit).figure * (ANIMAL_SCALE[species]?.height ?? 1));
-export const animalCanvas = (species: string, kit: StyleKit) => Math.round(kit.sizes.character * (ANIMAL_SCALE[species]?.canvas ?? 1));
+export const animalTargetHeight = (species: string, kit: StyleKit, age: string = "adult") => {
+  const raw = proportions(kit).figure * (ANIMAL_SCALE[species]?.height ?? 1);
+  if (age === "baby") return Math.max(Math.min(MIN_READABLE_BABY_HEIGHT, kit.sizes.character - 2), raw * BABY_RATIO);
+  return Math.max(Math.min(MIN_READABLE_HEIGHT, kit.sizes.character - 2), raw);
+};
+/** Babies fit the plain character canvas; adult buffalo, cow and horse need the wide one. */
+export const animalCanvas = (species: string, kit: StyleKit, age: string = "adult") =>
+  Math.round(kit.sizes.character * (age === "baby" ? 1 : ANIMAL_SCALE[species]?.canvas ?? 1));
 
 type Affine = { k: number; ox: number; oy: number };
 
@@ -79,15 +102,15 @@ function measure(rig: RigDef, kit: StyleKit, slots: Record<string, Material>, si
 
 const cache = new Map<string, Affine>();
 /** Find the scale that gives the target opaque height, then centre and ground-align on the canvas. */
-function fit(rig: RigDef, kit: StyleKit, slots: Record<string, Material>, size: number, target: number): Affine {
-  const key = `${rig.id}|${size}|${target}|${kit.id}|${kit.outline}|${JSON.stringify(slots)}|${rig.parts.length}`;
+function fit(rig: RigDef, kit: StyleKit, slots: Record<string, Material>, size: number, target: number, swimmer = false): Affine {
+  const key = `${swimmer}|${rig.id}|${size}|${target}|${kit.id}|${kit.outline}|${JSON.stringify(slots)}|${rig.parts.length}`;
   const hit = cache.get(key);
   if (hit) return hit;
   let lo = 0.15, hi = 3, best = 1, bestErr = Infinity;
   for (let i = 0; i < 16; i++) {
     const k = (lo + hi) / 2;
     const b = measure(rig, kit, slots, size, k);
-    const h = b.maxy - b.miny + 1;
+    const h = swimmer ? b.maxx - b.minx + 1 : b.maxy - b.miny + 1;
     const err = Math.abs(h - target);
     if (err < bestErr - 1e-9 || (err === bestErr && Math.abs(k - 1) < Math.abs(best - 1))) { bestErr = err; best = k; }
     if (h < target) lo = k; else hi = k;
@@ -96,7 +119,8 @@ function fit(rig: RigDef, kit: StyleKit, slots: Record<string, Material>, size: 
   const out = {
     k: best,
     ox: size * 2 + Math.round(size / 2 - (b.minx + b.maxx + 1) / 2),
-    oy: size * 4 + (size - 2 - b.maxy),
+    // swimmers float: centred both ways instead of standing on the ground line
+    oy: size * 4 + (swimmer ? Math.round(size / 2 - (b.miny + b.maxy + 1) / 2) : size - 2 - b.maxy),
   };
   cache.set(key, out);
   return out;
@@ -106,9 +130,10 @@ export const animalGenerator: Generator = {
   id: "animal",
   category: "character",
   label: "Animal",
-  description: "Rigged animals with idle/walk/graze (quadrupeds) or idle/walk/peck/flap (birds) animations: water buffalo, dog, cat, horse, pig, chicken, rooster, duck. Sized against the kit's human figure (buffalo/horse canvases are larger than the character canvas).",
+  description: "Rigged animals with idle/walk/graze (quadrupeds), idle/walk/peck/flap (birds) or idle/swim (fish, seen from above) animations: water buffalo, dog, cat, horse, pig, cow, sheep, chicken, rooster, duck, fish, catfish. `age: baby` gives the calf/lamb/puppy/chick/fry. Sized against the kit's human figure (buffalo/horse canvases are larger than the character canvas).",
   params: [
     { key: "species", label: "Species", type: "select", options: ANIMAL_SPECIES, default: "water-buffalo" },
+    { key: "age", label: "Age", type: "select", options: ANIMAL_AGES, default: "adult" },
     { key: "coat", label: "Coat / feathers", type: "material", options: PAINT, default: "stone" },
     { key: "accent", label: "Horns / comb / markings", type: "material", options: PAINT, default: "sand" },
     { key: "variant", label: "Variant (patches, horn length, tail)", type: "number", min: 0, max: 3, default: 0 },
@@ -117,16 +142,19 @@ export const animalGenerator: Generator = {
   generate(p, kit, _seed) {
     const species = ANIMAL_SPECIES.includes(str(p, "species")) ? str(p, "species") : "water-buffalo";
     const bird = BIRDS.includes(species);
+    const fish = FISH.includes(species);
+    const age = str(p, "age") === "baby" ? "baby" : "adult";
+    const baby = age === "baby";
     const variant = Math.max(0, Math.min(3, Math.round(Number(p.variant) || 0)));
-    const base = bird ? birdRig(species, variant) : quadrupedRig(species, variant);
-    const clips = bird ? BIRD_CLIPS : QUADRUPED_CLIPS;
+    const base = bird ? birdRig(species, variant, baby) : fish ? fishRig(species === "fish" ? "carp" : species, variant, baby) : quadrupedRig(species, variant, baby);
+    const clips = bird ? BIRD_CLIPS : fish ? FISH_CLIPS : QUADRUPED_CLIPS;
     const slots: Record<string, Material> = {};
     if (!p.use_species_coat) {
-      slots[bird ? "body" : "coat"] = mat(p, "coat");
+      slots[bird || fish ? "body" : "coat"] = mat(p, "coat");
       slots.accent = mat(p, "accent");
     }
-    const size = animalCanvas(species, kit);
-    const a = fit(base, kit, slots, size, Math.max(3, Math.round(animalTargetHeight(species, kit))));
+    const size = animalCanvas(species, kit, age);
+    const a = fit(base, kit, slots, size, Math.max(3, Math.round(animalTargetHeight(species, kit, age))), fish);
     const rig = fitRig(base, size, a);
     const rows = renderRig({ rig, kit, slots, size }, fitClips(clips, size, base, a));
     return { rows, fps: 6 };
