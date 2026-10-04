@@ -4,24 +4,27 @@ import type { Attachment, Clip, RigDef } from "../rig";
 import { HUMANOID_ATTACHMENTS } from "./attachments";
 import { BIRD_CLIPS, BIRD_RIGS } from "./bird";
 import { HUMANOID_CLIPS } from "./clips";
+import { FISH_CLIPS, FISH_RIGS } from "./fish";
 import { EXAMPLE_RIG, IDLE, NGOB_HAT, WALK } from "./example";
 import { FACE, HAIR_STYLES, hairAttachment, HUMANOID_RIGS, NO_FACE } from "./humanoid";
 import { QUADRUPED_CLIPS, QUADRUPED_RIGS } from "./quadruped";
 
 /** Which clips/attachments fit which rig: rigs share a `family` via their joint contract. */
-export type RigFamily = "humanoid" | "quadruped" | "bird";
+export type RigFamily = "humanoid" | "quadruped" | "bird" | "fish";
 
 export const RIGS: { rig: RigDef; family: RigFamily }[] = [
   { rig: EXAMPLE_RIG, family: "humanoid" },
   ...HUMANOID_RIGS.map((rig) => ({ rig, family: "humanoid" as const })),
   ...QUADRUPED_RIGS.map((rig) => ({ rig, family: "quadruped" as const })),
   ...BIRD_RIGS.map((rig) => ({ rig, family: "bird" as const })),
+  ...FISH_RIGS.map((rig) => ({ rig, family: "fish" as const })),
 ];
 
 export const CLIPS: { clip: Clip; family: RigFamily }[] = [
   ...(HUMANOID_CLIPS.length ? HUMANOID_CLIPS : [WALK, IDLE]).map((clip) => ({ clip, family: "humanoid" as const })),
   ...QUADRUPED_CLIPS.map((clip) => ({ clip, family: "quadruped" as const })),
   ...BIRD_CLIPS.map((clip) => ({ clip, family: "bird" as const })),
+  ...FISH_CLIPS.map((clip) => ({ clip, family: "fish" as const })),
 ];
 
 export const ATTACHMENTS: { attachment: Attachment; family: RigFamily }[] = [

@@ -6,8 +6,9 @@ import { QUADRUPED_CLIPS, QUADRUPED_RIGS } from "./quadruped";
 import { QUADRUPED_JOINTS } from "./joints";
 
 describe("quadruped rigs", () => {
-  it("has the five species and three clips", () => {
-    expect(QUADRUPED_RIGS.map((r) => r.id)).toEqual(["water-buffalo", "dog", "cat", "horse", "pig"].map((s) => `quadruped-${s}`));
+  it("has the species, their babies and three clips", () => {
+    const species = ["water-buffalo", "dog", "cat", "horse", "pig", "cow", "sheep"];
+    expect(QUADRUPED_RIGS.map((r) => r.id)).toEqual([...species, ...species.map((s) => `${s}-baby`)].map((s) => `quadruped-${s}`));
     expect(QUADRUPED_CLIPS.map((c) => c.id)).toEqual(["idle", "walk", "graze"]);
   });
   for (const rig of QUADRUPED_RIGS) {

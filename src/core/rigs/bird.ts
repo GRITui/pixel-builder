@@ -15,6 +15,8 @@ interface Spec {
   beakLen: number; beakH: number;
   comb: boolean; plume: boolean; duck: boolean;
   legLen: number;
+  /** Chick: round, tiny wings and tail. */
+  baby?: boolean;
 }
 
 const GROUND = 29;
@@ -48,7 +50,7 @@ function build(s: Spec, variant = 0): RigDef {
   }
 
   // tail: fan behind the body (side), a short tuft (down/up)
-  const tl = s.plume ? 5 : s.duck ? 2.2 : 3.5;
+  const tl = s.baby ? 1.6 : s.plume ? 5 : s.duck ? 2.2 : 3.5;
   add(
     { id: "tail", kind: "ellipse", joint: "tail", dx: -1.2, dy: s.plume ? -3 : -1.2, rx: s.plume ? 2.4 : 2, ry: tl, slot: s.plume ? "plume" : "body", tone: s.plume ? 0 : -1, z: 1, views: ["side"] },
     ...(s.plume ? [{ id: "tail2", kind: "ellipse", joint: "tail", dx: -2.6, dy: -4.6, rx: 1.4, ry: 3, slot: "plume", tone: -1, z: 1, views: ["side"] } as PartDef] : []),
@@ -88,13 +90,15 @@ const SPECIES: Spec[] = [
     by: 21.5, rx: 7, ry: 5, head: [7, -8], headR: 3, beakLen: 2, beakH: 1.1, comb: true, plume: true, duck: false, legLen: 3.5 },
   { id: "bird-duck", name: "Duck", body: "metal", accent: "cloth2", beak: "gold", legs: "gold",
     by: 23, rx: 7.5, ry: 4.5, head: [6.5, -5.5], headR: 3, beakLen: 2.6, beakH: 1, comb: false, plume: false, duck: true, legLen: 2 },
+  { id: "bird-chicken-baby", name: "Chick", body: "gold", accent: "cloth2", beak: "cloth2", legs: "cloth2",
+    by: 23.5, rx: 5.4, ry: 4.8, head: [3.6, -3.8], headR: 3.7, beakLen: 1.6, beakH: 1, comb: false, plume: false, duck: false, legLen: 2, baby: true },
 ];
 
 export const BIRD_RIGS: RigDef[] = SPECIES.map((s) => build(s));
 
 /** One species by short name ("duck") with a variant 0..3. */
-export function birdRig(species: string, variant = 0): RigDef {
-  const spec = SPECIES.find((s) => s.id.endsWith(`-${species}`)) ?? SPECIES[0];
+export function birdRig(species: string, variant = 0, baby = false): RigDef {
+  const spec = (baby ? SPECIES.find((s) => s.id === "bird-chicken-baby") : undefined) ?? SPECIES.find((s) => s.id.endsWith(`-${species}`)) ?? SPECIES[0];
   return build(spec, Math.max(0, Math.min(3, Math.round(variant))));
 }
 
