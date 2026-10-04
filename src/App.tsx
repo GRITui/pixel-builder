@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CATEGORIES, type Asset, type Category, type StyleKit } from "./core/types";
-import { coerceParams, generatorFor } from "./core/generators";
+import { coerceParams, generatorById, generatorFor } from "./core/generators";
 import { CategoryNav, type View } from "./ui/components/CategoryNav";
 import { KitEditor } from "./ui/components/KitEditor";
 import { LibraryStrip, LibraryView, type LibraryActions } from "./ui/components/LibraryList";
 import { TopBar } from "./ui/components/TopBar";
 import { Toasts, useToasts } from "./ui/components/Toasts";
+import { initRigSel } from "./ui/components/RiggedWorkspace";
 import { Workspace, initWs, type WsState } from "./ui/components/Workspace";
 import { rerenderAsset } from "./ui/components/rerender";
 import { usePalette, useAiStatus } from "./ui/components/common";
@@ -19,7 +20,7 @@ import { STORAGE_ERROR_EVENT, usePref, useProject } from "./ui/store";
 const VIEWS = new Set<string>([...CATEGORIES.map((c) => c.id), "library"]);
 
 export default function App() {
-  const { project, kits, library, mergeProject } = useProject();
+  const { project, kits, library, mergeProject, clips, customRigs, customAttachments, addClip } = useProject();
   const kit = kits.active;
   const pal = usePalette(kit);
   const { status, refresh } = useAiStatus();
@@ -70,9 +71,22 @@ export default function App() {
   const actions: LibraryActions = {
     edit: setEditing,
     load: (a) => {
-      const g = generatorFor(a.category);
+      const recipe = a.source.kind === "rigged" ? a.source.rig : undefined;
+      if (recipe && typeof recipe.rig === "string") {
+        updateWs("character", (w) => ({
+          ...w,
+          rigMode: true,
+          name: a.name,
+          rig: { ...initRigSel(), rigId: recipe.rig as string, slots: recipe.slots ?? {}, attachments: (recipe.attachments ?? []).filter((x): x is string => typeof x === "string"), clips: recipe.clips.map((c) => (typeof c === "string" ? c : c.id)), name: a.name },
+        }));
+        setViewPref("character");
+        return;
+      }
+      const g = (a.source.generator ? generatorById(a.source.generator) : undefined) ?? generatorFor(a.category);
       updateWs(a.category, (w) => ({
         ...w,
+        rigMode: false,
+        generatorId: g.id,
         params: coerceParams(g, (a.source.params ?? {}) as Record<string, unknown>),
         seed: a.source.seed ?? w.seed,
         name: a.name,
@@ -144,6 +158,13 @@ export default function App() {
               onOpenEditor={setEditing}
               onImport={() => setImporting(true)}
               onError={error}
+              customClips={clips}
+              customRigs={customRigs}
+              customAttachments={customAttachments}
+              onSaveClip={(c) => {
+                addClip(c);
+                push(`Saved clip “${c.id}” to the project.`);
+              }}
             />
           )}
         </main>

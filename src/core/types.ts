@@ -1,4 +1,5 @@
 import type { Material, Ramps } from "./palette";
+import type { RigRecipe } from "./rig";
 
 /** A single frame. `data[y * w + x]` is a palette index (0 = transparent). */
 export interface Sprite {
@@ -57,7 +58,7 @@ export interface Asset {
   /** One or more animation rows; static assets have a single row with one frame. */
   rows: FrameSet[];
   fps: number;
-  source: { kind: "procedural" | "ai-vibe" | "ai-pixels" | "import" | "manual"; generator?: string; params?: unknown; seed?: number; prompt?: string };
+  source: { kind: "procedural" | "ai-vibe" | "ai-pixels" | "import" | "manual" | "rigged"; generator?: string; params?: unknown; seed?: number; prompt?: string; rig?: RigRecipe };
   /** Present for map assets: a self-contained tile grid (tile sprites are copied in). */
   tilemap?: TileMap;
   /** Free-form extras, e.g. `{ nineSlice: { left, top, right, bottom } }` for UI panels. */

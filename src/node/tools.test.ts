@@ -24,6 +24,8 @@ describe("tool contract", () => {
     expect(TOOLS.map((t) => t.name)).toEqual([
       "get_style_guide", "list_generators", "generate_asset", "generate_variations", "paint_asset", "edit_asset", "list_assets",
       "get_asset", "delete_asset", "export_asset", "import_image", "list_kits", "create_kit", "update_kit", "set_active_kit", "rerender_assets",
+      "list_rigs", "list_clips", "list_attachments", "generate_rigged", "attach", "create_rig", "create_clip", "create_attachment",
+      "generate_pack", "import_svg",
     ]);
     for (const t of TOOLS) expect(t.description.length).toBeGreaterThan(20);
   });
@@ -60,7 +62,7 @@ describe("get_style_guide / list_generators", () => {
     const all = data("list_generators").generators;
     expect(all.map((g: { id: string }) => g.id)).toEqual(GENERATORS.map((g) => g.id));
     const env = data("list_generators", { category: "environment" }).generators;
-    expect(env).toHaveLength(1);
+    expect(env.map((g: { id: string }) => g.id)).toEqual(["environment", "tileset"]);
     expect(env[0].params.find((p: { key: string }) => p.key === "kind").options).toContain("oak");
     expect(env[0].defaults.kind).toBe("oak");
   });
@@ -72,7 +74,8 @@ describe("generate_asset / generate_variations", () => {
     const d = r.data as any;
     expect(d.saved).toBe(true);
     expect(d.asset).toMatchObject({ name: "Oak", category: "environment", width: 32, source: { kind: "procedural", generator: "environment", seed: 42 } });
-    expect(d.asset.files).toEqual([join(ws.dir, "environments", "oak.png")]);
+    // trees are animated (sway, chop, fall), so they export a sheet plus its frame map
+    expect(d.asset.files).toEqual([join(ws.dir, "environments", "oak.png"), join(ws.dir, "environments", "oak.json")]);
     expect(existsSync(d.asset.files[0])).toBe(true);
     expect(r.images).toHaveLength(1);
     expect(isPng(r.images![0].png)).toBe(true);
@@ -100,8 +103,10 @@ describe("generate_asset / generate_variations", () => {
   });
 
   it("gives actionable errors for unknown generators and params", () => {
-    expect(() => call("generate_asset", { generator: "tre" })).toThrow(/Unknown generator 'tre'.*'environment' with params \{"kind":"dead-tree"\}/);
-    expect(() => call("generate_asset", { generator: "oak" })).toThrow(/Did you mean 'environment' with params \{"kind":"oak"\}/);
+    expect(() => call("generate_asset", { generator: "tre" })).toThrow(/Unknown generator 'tre'\. Generators: character,/);
+    expect(() => call("generate_asset", { generator: "oak" })).toThrow(/Unknown generator 'oak'\. Generators: /);
+    expect(() => call("generate_asset", { generator: "nope" })).toThrow(/^(?!.*with params)/);
+    expect(() => call("generate_asset", { generator: "enviroment" })).toThrow(/Did you mean 'environment'\?/);
     expect(() => call("generate_asset", { generator: "environment", params: { kind: "tre" } })).toThrow(/Param 'kind'.*Did you mean 'dead-tree'/);
     expect(() => call("generate_asset", { generator: "environment", params: { knd: "oak" } })).toThrow(/no param 'knd'.*Did you mean 'kind'/);
     expect(() => call("generate_asset", { generator: "environment", params: { foliage: "stone-ish" } })).toThrow(/must be a material/);
@@ -287,6 +292,26 @@ describe("kits", () => {
   });
 });
 
+describe("svg stays in sync", () => {
+  it("rerender_assets and attach rewrite an existing .svg", () => {
+    const oak = data("generate_asset", { generator: "environment", params: { kind: "oak" }, seed: 9, name: "Oak" }).asset;
+    data("export_asset", { id: oak.id, format: "svg" });
+    const svgPath = join(ws.dir, "environments", "oak.svg");
+    const before = readFileSync(svgPath, "utf8");
+    call("update_kit", { kit_id: "kit-default", changes: { outline: "black", shadeSteps: 2 } });
+    call("rerender_assets");
+    expect(readFileSync(svgPath, "utf8")).not.toBe(before);
+
+    const f = data("generate_rigged", { rig: "humanoid-normal", attachments: ["straw-hat"], clips: ["idle"], name: "farmer" }).asset;
+    expect(existsSync(join(ws.dir, "characters", "farmer.svg"))).toBe(false); // no svg requested: none created
+    data("export_asset", { id: f.id, format: "svg" });
+    const farmerSvg = join(ws.dir, "characters", "farmer.svg");
+    expect(readFileSync(farmerSvg, "utf8")).not.toContain('inkscape:label="hoe"');
+    data("attach", { id: f.id, add: ["hoe"] });
+    expect(readFileSync(farmerSvg, "utf8")).toContain('inkscape:label="hoe"');
+  });
+});
+
 describe("rerender_assets", () => {
   it("regenerates procedural assets after a kit change and skips hand-painted ones", () => {
     call("generate_asset", { generator: "environment", params: { kind: "oak" }, seed: 9, name: "Oak" });
@@ -304,5 +329,104 @@ describe("rerender_assets", () => {
     expect(explicit.rerendered).toBe(1);
     expect(explicit.skipped[0]).toMatchObject({ name: "Gem" });
     expect(ws.load().assets.find((a) => a.name === "Oak")!.kitId).toBe("kit-neon");
+  });
+});
+
+describe("generate_pack", () => {
+  const manifest = {
+    entries: [
+      { name: "p-oak", generator: "environment", params: { kind: "oak" }, seed: 1, tags: ["tree"] },
+      { name: "p-farmer", rig: "humanoid-normal", attachments: ["straw-hat"], clips: ["idle"] },
+      { name: "p-bad", generator: "nope" },
+    ],
+  };
+  it("generates every entry, reports failures and returns a contact sheet", () => {
+    const r = call("generate_pack", { manifest });
+    const d = r.data as any;
+    expect(d.generated).toBe(2);
+    expect(d.failed.map((f: any) => f.name)).toEqual(["p-bad"]);
+    expect(isPng(r.images![0].png)).toBe(true);
+    expect(data("list_assets").assets.map((a: any) => a.name).sort()).toEqual(["p-farmer", "p-oak"]);
+  });
+  it("replaces same-named assets and filters with only", () => {
+    call("generate_pack", { manifest });
+    const d = data("generate_pack", { manifest, only: ["tree"] });
+    expect(d.assets.map((a: any) => a.name)).toEqual(["p-oak"]);
+    expect(data("list_assets").assets.filter((a: any) => a.name === "p-oak")).toHaveLength(1);
+  });
+  it("dry_run lists entries without generating; needs pack or manifest", () => {
+    expect(data("generate_pack", { manifest, dry_run: true }).count).toBe(3);
+    expect(data("list_assets").assets).toHaveLength(0);
+    expect(() => call("generate_pack", {})).toThrow(ToolError);
+  });
+});
+
+describe("svg export/import", () => {
+  const roundtrip = (id: string) => {
+    const before = data("get_asset", { id }).asset;
+    const f = data("export_asset", { id, format: "svg" }).files[0];
+    expect(f.path.endsWith(".svg")).toBe(true);
+    const svg = readFileSync(f.path, "utf8");
+    expect(svg).toContain('id="guides"');
+    expect(svg).toContain('inkscape:groupmode="layer"');
+    const r = data("import_svg", { path: f.path, name: "copy-" + id.slice(-4) }).asset;
+    return { svg, before, r };
+  };
+  const frames = (id: string) => {
+    const a = ws.load().assets.find((x) => x.id === id)!;
+    return a.rows.map((r) => r.frames.map((s) => s.data.join(",")));
+  };
+
+  it("roundtrips procedural, animated, rigged and map assets byte-identically", () => {
+    const ids = [
+      data("generate_asset", { generator: "building", seed: 3, name: "house" }).asset.id,
+      data("generate_asset", { generator: "map", seed: 1, name: "field" }).asset.id,
+      data("generate_asset", { generator: "environment", params: { kind: "paddy-tile" }, name: "paddy" }).asset.id,
+      data("generate_rigged", { rig: "humanoid-normal", attachments: ["straw-hat", "hoe"], clips: ["idle", "walk"], name: "farmer" }).asset.id,
+    ];
+    for (const id of ids) {
+      const { r } = roundtrip(id);
+      expect(frames(r.id)).toEqual(frames(id));
+    }
+    const rigSvg = readFileSync(join(dir, "ws", "characters", "farmer.svg"), "utf8");
+    expect(rigSvg).toContain('inkscape:label="straw-hat"');
+    expect(rigSvg).toContain('inkscape:label="core"');
+    expect(rigSvg).toContain(">walk-down 0<");
+  });
+
+  it("ignores hidden layers and the guides layer, and replace_id keeps name/category", () => {
+    const a = data("generate_asset", { generator: "building", seed: 3, name: "house" }).asset;
+    const f = data("export_asset", { id: a.id, format: "svg" }).files[0].path;
+    let svg = readFileSync(f, "utf8");
+    svg = svg.replace('inkscape:label="roof" inkscape:groupmode="layer"', 'inkscape:label="roof" inkscape:groupmode="layer" style="display:none"');
+    const p = join(dir, "edit.svg");
+    writeFileSync(p, svg);
+    const r = data("import_svg", { path: p, replace_id: a.id }).asset;
+    expect(r.id).toBe(a.id);
+    expect(r.name).toBe("house");
+    expect(r.source.kind).toBe("manual");
+    const mats = new Set(ws.load().assets[0].rows[0].frames[0].data);
+    expect(mats.size).toBeGreaterThan(1);
+    expect(() => call("import_svg", { path: join(dir, "nope.svg") })).toThrow(/Cannot read/);
+  });
+
+  it("generate_pack writes svg next to png by default", () => {
+    const d = data("generate_pack", { manifest: { entries: [{ name: "rock1", generator: "object", params: { kind: "chest" } }] } });
+    expect(d.assets[0].files.some((f: string) => f.endsWith(".svg"))).toBe(true);
+  });
+});
+
+describe("farming-v1 pack", () => {
+  it("lists every Farming Kit v1 entry with valid generators and rigs", () => {
+    const d = data("generate_pack", { pack: "farming-v1", dry_run: true });
+    expect(d.count).toBeGreaterThanOrEqual(100);
+    const names = d.entries.map((e: any) => e.name);
+    expect(new Set(names).size).toBe(names.length);
+    for (const n of ["human-female-elder", "animal-cow-baby", "animal-water-buffalo", "house-large", "barn-large", "coop-small", "tree-old-oak", "fence-gate-open", "tile-snowed-soil", "tool-watering-can", "ui-season-winter", "farmer-chop"]) expect(names).toContain(n);
+  });
+  it("builds a tagged subset end to end", () => {
+    const d = data("generate_pack", { pack: "farming-v1", only: ["season"] });
+    expect(d.generated).toBe(4);
+    expect(d.failed).toEqual([]);
   });
 });

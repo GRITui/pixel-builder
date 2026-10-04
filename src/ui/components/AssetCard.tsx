@@ -6,6 +6,7 @@ import { ExportMenu } from "./ExportMenu";
 import { AnimThumb } from "./SpriteView";
 
 export function canRerender(a: Asset): boolean {
+  if (a.source.kind === "rigged") return !!a.source.rig;
   return (a.source.kind === "procedural" || a.source.kind === "ai-vibe") && !!a.source.generator && !!generatorById(a.source.generator) && a.source.params !== undefined && a.source.seed !== undefined;
 }
 

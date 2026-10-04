@@ -2,6 +2,7 @@
 // (workspace, validated input) to plain data + PNG buffers. The MCP server
 // (mcp.ts) and the CLI (cli.ts) are thin adapters over TOOLS, so tool names and
 // input fields are identical in both.
+import { fitRigToWorld } from "../core/rigs/fit";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { z } from "zod";
@@ -11,14 +12,20 @@ import { GENERATORS, generatorById } from "../core/generators";
 import { coerceParams, defaults, randomParams, type Generator, type ParamSpec, type Params } from "../core/generators/types";
 import { newId } from "../core/kit";
 import { buildLegend, decodeRows, encodeSprite, legendText, type Legend } from "../core/legend";
-import { MATERIALS, PALETTES, RAMP_LEN } from "../core/palette";
+import { MATERIALS, PALETTES, RAMP_LEN, type Material } from "../core/palette";
+import type { ProjectFile } from "../core/project";
+import { rigSvgInfo, svgToSprites } from "../core/svg";
+import { renderRig, renderRigFrame, validateRig, type Attachment, type Clip, type RigDef, type RigRecipe } from "../core/rig";
+import { ATTACHMENTS, CLIPS, RIGS, withHumanoidDefaults } from "../core/rigs";
 import { randomSeed, rng } from "../core/rng";
 import { CATEGORIES, type Asset, type Category, type Sprite, type StyleKit } from "../core/types";
 import { decodePng, contactSheet, encodePng, previewScale, sheetImage, spriteImage, type RgbaImage } from "./png";
+import { isRigged, packById, PACKS, type PackEntry } from "./packs";
 import {
-  ToolError, Workspace, assetFiles, exportAsset, findAsset, getKit, isAnimated, kitOf, removeAssetFiles,
-  type ExportedFile,
+  ToolError, Workspace, assetFiles, exportAsset as exportAssetRaw, findAsset, getKit, isAnimated, kitOf, removeAssetFiles,
+  type ExportedFile, type ExportOptions,
 } from "./workspace";
+import { svgExists } from "./workspace";
 
 export { ToolError };
 
@@ -128,17 +135,8 @@ function resolveGenerator(id: string): Generator {
   const g = generatorById(id) ?? GENERATORS.find((x) => x.id === id.toLowerCase());
   if (g) return g;
   const hints: string[] = nearest(id, GENERATORS.map((x) => x.id), 2).map((n) => `'${n}'`);
-  const q = id.toLowerCase();
-  const optionHints = (fuzzy: boolean) =>
-    GENERATORS.flatMap((gen) =>
-      gen.params.flatMap((s) =>
-        s.type !== "select" ? [] : s.options.filter((o) => (fuzzy ? nearest(q, [o], 1).length > 0 : o === q || o.includes(q))).slice(0, 2).map((o) => `'${gen.id}' with params {"${s.key}":"${o}"}`),
-      ),
-    );
-  const byOption = optionHints(false);
-  hints.push(...(byOption.length ? byOption : optionHints(true)));
   throw new ToolError(
-    `Unknown generator '${id}'.` + (hints.length ? ` Did you mean ${[...new Set(hints)].slice(0, 4).join(" or ")}?` : "") + ` Generators: ${GENERATORS.map((x) => x.id).join(", ")} (see list_generators).`,
+    `Unknown generator '${id}'.` + (hints.length ? ` Did you mean ${hints.join(" or ")}?` : "") + ` Generators: ${GENERATORS.map((x) => x.id).join(", ")} (see list_generators).`,
   );
 }
 
@@ -192,7 +190,7 @@ interface AssetSummary {
   height: number;
   rows: { name: string; frames: number }[];
   fps: number;
-  source: { kind: Asset["source"]["kind"]; generator?: string; seed?: number; params?: unknown };
+  source: { kind: Asset["source"]["kind"]; generator?: string; seed?: number; params?: unknown; rig?: { rig: string; slots?: Record<string, string>; attachments: string[]; clips: string[] } };
   tags: string[];
   tilemap?: { cols: number; rows: number; tile: number; tiles: string[] };
   files: string[];
@@ -209,7 +207,7 @@ function summarize(ws: Workspace, project: ReturnType<Workspace["load"]>, a: Ass
     height: f.h,
     rows: a.rows.map((r) => ({ name: r.name, frames: r.frames.length })),
     fps: a.fps,
-    source: { kind: a.source.kind, ...(a.source.generator ? { generator: a.source.generator } : {}), ...(a.source.seed !== undefined ? { seed: a.source.seed } : {}), ...(a.source.params ? { params: a.source.params } : {}) },
+    source: { kind: a.source.kind, ...(a.source.generator ? { generator: a.source.generator } : {}), ...(a.source.seed !== undefined ? { seed: a.source.seed } : {}), ...(a.source.params ? { params: a.source.params } : {}), ...(a.source.rig ? { rig: recipeSummary(a.source.rig) } : {}) },
     tags: a.tags,
     ...(a.tilemap ? { tilemap: { cols: a.tilemap.cols, rows: a.tilemap.rows, tile: a.tilemap.tile, tiles: a.tilemap.tiles.map((t) => t.name) } } : {}),
     files: assetFiles(ws, project, a),
@@ -226,6 +224,11 @@ function previewOf(a: Asset, kit: StyleKit): ToolImage {
   }
   const f = a.rows[0].frames[0];
   return png(spriteImage(f, kit, previewScale(f.w, f.h), "checker"), a.name);
+}
+
+const idOf = (x: string | { id: string }) => (typeof x === "string" ? x : x.id);
+function recipeSummary(r: RigRecipe) {
+  return { rig: idOf(r.rig), ...(r.slots ? { slots: r.slots } : {}), attachments: (r.attachments ?? []).map(idOf), clips: r.clips.map(idOf) };
 }
 
 const absPaths = (files: ExportedFile[]) => files.map((f) => f.path);
@@ -594,21 +597,46 @@ const exportAssetTool = defineTool({
   name: "export_asset",
   title: "Export asset",
   description:
-    "Write game-ready files for an asset. 'png' = image (animated assets become a spritesheet + .json metadata; maps also get .tiled.json + tilesets); 'spritesheet' = always sheet + .json; 'tiled' = map only. Default folder: <workspace>/<category>s/ (characters/, buildings/, environments/, objects/, maps/ - and ui/ for UI assets, not uis/).",
+    "Write game-ready files for an asset. 'png' = image (animated assets become a spritesheet + .json metadata; maps also get .tiled.json + tilesets); 'spritesheet' = always sheet + .json; 'tiled' = map only; 'svg' = layered vector (a layer per material, per part for rigged assets, plus a locked 'guides' layer with pixel/tile grid, ground line, frame labels, joints) that opens in Inkscape/Figma and comes back with import_svg. Autotile assets (generator 'tileset') also export 'tiled-tileset' (.tsj with a wangset), 'godot' (.tres TileSet with terrain + peering bits), 'unity' (PNG + .rules.json slice rects and neighbour rules) and 'atlas' (PNG + .atlas.json index); each writes <slug>.png beside it. Default folder: <workspace>/<category>s/ (characters/, buildings/, environments/, objects/, maps/ - and ui/ for UI assets, not uis/).",
   shape: {
     id: z.string().describe("Asset id (or exact name)."),
-    format: z.enum(["png", "spritesheet", "tiled"]).default("png"),
-    scale: z.number().int().min(1).max(16).default(1).describe("Integer upscale of the PNG (nearest neighbour)."),
+    format: z.enum(["png", "spritesheet", "tiled", "svg", "tiled-tileset", "godot", "unity", "atlas"]).default("png"),
+    scale: z.number().int().min(1).max(16).default(1).describe("Integer upscale of the PNG (nearest neighbour); ignored for svg."),
     out_dir: z.string().optional().describe("Output folder (relative to the current directory). Default: <workspace>/<category>s/ (ui/ for UI assets)."),
   },
   positional: "id",
   run(ws, i) {
     const project = ws.load();
     const asset = findAsset(project, i.id);
-    const files = exportAsset(ws, project, asset, { format: i.format, scale: i.scale, outDir: i.out_dir });
+    const files = exportAsset(ws, project, asset, { format: i.format, scale: i.scale, outDir: i.out_dir, rig: i.format === "svg" ? rigInfoOf(project, asset) : undefined });
     return { data: { asset: { id: asset.id, name: asset.name }, files } };
   },
 });
+
+/**
+ * Every re-export of an asset's PNG also refreshes its editable .svg when one already
+ * exists, so the vector never goes stale (rerender, attach, edit, import replace, ...).
+ */
+function exportAsset(ws: Workspace, project: ProjectFile, asset: Asset, opts: ExportOptions = {}): ExportedFile[] {
+  const files = exportAssetRaw(ws, project, asset, opts);
+  if ((opts.format ?? "png") !== "svg" && svgExists(ws, project, asset, opts.outDir))
+    files.push(...exportAssetRaw(ws, project, asset, { format: "svg", outDir: opts.outDir, rig: rigInfoOf(project, asset) }));
+  return files;
+}
+
+/** Part ownership for a rigged asset's SVG layers (undefined for everything else, or if the recipe no longer resolves). */
+function rigInfoOf(project: ProjectFile, asset: Asset) {
+  const recipe = asset.source.kind === "rigged" ? asset.source.rig : undefined;
+  if (!recipe) return undefined;
+  try {
+    const kit = kitOf(project, asset);
+    const res = renderRecipe(project, kit, recipe);
+    if (res.rows.length !== asset.rows.length) return undefined;
+    return rigSvgInfo({ rig: res.lib.rig, slots: recipe.slots, attachments: res.attachments, clips: res.clips, kit });
+  } catch {
+    return undefined;
+  }
+}
 
 // ---------- import ----------
 
@@ -713,6 +741,63 @@ const importImage = defineTool({
   },
 });
 
+const importSvg = defineTool({
+  name: "import_svg",
+  title: "Import SVG",
+  description:
+    "Import a layered SVG (from export_asset format 'svg', edited in Inkscape/Figma/by an AI, or any pixel-rect SVG) as an asset, or with replace_id replace an existing asset's frames (name/category kept, source becomes 'manual'). Edit by layer: keep data-material/data-level on rects, or use kit palette colours (a changed fill wins and is snapped to the nearest kit colour). The 'guides' layer and hidden layers are ignored. Saves and exports it.",
+  shape: {
+    path: z.string().describe("Path to an .svg file (relative to the current directory)."),
+    name: z.string().min(1).max(80).optional().describe("Default: the name stored in the SVG, else the file name."),
+    category: categoryEnum.optional().describe("Default: the category stored in the SVG, else 'object'."),
+    replace_id: z.string().optional().describe("Replace the frames of this existing asset (id or name) instead of creating one."),
+    kit_id: kitIdField,
+  },
+  positional: "path",
+  run(ws, i) {
+    const file = resolve(i.path);
+    let text: string;
+    try {
+      text = readFileSync(file, "utf8");
+    } catch (e) {
+      throw new ToolError(`Cannot read '${file}': ${(e as Error).message}`);
+    }
+    const project = ws.load();
+    const existing = i.replace_id ? findAsset(project, i.replace_id) : undefined;
+    const kit = existing ? kitOf(project, existing) : getKit(project, i.kit_id);
+    let parsed;
+    try {
+      parsed = svgToSprites(text, kit);
+    } catch (e) {
+      throw new ToolError(`'${file}': ${(e as Error).message}`);
+    }
+    const notes = [...parsed.notes];
+    if (!parsed.rows.some((r) => r.frames.some((s) => s.data.some((v) => v > 0)))) throw new ToolError("The SVG produced only transparent frames. Check that the pixel rects are visible and outside the 'guides' layer.");
+    let asset: Asset;
+    if (existing) {
+      existing.rows = parsed.rows;
+      existing.source = { kind: "manual" };
+      if (existing.tilemap) { existing.tilemap = undefined; notes.push("tilemap data dropped: the map is now plain pixels"); }
+      existing.updatedAt = Date.now();
+      asset = existing;
+    } else {
+      const stem = file.split(/[\\/]/).pop()!.replace(/\.svg$/i, "");
+      asset = createAsset({
+        name: i.name ?? parsed.name ?? stem,
+        category: i.category ?? parsed.category ?? "object",
+        kit,
+        rows: parsed.rows,
+        fps: parsed.fps ?? 6,
+        source: { kind: "import" },
+      });
+      project.assets.push(asset);
+    }
+    ws.save(project);
+    const files = absPaths(exportAsset(ws, project, asset));
+    return { data: { asset: { ...summarize(ws, project, asset), files }, ...(notes.length ? { notes } : {}) }, images: [previewOf(asset, kit)] };
+  },
+});
+
 // ---------- kits ----------
 
 const hex = z.string().regex(/^#[0-9a-fA-F]{6}$/, "must be a #rrggbb hex colour");
@@ -781,7 +866,7 @@ const updateKit = defineTool({
     project.kits = project.kits.map((k) => (k.id === kit.id ? next : k));
     ws.save(project);
     const used = project.assets.filter((a) => a.kitId === kit.id);
-    const procedural = used.filter((a) => a.source.kind === "procedural").length;
+    const procedural = used.filter((a) => a.source.kind === "procedural" || a.source.kind === "rigged").length;
     const reshape = ["outline", "lightDir", "shadeSteps", "dither", "ambient", "sizes"].some((k) => k in i.changes);
     return {
       data: {
@@ -813,17 +898,30 @@ const rerenderAssets = defineTool({
   name: "rerender_assets",
   title: "Rerender assets",
   description:
-    "Re-run the generator of procedural assets with the current kit settings (after update_kit) so everything stays consistent, and re-export their files. Default: all procedural assets, each with its own kit; pass kit_id to move them to another kit. Hand-painted/imported assets are skipped.",
+    "Re-run the generator (or rig recipe, for rigged assets) of procedural/rigged assets with the current kit settings (after update_kit) so everything stays consistent, and re-export their files. Default: all procedural assets, each with its own kit; pass kit_id to move them to another kit. Hand-painted/imported assets are skipped.",
   shape: { ids: z.array(z.string()).optional().describe("Asset ids or names. Default: every procedural asset."), kit_id: kitIdField.describe("Re-render with this kit and move the assets to it. Default: each asset's own kit.") },
   run(ws, i) {
     const project = ws.load();
-    const targets = i.ids ? i.ids.map((id) => findAsset(project, id)) : project.assets.filter((a) => a.source.kind === "procedural");
+    const targets = i.ids ? i.ids.map((id) => findAsset(project, id)) : project.assets.filter((a) => a.source.kind === "procedural" || a.source.kind === "rigged");
     const forced = i.kit_id ? getKit(project, i.kit_id) : undefined;
     const done: AssetSummary[] = [];
     const skipped: { id: string; name: string; reason: string }[] = [];
     const sprites: Sprite[] = [];
     let kitForSheet: StyleKit | undefined;
     for (const a of targets) {
+      if (a.source.kind === "rigged" && a.source.rig) {
+        const kit = forced ?? kitOf(project, a);
+        const res = renderRecipe(project, kit, a.source.rig);
+        a.rows = res.rows;
+        a.fps = res.fps;
+        a.kitId = kit.id;
+        a.updatedAt = Date.now();
+        ws.save(project);
+        exportAsset(ws, project, a);
+        done.push(summarize(ws, project, a));
+        if (sprites.length < 12) { sprites.push(a.rows[0].frames[0]); kitForSheet ??= kit; }
+        continue;
+      }
       const g = a.source.kind === "procedural" && a.source.generator ? generatorById(a.source.generator) : undefined;
       if (!g) {
         skipped.push({ id: a.id, name: a.name, reason: a.source.kind === "procedural" ? `generator '${a.source.generator}' no longer exists` : `${a.source.kind} asset: not procedural, re-paint it with paint_asset/edit_asset` });
@@ -849,7 +947,385 @@ const rerenderAssets = defineTool({
   },
 });
 
+
+// ---------- rigs ----------
+
+type Lib = { rig: RigDef; family: string; builtin: boolean };
+
+function allRigs(project: ProjectFile): Lib[] {
+  return [...RIGS.map((r) => ({ ...r, builtin: true })), ...(project.rigs ?? []).map((rig) => ({ rig, family: "custom", builtin: false }))];
+}
+const allClips = (project: ProjectFile) => [...CLIPS.map((c) => ({ ...c, builtin: true })), ...(project.clips ?? []).map((clip) => ({ clip, family: "custom", builtin: false }))];
+const allAttachments = (project: ProjectFile) => [...ATTACHMENTS.map((a) => ({ ...a, builtin: true })), ...(project.attachments ?? []).map((attachment) => ({ attachment, family: "custom", builtin: false }))];
+
+function notFound(kind: string, id: string, ids: string[], tool: string): never {
+  const near = nearest(id, ids, 2).map((n) => `'${n}'`);
+  throw new ToolError(`Unknown ${kind} '${id}'.` + (near.length ? ` Did you mean ${near.join(" or ")}?` : "") + ` Available: ${ids.join(", ") || "(none)"} (see ${tool}).`);
+}
+
+/** Registry first, then the project's own rigs. A recipe may also embed the definition. */
+function resolveRig(project: ProjectFile, r: string | RigDef): Lib {
+  if (typeof r !== "string") return { rig: r, family: "custom", builtin: false };
+  const hit = allRigs(project).find((x) => x.rig.id === r);
+  return hit ?? notFound("rig", r, allRigs(project).map((x) => x.rig.id), "list_rigs");
+}
+function resolveClip(project: ProjectFile, c: string | Clip, rig: Lib): Clip {
+  if (typeof c !== "string") return c;
+  const all = allClips(project);
+  const hit = all.find((x) => x.clip.id === c && x.family === rig.family) ?? all.find((x) => x.clip.id === c && !x.builtin) ?? all.find((x) => x.clip.id === c);
+  if (!hit) notFound("clip", c, [...new Set(all.filter((x) => x.family === rig.family || !x.builtin).map((x) => x.clip.id))], "list_clips");
+  return hit.clip;
+}
+function resolveAttachment(project: ProjectFile, a: string | Attachment): Attachment {
+  if (typeof a !== "string") return a;
+  const hit = allAttachments(project).find((x) => x.attachment.id === a);
+  return hit ? hit.attachment : notFound("attachment", a, allAttachments(project).map((x) => x.attachment.id), "list_attachments");
+}
+
+/** Render a recipe to animation rows; unknown joints in clips/attachments become readable errors. */
+function renderRecipe(project: ProjectFile, kit: StyleKit, recipe: RigRecipe) {
+  const lib = resolveRig(project, recipe.rig);
+  const atts = withHumanoidDefaults(lib.rig, (recipe.attachments ?? []).map((a) => resolveAttachment(project, a)));
+  const clips = recipe.clips.map((c) => resolveClip(project, c, lib));
+  if (!clips.length) throw new ToolError("At least one clip is required (see list_clips).");
+  const errs = validateRig(lib.rig, atts);
+  const joints = new Set(lib.rig.joints.map((j) => j.id));
+  // Clips may pose optional attachment joints (a tool tip, a carrying pole); without that attachment
+  // the pose key is simply ignored, so only joints nothing could ever provide are errors.
+  const optional = new Set([...allAttachments(project), ...atts.map((attachment) => ({ attachment }))].flatMap((x) => (x.attachment.joints ?? []).map((j) => j.id)));
+  for (const c of clips) {
+    const frames = Array.isArray(c.frames) ? [c.frames] : Object.values(c.frames);
+    for (const pose of frames.flat() as Record<string, unknown>[])
+      for (const j of Object.keys(pose)) if (!joints.has(j) && !optional.has(j)) errs.push(`clip '${c.id}' moves unknown joint '${j}' (rig '${lib.rig.id}' joints: ${[...joints].join(", ")})`);
+  }
+  if (errs.length) throw new ToolError(`Cannot render rig '${lib.rig.id}': ${[...new Set(errs)].slice(0, 6).join("; ")}.`);
+  // built-in animals share one world scale with the `animal` generator (issue #24)
+  const fit = lib.builtin && !atts.length ? fitRigToWorld(lib.rig, kit, recipe.slots ?? {}, clips) : undefined;
+  const rows = fit ? renderRig({ rig: fit.rig, kit, slots: recipe.slots, size: fit.size }, fit.clips) : renderRig({ rig: lib.rig, kit, slots: recipe.slots, attachments: atts }, clips);
+  return { rows, fps: clips[0].fps, lib, attachments: atts, clips };
+}
+
+const slotsField = z.record(z.string(), z.enum(MATERIALS)).optional().describe("Material per slot, e.g. {\"top\":\"cloth\",\"bottom\":\"leather\"}. Missing slots use the rig's defaults (see list_rigs).");
+
+const listRigs = defineTool({
+  name: "list_rigs",
+  title: "List rigs",
+  description: "List rigs (skeleton + parts) usable with generate_rigged: built-in registry first, then rigs saved in the project (create_rig). Shows family, default material slots and joint ids.",
+  shape: { family: z.string().optional().describe("Only this family (humanoid, quadruped, bird, custom).") },
+  readOnly: true,
+  run(ws, i) {
+    const list = allRigs(ws.load()).filter((r) => !i.family || r.family === i.family);
+    return { data: { rigs: list.map((r) => ({ id: r.rig.id, name: r.rig.name, family: r.family, builtin: r.builtin, grid: r.rig.grid, slots: r.rig.slots, joints: r.rig.joints.map((j) => j.id), parts: r.rig.parts.length })) } };
+  },
+});
+
+const listClips = defineTool({
+  name: "list_clips",
+  title: "List clips",
+  description: "List animation clips (poses = joint offsets) for generate_rigged: built-in then project clips. A clip fits every rig of its family (same joint names).",
+  shape: { family: z.string().optional().describe("Only this family (humanoid, quadruped, bird, custom).") },
+  readOnly: true,
+  run(ws, i) {
+    const list = allClips(ws.load()).filter((c) => !i.family || c.family === i.family);
+    return { data: { clips: list.map((c) => ({ id: c.clip.id, family: c.family, builtin: c.builtin, fps: c.clip.fps, frames: Array.isArray(c.clip.frames) ? c.clip.frames.length : Object.fromEntries(Object.entries(c.clip.frames).map(([v, f]) => [v, (f as unknown[]).length])) })) } };
+  },
+});
+
+const listAttachments = defineTool({
+  name: "list_attachments",
+  title: "List attachments",
+  description: "List attachments (hats, tools, baskets: parts pinned to a joint) for generate_rigged / attach: built-in then project attachments, with family.",
+  shape: { family: z.string().optional().describe("Only this family (humanoid, quadruped, bird, custom).") },
+  readOnly: true,
+  run(ws, i) {
+    const list = allAttachments(ws.load()).filter((a) => !i.family || a.family === i.family);
+    return { data: { attachments: list.map((a) => ({ id: a.attachment.id, name: a.attachment.name, family: a.family, builtin: a.builtin, parts: a.attachment.parts.map((p) => p.id) })) } };
+  },
+});
+
+const generateRigged = defineTool({
+  name: "generate_rigged",
+  title: "Generate rigged character",
+  description:
+    "Render a rigged character: one skeleton, material slots, optional attachments, and animation clips x 4 directions (rows '<clip>-<dir>'). Lit by the kit like every generator. Saves (as a character) and exports a spritesheet + .json, with a preview. Re-render later with rerender_assets; change accessories with attach.",
+  shape: {
+    rig: z.string().describe("Rig id (see list_rigs), e.g. a humanoid."),
+    slots: slotsField,
+    attachments: z.array(z.string()).optional().describe("Attachment ids (see list_attachments)."),
+    clips: z.array(z.string()).optional().describe("Clip ids (see list_clips). Default: walk and idle when available."),
+    name: z.string().min(1).max(80).optional(),
+    kit_id: kitIdField,
+    save: z.boolean().default(true),
+  },
+  positional: "rig",
+  run(ws, i) {
+    const project = ws.load();
+    const kit = getKit(project, i.kit_id);
+    const lib = resolveRig(project, i.rig);
+    const defClips = allClips(project).filter((c) => c.family === lib.family && ["walk", "idle"].includes(c.clip.id)).map((c) => c.clip.id).sort().reverse();
+    const recipe: RigRecipe = { rig: lib.rig.id, ...(i.slots ? { slots: i.slots as Record<string, Material> } : {}), attachments: i.attachments ?? [], clips: i.clips?.length ? i.clips : defClips.length ? defClips : [allClips(project).find((c) => c.family === lib.family)?.clip.id ?? "walk"] };
+    const res = renderRecipe(project, kit, recipe);
+    const asset = createAsset({
+      name: uniqueName(project, "character", i.name ?? lib.rig.name.toLowerCase()),
+      category: "character",
+      kit,
+      rows: res.rows,
+      fps: res.fps,
+      source: { kind: "rigged", rig: recipe },
+    });
+    let files: string[] = [];
+    if (i.save) {
+      project.assets.push(asset);
+      ws.save(project);
+      files = absPaths(exportAsset(ws, project, asset));
+    }
+    return { data: { saved: i.save, asset: { ...summarize(ws, project, asset), files } }, images: [previewOf(asset, kit)] };
+  },
+});
+
+const attach = defineTool({
+  name: "attach",
+  title: "Attach / detach",
+  description: "Add and/or remove attachments (hats, tools...) on a saved rigged asset: updates its recipe, re-renders every clip and direction, re-exports. Ids from list_attachments.",
+  shape: {
+    id: z.string().describe("Rigged asset id (or exact name)."),
+    add: z.array(z.string()).optional().describe("Attachment ids to add."),
+    remove: z.array(z.string()).optional().describe("Attachment ids to remove."),
+  },
+  positional: "id",
+  run(ws, i) {
+    const project = ws.load();
+    const asset = findAsset(project, i.id);
+    const recipe = asset.source.rig;
+    if (asset.source.kind !== "rigged" || !recipe) throw new ToolError(`'${asset.name}' is a ${asset.source.kind} asset, not rigged; attach only works on assets made with generate_rigged.`);
+    if (!i.add?.length && !i.remove?.length) throw new ToolError("Nothing to do: give add and/or remove (attachment ids).");
+    const have = recipe.attachments ?? [];
+    for (const r of i.remove ?? []) if (!have.some((a) => idOf(a) === r)) throw new ToolError(`Asset '${asset.name}' has no attachment '${r}'. It has: ${have.map(idOf).join(", ") || "(none)"}.`);
+    const next = have.filter((a) => !(i.remove ?? []).includes(idOf(a)));
+    for (const a of i.add ?? []) if (!next.some((x) => idOf(x) === a)) next.push(a);
+    const kit = kitOf(project, asset);
+    const updated: RigRecipe = { ...recipe, attachments: next };
+    const res = renderRecipe(project, kit, updated);
+    asset.source = { ...asset.source, rig: updated };
+    asset.rows = res.rows;
+    asset.updatedAt = Date.now();
+    ws.save(project);
+    const files = absPaths(exportAsset(ws, project, asset));
+    return { data: { asset: { ...summarize(ws, project, asset), files } }, images: [previewOf(asset, kit)] };
+  },
+});
+
+// Agent-authored JSON: check the shape first so validateRig/renderRig never see garbage.
+const isObj = (x: unknown): x is Record<string, any> => !!x && typeof x === "object" && !Array.isArray(x);
+const isPt = (x: unknown) => Array.isArray(x) && x.length === 2 && x.every((n) => typeof n === "number" && Number.isFinite(n));
+const perView = (x: unknown, ok: (v: unknown) => boolean) => ok(x) || (isObj(x) && Object.keys(x).length > 0 && Object.keys(x).every((k) => ["down", "side", "up"].includes(k)) && Object.values(x).every(ok));
+const PART_KINDS = ["ellipse", "box", "limb", "pixels"];
+
+function shapeErrors(parts: unknown, label: string): string[] {
+  const errs: string[] = [];
+  if (!Array.isArray(parts)) return [`${label}: 'parts' must be an array`];
+  parts.forEach((p, n) => {
+    const w = `${label} part ${isObj(p) && typeof p.id === "string" ? p.id : `#${n}`}`;
+    if (!isObj(p)) return void errs.push(`${w}: must be an object`);
+    if (typeof p.id !== "string" || !p.id) errs.push(`${w}: needs a string 'id'`);
+    if (!PART_KINDS.includes(p.kind)) return void errs.push(`${w}: 'kind' must be one of ${PART_KINDS.join(", ")}`);
+    if (!perView(p.z, (v) => typeof v === "number")) errs.push(`${w}: 'z' must be a number or {down,side,up} numbers`);
+    if (p.kind === "limb") {
+      if (typeof p.from !== "string" || typeof p.to !== "string" || typeof p.r !== "number") errs.push(`${w}: limb needs 'from', 'to' (joint ids) and numeric 'r'`);
+    } else if (typeof p.joint !== "string") errs.push(`${w}: needs a 'joint' id`);
+    if (p.kind === "ellipse" && (typeof p.rx !== "number" || typeof p.ry !== "number")) errs.push(`${w}: ellipse needs numeric 'rx' and 'ry'`);
+    if (p.kind === "box" && (typeof p.w !== "number" || typeof p.h !== "number")) errs.push(`${w}: box needs numeric 'w' and 'h'`);
+    if (p.kind === "pixels" && (!perView(p.rows, (v) => Array.isArray(v) && v.every((r) => typeof r === "string")) || !isPt(p.anchor))) errs.push(`${w}: pixels needs 'rows' (string[]) and 'anchor' [x,y]`);
+  });
+  return errs;
+}
+
+function rigShapeErrors(r: unknown): string[] {
+  if (!isObj(r)) return ["rig must be a JSON object {id,name,grid,joints,parts,slots}"];
+  const errs: string[] = [];
+  if (typeof r.id !== "string" || !/^[a-z0-9][a-z0-9-_]*$/i.test(r.id)) errs.push("'id' must be a string like 'my-rig'");
+  if (typeof r.name !== "string") errs.push("'name' must be a string");
+  if (typeof r.grid !== "number" || r.grid < 8 || r.grid > 128) errs.push("'grid' must be a number 8..128 (design grid, e.g. 32)");
+  if (!Array.isArray(r.joints) || !r.joints.length) errs.push("'joints' must be a non-empty array of {id, parent, rest}");
+  else r.joints.forEach((j: any, n: number) => {
+    if (!isObj(j) || typeof j.id !== "string" || !(j.parent === null || typeof j.parent === "string") || !perView(j.rest, isPt)) errs.push(`joint #${n}: needs {id: string, parent: string|null, rest: [x,y] or {down,side,up}}`);
+  });
+  errs.push(...shapeErrors(r.parts, "rig"));
+  if (!isObj(r.slots) || !Object.values(r.slots).every((m) => (MATERIALS as readonly string[]).includes(m as string))) errs.push(`'slots' must map slot names to materials (${MATERIALS.join(", ")})`);
+  return errs;
+}
+
+function failWith(what: string, errs: string[]): never {
+  throw new ToolError(`Invalid ${what}: ${errs.slice(0, 8).join("; ")}${errs.length > 8 ? `; ...${errs.length - 8} more` : ""}.`);
+}
+
+const upsert = <T extends { id: string }>(list: T[] | undefined, item: T): T[] => [...(list ?? []).filter((x) => x.id !== item.id), item];
+
+const createRig = defineTool({
+  name: "create_rig",
+  title: "Create rig",
+  description:
+    "Author a rig as JSON and store it in the project: {id, name, grid, joints:[{id,parent,rest}], parts:[ellipse|box|limb|pixels ...], slots}. Validated (joint references, parent cycles) and test-rendered; errors say what to fix. Replaces a project rig with the same id; built-in ids are reserved. Use the joint names of an existing family (list_rigs) so its clips and attachments fit. See docs/RIG.md.",
+  shape: { rig: z.record(z.string(), z.unknown()).describe("The RigDef object."), kit_id: kitIdField },
+  positional: "rig",
+  run(ws, i) {
+    const project = ws.load();
+    const errs = rigShapeErrors(i.rig);
+    if (errs.length) failWith("rig", errs);
+    const rig = i.rig as unknown as RigDef;
+    if (RIGS.some((r) => r.rig.id === rig.id)) throw new ToolError(`Rig id '${rig.id}' is a built-in; choose another id.`);
+    const verr = [...validateRig(rig), ...slotErrors(rig.parts, rig.slots, "rig")];
+    if (verr.length) failWith("rig", verr);
+    const kit = getKit(project, i.kit_id);
+    const frames = (["down", "side", "up"] as const).map((v) => {
+      try {
+        return renderRigFrame({ rig, kit, slots: undefined }, v === "side" ? "right" : v);
+      } catch (e) {
+        throw new ToolError(`Rig '${rig.id}' failed to render (${v} view): ${(e as Error).message}`);
+      }
+    });
+    project.rigs = upsert(project.rigs, rig);
+    ws.save(project);
+    return {
+      data: { rig: { id: rig.id, name: rig.name, joints: rig.joints.map((j) => j.id), parts: rig.parts.length }, note: "Stored in the project. Render it with generate_rigged {rig, clips}." },
+      images: [png(contactSheet(frames, kit, { columns: 3 }), `${rig.id}-views`)],
+    };
+  },
+});
+
+/** Every part's material slot must be a slot the rig declares or a literal material, else it silently renders as skin. */
+function slotErrors(parts: unknown, slots: Record<string, unknown> | undefined, where: string): string[] {
+  if (!Array.isArray(parts)) return [];
+  const known = new Set([...Object.keys(slots ?? {}), ...(MATERIALS as readonly string[])]);
+  return parts.flatMap((p: any) =>
+    p && typeof p.slot === "string" && !known.has(p.slot)
+      ? [`part ${p.id ?? "?"}: unknown slot '${p.slot}' in ${where} (use one of the rig slots ${Object.keys(slots ?? {}).join(", ") || "(none)"} or a material name)`]
+      : [],
+  );
+}
+
+const createClip = defineTool({
+  name: "create_clip",
+  title: "Create clip",
+  description: "Author an animation clip as JSON and store it in the project: {id, fps, frames:[pose,...]} where a pose is {jointId:[dx,dy]} in rig grid units (children follow parents), or frames per view {down:[...],side:[...],up:[...]}. Pass rig to check the joints exist and preview it.",
+  shape: { clip: z.record(z.string(), z.unknown()).describe("The Clip object."), rig: z.string().optional().describe("Rig id to validate against and preview on."), kit_id: kitIdField },
+  positional: "clip",
+  run(ws, i) {
+    const project = ws.load();
+    const c = i.clip as Record<string, any>;
+    const errs: string[] = [];
+    if (typeof c.id !== "string" || !c.id) errs.push("needs a string 'id'");
+    if (typeof c.fps !== "number" || c.fps < 1 || c.fps > 60) errs.push("'fps' must be a number 1..60");
+    const poseOk = (p: unknown) => isObj(p) && Object.values(p).every(isPt);
+    const listOk = (v: unknown) => Array.isArray(v) && v.length > 0 && v.every(poseOk);
+    if (!perView(c.frames, listOk)) errs.push("'frames' must be a non-empty array of poses {joint:[dx,dy]}, or {down,side,up} of such arrays");
+    if (errs.length) failWith("clip", errs);
+    const clip = c as unknown as Clip;
+    const kit = getKit(project, i.kit_id);
+    let images: ToolImage[] | undefined;
+    if (i.rig) {
+      const rows = renderRecipe(project, kit, { rig: i.rig, clips: [clip] }).rows;
+      images = [png(sheetImage(rows.map((r) => r.frames), kit, previewScale(rows[0].frames.length * rows[0].frames[0].w, rows.length * rows[0].frames[0].h), "checker").image, `${clip.id}-preview`)];
+    }
+    project.clips = upsert(project.clips, clip);
+    ws.save(project);
+    return { data: { clip: { id: clip.id, fps: clip.fps }, checked_against: i.rig ?? null, note: "Stored in the project. Use its id in generate_rigged clips." }, images };
+  },
+});
+
+const createAttachment = defineTool({
+  name: "create_attachment",
+  title: "Create attachment",
+  description: "Author an attachment as JSON and store it in the project: {id, name, parts:[...]} (same part kinds as rigs; a part reusing an existing part id replaces it). Pass rig to check the joints exist and preview it worn. Then use its id in generate_rigged / attach.",
+  shape: { attachment: z.record(z.string(), z.unknown()).describe("The Attachment object."), rig: z.string().optional().describe("Rig id to validate against and preview on. Default: no check."), kit_id: kitIdField },
+  positional: "attachment",
+  run(ws, i) {
+    const project = ws.load();
+    const a = i.attachment as Record<string, any>;
+    const errs: string[] = [];
+    if (typeof a.id !== "string" || !a.id) errs.push("needs a string 'id'");
+    if (typeof a.name !== "string") errs.push("needs a string 'name'");
+    errs.push(...shapeErrors(a.parts, "attachment"));
+    if (Array.isArray(a.parts) && a.parts.length === 0) errs.push("'parts' is empty; an attachment needs at least one part");
+    if (errs.length) failWith("attachment", errs);
+    const att = a as unknown as Attachment;
+    const kit = getKit(project, i.kit_id);
+    let images: ToolImage[] | undefined;
+    if (i.rig) {
+      const lib = resolveRig(project, i.rig);
+      const verr = [...validateRig(lib.rig, [att]), ...slotErrors(att.parts, lib.rig.slots, `attachment for rig '${lib.rig.id}'`)];
+      if (verr.length) failWith(`attachment for rig '${lib.rig.id}'`, verr);
+      const frames = (["down", "right", "up"] as const).map((d) => renderRigFrame({ rig: lib.rig, kit, attachments: [att] }, d));
+      images = [png(contactSheet(frames, kit, { columns: 3 }), `${att.id}-worn`)];
+    }
+    project.attachments = upsert(project.attachments, att);
+    ws.save(project);
+    return { data: { attachment: { id: att.id, name: att.name, parts: att.parts.map((p) => p.id) }, checked_against: i.rig ?? null }, images };
+  },
+});
+
+
+// ---------- packs ----------
+
+const packEntrySchema = z.union([
+  z.object({ name: z.string().min(1).max(80), generator: z.string(), params: paramsField, seed: z.number().int().min(0).max(4294967295).optional(), tags: z.array(z.string()).optional() }).strict(),
+  z.object({ name: z.string().min(1).max(80), rig: z.string(), slots: z.record(z.string(), z.string()).optional(), attachments: z.array(z.string()).optional(), clips: z.array(z.string()).optional(), tags: z.array(z.string()).optional() }).strict(),
+]);
+
+const generatePack = defineTool({
+  name: "generate_pack",
+  title: "Generate asset pack",
+  description:
+    "Build a whole starter set in one call: a built-in pack (e.g. 'farming-v1') or your own manifest of generate_asset / generate_rigged inputs. Every asset uses the kit, is saved and exported like generate_asset; same-named assets are replaced so re-running a pack updates it. `only` keeps entries with any of those tags or generator ids (e.g. ['sea'], ['building']). dry_run lists the entries without generating.",
+  shape: {
+    pack: z.string().optional().describe(`Built-in pack id. Available: ${PACKS.map((p) => p.id).join(", ") || "(none yet)"}.`),
+    manifest: z.object({ id: z.string().optional(), name: z.string().optional(), entries: z.array(packEntrySchema).min(1) }).optional().describe("Your own pack: {entries: [{name, generator, params, seed, tags} | {name, rig, slots, attachments, clips, tags}]}."),
+    only: z.array(z.string()).optional().describe("Keep entries tagged with any of these (or using one of these generator ids; rigged entries count as 'rigged')."),
+    kit_id: kitIdField,
+    replace: z.boolean().default(true).describe("Delete an existing asset with the same name first, so re-running a pack updates it in place."),
+    svg: z.boolean().default(true).describe("Also write a layered .svg next to each asset's PNG (editable in Inkscape/Figma; re-import with import_svg)."),
+    dry_run: z.boolean().default(false),
+  },
+  positional: "pack",
+  run(ws, i) {
+    if (!i.pack === !i.manifest) throw new ToolError(`Give either pack (one of: ${PACKS.map((p) => p.id).join(", ")}) or manifest.`);
+    const pack = i.pack ? packById(i.pack) : undefined;
+    if (i.pack && !pack) notFound("pack", i.pack, PACKS.map((p) => p.id), "generate_pack with dry_run");
+    const all = (pack ? pack.entries : i.manifest!.entries) as PackEntry[];
+    const keys = (e: PackEntry) => [...(e.tags ?? []), isRigged(e) ? "rigged" : e.generator];
+    const entries = i.only?.length ? all.filter((e) => keys(e).some((k) => i.only!.includes(k))) : all;
+    if (i.dry_run) return { data: { pack: pack?.id ?? i.manifest?.id ?? "manifest", count: entries.length, entries } };
+    const made: { name: string; files: string[] }[] = [];
+    const failed: { name: string; error: string }[] = [];
+    for (const e of entries) {
+      try {
+        if (i.replace && ws.load().assets.some((a) => a.name === e.name)) callTool(ws, "delete_asset", { id: e.name });
+        const { tags: _t, ...input } = e;
+        const r = callTool(ws, isRigged(e) ? "generate_rigged" : "generate_asset", { ...input, ...(i.kit_id ? { kit_id: i.kit_id } : {}) });
+        const asset = (r.data as { asset: { name: string; files: string[] } }).asset;
+        if (i.svg) {
+          const project = ws.load();
+          const a = project.assets.find((x) => x.name === asset.name);
+          if (a) asset.files.push(...absPaths(exportAsset(ws, project, a, { format: "svg", rig: rigInfoOf(project, a) })));
+        }
+        made.push({ name: asset.name, files: asset.files });
+      } catch (err) {
+        failed.push({ name: e.name, error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+    const project = ws.load();
+    const kit = getKit(project, i.kit_id);
+    const sprites = made.flatMap((m) => project.assets.find((a) => a.name === m.name)?.rows[0].frames[0] ?? []);
+    return {
+      data: { pack: pack?.id ?? i.manifest?.id ?? "manifest", generated: made.length, failed, assets: made },
+      images: sprites.length ? [png(contactSheet(sprites, kit, { columns: Math.min(8, sprites.length) }), `${pack?.id ?? "pack"}-sheet`)] : [],
+    };
+  },
+});
+
 export const TOOLS: ToolDef[] = [
   getStyleGuide, listGenerators, generateAsset, generateVariations, paintAsset, editAsset, listAssets, getAsset,
   deleteAsset, exportAssetTool, importImage, listKits, createKit, updateKit, setActiveKit, rerenderAssets,
+  listRigs, listClips, listAttachments, generateRigged, attach, createRig, createClip, createAttachment,
+  generatePack, importSvg,
 ];

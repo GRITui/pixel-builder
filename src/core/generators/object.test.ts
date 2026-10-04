@@ -25,11 +25,13 @@ describe("object generator", () => {
       for (const kind of OBJECT_KINDS) {
         const r = gen(kind, kit);
         expect(r.rows.length).toBeGreaterThan(0);
-        for (const f of r.rows.flatMap((x) => x.frames)) {
-          expect([f.w, f.h]).toEqual([kit.sizes.object, kit.sizes.object]);
-          expect(validIndices(f)).toBe(true);
-          expect(filled(f)).toBeGreaterThan(40);
-        }
+        for (const row of r.rows)
+          for (const f of row.frames) {
+            expect([f.w, f.h]).toEqual([kit.sizes.object, kit.sizes.object]);
+            expect(validIndices(f)).toBe(true);
+            // `use` rows are sparse particle effects, not solid props
+            expect(filled(f)).toBeGreaterThan(row.name === "use" ? 4 : 40);
+          }
       }
   });
 

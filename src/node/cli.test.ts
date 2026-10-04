@@ -128,7 +128,7 @@ describe("cli commands", () => {
   });
 
   it("uses exit codes: 0 ok, 1 tool error, 2 usage error; errors are JSON with --json", async () => {
-    const bad = await cli("generate-asset", "tre", "--json");
+    const bad = await cli("generate-asset", "enviroment", "--json");
     expect(bad.code).toBe(1);
     expect(bad.json).toMatchObject({ ok: false });
     expect(bad.json.error).toMatch(/did you mean|Did you mean/);

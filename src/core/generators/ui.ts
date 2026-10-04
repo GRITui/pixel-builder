@@ -1,10 +1,13 @@
+import { finalize } from "../enforce";
+import { drawText, textWidth } from "../font";
 import { Painter } from "../painter";
 import type { Material } from "../palette";
 import { rng } from "../rng";
+import { blit } from "../sprite";
 import type { FrameSet, Sprite, StyleKit } from "../types";
-import { mat, PAINT, str, type GenResult, type Generator } from "./types";
+import { mat, num, PAINT, str, type GenResult, type Generator } from "./types";
 
-export const UI_KINDS = ["button", "panel", "slot", "bar", "icon-frame", "cursor", "tab", "checkbox", "dialog-arrow"] as const;
+export const UI_KINDS = ["button", "panel", "slot", "bar", "icon-frame", "cursor", "tab", "checkbox", "dialog-arrow", "clock", "time-panel", "weather-icon", "season-icon", "date-panel"] as const;
 export const UI_STYLES = ["bevel", "flat", "inset", "ornate"] as const;
 type Style = (typeof UI_STYLES)[number];
 
@@ -318,13 +321,171 @@ function drawArrow(c: Ctx, bounce: number): Sprite {
   return P.toSprite();
 }
 
+// ---------------------------------------------------------------- farm HUD (clock, time, weather, season, date)
+export const WEATHERS = ["sunny", "cloudy", "rain", "storm", "snow", "windy"] as const;
+export const SEASONS = ["spring", "summer", "fall", "winter"] as const;
+export const WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
+const pad2 = (n: number) => String(Math.max(0, Math.round(n))).padStart(2, "0");
+
+/** Icons are lit volumes plus an outline, drawn inside a 16px canvas with a 1px margin. */
+function icon(P: Painter, kit: StyleKit): Sprite {
+  return finalize(P.toSprite(), kit);
+}
+
+function sunDisc(P: Painter, cx: number, cy: number, r: number, f: number) {
+  P.ellipse(cx, cy, r, r, "gold", { flat: 0.2 });
+  const far = r + 2.5;
+  const dirs: [number, number][] = f % 2 ? [[0.7, 0.7], [-0.7, 0.7], [0.7, -0.7], [-0.7, -0.7]] : [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  for (const [dx, dy] of dirs) {
+    const x = Math.round(cx - 0.5 + dx * far), y = Math.round(cy - 0.5 + dy * far);
+    P.rect(x, y, dx && !dy ? 2 : 1, dy && !dx ? 2 : 1, "gold", 4);
+  }
+  P.px(Math.round(cx - r * 0.5 - 1), Math.round(cy - r * 0.5 - 1), "gold", 4);
+}
+
+function cloudShape(P: Painter, x: number, y: number, m: Material, tone = 0) {
+  P.ellipse(x + 4.5, y + 6, 3, 2.8, m, { tone });
+  P.ellipse(x + 8, y + 4.5, 3.6, 3.4, m, { tone });
+  P.ellipse(x + 11, y + 7, 2.8, 2.4, m, { tone });
+  P.box(x + 3, y + 7, 9, 3, m, [0, 0.3, 1], { tone });
+}
+
+/** Compact cloud (rows 1-6) that leaves room for a gap row and falling pieces beneath it. */
+function smallCloud(P: Painter, m: Material, tone = 0) {
+  P.ellipse(5, 5, 2.8, 2.3, m, { tone });
+  P.ellipse(8.5, 3.9, 3.4, 2.9, m, { tone });
+  P.ellipse(11.5, 5.4, 2.6, 2.1, m, { tone });
+  P.box(4, 5, 9, 2, m, [0, 0.3, 1], { tone });
+}
+
+/** One falling piece: the outline makes it a 3px-wide blob, so pieces sit 4px apart to stay separate (also at 4 tones). */
+function drop(P: Painter, x: number, y: number, m: Material, tall: boolean) {
+  P.px(x, y, m, 4);
+  if (tall) P.px(x, y + 1, m, 3);
+}
+
+function drawWeather(c: Ctx, weather: string, f: number): Sprite {
+  const P = new Painter(16, 16, c.kit);
+  const cloud = c.m;
+  switch (weather) {
+    case "sunny":
+      sunDisc(P, 8, 8, 3.6, f);
+      break;
+    case "cloudy":
+      cloudShape(P, 1, 0, cloud, 0);
+      cloudShape(P, 1, 4, cloud, 1);
+      break;
+    case "rain":
+      smallCloud(P, cloud, 0);
+      for (let i = 0; i < 3; i++) drop(P, 3 + i * 4, 11 + ((f + i) % 2), "water", (f + i) % 2 === 0);
+      break;
+    case "storm":
+      smallCloud(P, cloud, -1);
+      // bolt hangs from the cloud; a drop on each side
+      for (const [x, y] of [[9, 8], [10, 8], [8, 9], [9, 9], [8, 10], [9, 10], [10, 10], [9, 11], [10, 11], [9, 12]]) P.px(x, y, "gold", 4);
+      drop(P, 3, 11 + f, "water", true);
+      drop(P, 13, 12 - f, "water", true);
+      break;
+    case "snow":
+      smallCloud(P, cloud, 1);
+      [[3, 11], [7, 12], [11, 11]].forEach(([x, y]) => P.px(x, y + (f ? (y === 11 ? 1 : -1) : 0), "sand", 4));
+      break;
+    default: {
+      // windy: three gusts four rows apart (outlines would merge at 3), each ending in a small hook
+      const sh = f % 2;
+      const gust = (x0: number, x1: number, y: number, up: boolean) => {
+        P.line(x0 + sh, y, x1 + sh, y, "water", 4);
+        P.px(x1 + 1 + sh, y + (up ? -1 : 1), "water", 3);
+      };
+      gust(2, 9, 3, true); gust(1, 12, 7, true); gust(3, 8, 11, false);
+    }
+  }
+  return icon(P, c.kit);
+}
+
+function drawSeason(c: Ctx, season: string): Sprite {
+  const P = new Painter(16, 16, c.kit);
+  switch (season) {
+    case "spring": {
+      const petals: [number, number][] = [[0, -3], [2.9, -0.9], [1.8, 2.4], [-1.8, 2.4], [-2.9, -0.9]];
+      for (const [dx, dy] of petals) P.ellipse(8 + dx, 8 + dy, 2.4, 2.4, "cloth2", { flat: 0.2 });
+      P.ellipse(8, 8, 1.5, 1.5, "gold", { flat: 0.3 });
+      P.px(8, 7, "gold", 4);
+      break;
+    }
+    case "summer":
+      sunDisc(P, 8, 8, 3.6, 0);
+      break;
+    case "fall":
+      P.poly([[8, 2], [11.5, 5], [12.5, 9], [10, 12.5], [8, 13], [6, 12.5], [3.5, 9], [4.5, 5]], "roof", [0.1, -0.2, 1]);
+      P.line(8, 4, 8, 12, "roof", 0);
+      P.line(8, 7, 10, 5, "roof", 1); P.line(8, 7, 6, 5, "roof", 1);
+      P.line(8, 10, 10, 8, "roof", 1); P.line(8, 10, 6, 8, "roof", 1);
+      P.line(8, 13, 8, 14, "leather", 2);
+      break;
+    default:
+      // clean 9x9 flake: axes plus four isolated diagonal tips, symmetric about (8, 8)
+      for (let i = -4; i <= 4; i++) { P.px(8 + i, 8, "water", 4); P.px(8, 8 + i, "water", 4); }
+      for (const sx of [-1, 1]) for (const sy of [-1, 1]) P.px(8 + sx * 2, 8 + sy * 2, "water", 3);
+  }
+  return icon(P, c.kit);
+}
+
+function drawClock(c: Ctx, hour: number, minute: number, tint: boolean): Sprite {
+  const P = new Painter(16, 16, c.kit);
+  const night = tint && (hour < 6 || hour >= 19);
+  P.ellipse(8, 8, 6.6, 6.6, c.a, { flat: 0.3 });
+  P.ellipse(8, 8, 5, 5, c.m, { flat: 1, tone: night ? -2 : 1 });
+  const hand = night ? "sand" : "ink", lvl = night ? 4 : 0;
+  const hr = (((hour % 12) + minute / 60) / 12) * Math.PI * 2, mn = (minute / 60) * Math.PI * 2;
+  const tip = (r: number, a: number): [number, number] => [Math.round(7.5 + Math.sin(a) * r), Math.round(7.5 - Math.cos(a) * r)];
+  const [hx, hy] = tip(2.6, hr), [mx, my] = tip(4, mn);
+  P.line(7, 7, mx, my, hand, night ? 3 : 1);
+  P.line(7, 7, hx, hy, hand, lvl);
+  P.rect(7, 7, 2, 2, c.a, 4);
+  return icon(P, c.kit);
+}
+
+/** Text colour that contrasts with the panel fill for the chosen style. */
+const textLevel = (style: Style) => (style === "inset" ? 4 : 0);
+
+function panelBase(P: Painter, c: Ctx, w: number, h: number) {
+  const { m, a, style } = c;
+  if (style === "ornate") { ornate(P, 0, 0, w, h, a, [m, 3], true, m); return; }
+  if (style === "flat") surface(P, 0, 0, w, h, { border: [m, 0], fill: [m, 3], hi: [m, 3], lo: [m, 3], raised: true, round: true });
+  else if (style === "inset") surface(P, 0, 0, w, h, { border: [m, 0], fill: [m, 1], hi: [m, 2], lo: [m, 0], raised: false, round: true });
+  else surface(P, 0, 0, w, h, { border: [m, 0], fill: [m, 3], hi: [m, 4], lo: [m, 1], raised: true, round: true });
+}
+
+function drawTimePanel(c: Ctx, hour: number, minute: number, colon: boolean): Sprite {
+  const text = `${pad2(hour)}${colon ? ":" : " "}${pad2(minute)}`;
+  const w = textWidth(text) + 10, h = 13;
+  const P = new Painter(w, h, c.kit);
+  panelBase(P, c, w, h);
+  drawText(P, 5, 4, text, c.m, textLevel(c.style));
+  return P.toSprite();
+}
+
+function drawDatePanel(c: Ctx, day: number, weekday: string, season: string): Sprite {
+  const w = 40, h = 22;
+  const P = new Painter(w, h, c.kit);
+  panelBase(P, c, w, h);
+  const lvl = textLevel(c.style);
+  drawText(P, 21, 5, weekday.slice(0, 3).toUpperCase(), c.m, lvl);
+  drawText(P, 21, 12, pad2(day), c.m, lvl);
+  const out = P.toSprite();
+  // the season icon carries its own outline, so blit it after quantising
+  blit(out, drawSeason(c, season), 3, 3);
+  return out;
+}
+
 // ---------------------------------------------------------------- generator
 export const uiGenerator: Generator = {
   id: "ui",
   category: "ui",
   label: "UI element",
   description:
-    "Game UI pieces: button (normal/hover/pressed rows), 9-slice panel, inventory slot, progress bar (frame + fill rows), icon-frame, cursor, tab (inactive/active), checkbox (off/on), dialog-arrow. Style: bevel, flat, inset or ornate. width/height 0 = automatic size.",
+    "Game UI pieces: button (normal/hover/pressed rows), 9-slice panel, inventory slot, progress bar (frame + fill rows), icon-frame, cursor, tab (inactive/active), checkbox (off/on), dialog-arrow, plus farm HUD: clock (params hour, minute), time-panel (HH:MM), weather-icon (weather sunny|cloudy|rain|storm|snow|windy), season-icon (season), date-panel (day, weekday, season). Style: bevel, flat, inset or ornate. width/height 0 = automatic size.",
   params: [
     { key: "kind", label: "Kind", type: "select", options: [...UI_KINDS], default: "button" },
     { key: "material", label: "Material", type: "material", options: UI_MATS, default: "ui" },
@@ -332,6 +493,13 @@ export const uiGenerator: Generator = {
     { key: "style", label: "Style", type: "select", options: [...UI_STYLES], default: "bevel" },
     { key: "width", label: "Width px (0 = auto)", type: "number", min: 0, max: 192, step: 1, default: 0 },
     { key: "height", label: "Height px (0 = auto)", type: "number", min: 0, max: 192, step: 1, default: 0 },
+    { key: "hour", label: "Hour 0-23 (clock, time-panel)", type: "number", min: 0, max: 23, step: 1, default: 12 },
+    { key: "minute", label: "Minute 0-59 (clock, time-panel)", type: "number", min: 0, max: 59, step: 1, default: 0 },
+    { key: "tint", label: "Night tint on the clock", type: "bool", default: true },
+    { key: "weather", label: "Weather (weather-icon)", type: "select", options: [...WEATHERS], default: "sunny" },
+    { key: "season", label: "Season (season-icon, date-panel)", type: "select", options: [...SEASONS], default: "spring" },
+    { key: "day", label: "Day 1-31 (date-panel)", type: "number", min: 1, max: 31, step: 1, default: 1 },
+    { key: "weekday", label: "Weekday (date-panel)", type: "select", options: [...WEEKDAYS], default: "mon" },
   ],
   generate(p, kit, seed): GenResult {
     const kind = (UI_KINDS as readonly string[]).includes(str(p, "kind")) ? str(p, "kind") : "button";
@@ -365,6 +533,24 @@ export const uiGenerator: Generator = {
         const [w, h] = sizeFor(kind, p, kit);
         const n = Math.min(w, h);
         return { rows: [one("off", drawCheckbox(c, n, false)), one("on", drawCheckbox(c, n, true))], fps: 1 };
+      }
+      case "clock":
+        return { rows: [one("normal", drawClock(c, num(p, "hour"), num(p, "minute"), Boolean(p.tint)))], fps: 1 };
+      case "time-panel": {
+        const h = num(p, "hour"), mi = num(p, "minute");
+        return { rows: [{ name: "normal", frames: [drawTimePanel(c, h, mi, true), drawTimePanel(c, h, mi, false)] }], fps: 1 };
+      }
+      case "weather-icon": {
+        const wx = (WEATHERS as readonly string[]).includes(str(p, "weather")) ? str(p, "weather") : "sunny";
+        return { rows: [{ name: "idle", frames: [0, 1].map((f) => drawWeather(c, wx, f)) }], fps: 2 };
+      }
+      case "season-icon": {
+        const se = (SEASONS as readonly string[]).includes(str(p, "season")) ? str(p, "season") : "spring";
+        return { rows: [one("normal", drawSeason(c, se))], fps: 1 };
+      }
+      case "date-panel": {
+        const se = (SEASONS as readonly string[]).includes(str(p, "season")) ? str(p, "season") : "spring";
+        return { rows: [one("normal", drawDatePanel(c, Math.round(num(p, "day")), str(p, "weekday"), se))], fps: 1 };
       }
       default:
         return { rows: [{ name: "idle", frames: [drawArrow(c, 0), drawArrow(c, 1)] }], fps: 3 };

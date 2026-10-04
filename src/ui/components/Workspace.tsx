@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
 import { aiPixels, vibeParams, type AiStatus } from "../../ai/client";
 import { createAsset } from "../../core/asset";
-import { coerceParams, defaults, generatorFor, randomParams, type GenResult, type Generator, type ParamValue, type Params } from "../../core/generators";
+import { coerceParams, defaults, generatorById, generatorFor, GENERATORS, randomParams, type GenResult, type Generator, type ParamValue, type Params } from "../../core/generators";
 import { rng, randomSeed } from "../../core/rng";
+import type { Attachment, Clip, RigDef } from "../../core/rig";
 import { CATEGORIES, type Asset, type Category, type Sprite, type StyleKit } from "../../core/types";
 import type { FlatPalette } from "../render";
 import { ExportMenu } from "./ExportMenu";
@@ -10,6 +11,7 @@ import { ParamForm } from "./ParamForm";
 import { PromptBox, type AiBusy } from "./PromptBox";
 import { LivePreview, type PreviewBg } from "./SpriteView";
 import { Variations } from "./Variations";
+import { initRigSel, RiggedWorkspace, type RigSel } from "./RiggedWorkspace";
 
 /** Everything the generate workspace remembers per category. */
 export interface WsState {
@@ -21,10 +23,15 @@ export interface WsState {
   origin: { kind: "procedural" | "ai-vibe"; prompt?: string };
   /** A Freeform-pixels result shown instead of the procedural output until a param changes. */
   freeform: { sprite: Sprite; prompt: string } | null;
+  /** Characters only: use the rig method instead of the procedural generator. */
+  rigMode: boolean;
+  rig: RigSel;
+  /** Which generator of the category is active (categories like "character" have several). */
+  generatorId?: string;
 }
 
 export function initWs(g: Generator): WsState {
-  return { params: defaults(g), seed: randomSeed(), prompt: "", name: "", notes: "", origin: { kind: "procedural" }, freeform: null };
+  return { params: defaults(g), seed: randomSeed(), prompt: "", name: "", notes: "", origin: { kind: "procedural" }, freeform: null, rigMode: false, rig: initRigSel() };
 }
 
 const ZOOMS = [0, 1, 2, 3, 4, 6, 8, 12, 16];
@@ -47,9 +54,14 @@ export function Workspace(props: {
   onOpenEditor: (a: Asset) => void;
   onImport: () => void;
   onError: (m: string) => void;
+  customClips?: Clip[];
+  customRigs?: RigDef[];
+  customAttachments?: Attachment[];
+  onSaveClip?: (c: Clip) => void;
 }) {
   const { category, kit, pal, ws } = props;
-  const g = generatorFor(category);
+  const g = (ws.generatorId && generatorById(ws.generatorId)?.category === category ? generatorById(ws.generatorId) : undefined) ?? generatorFor(category);
+  const siblings = GENERATORS.filter((x) => x.category === category);
   const upd = (fn: (w: WsState) => WsState) => props.update(category, fn);
   const [zoom, setZoom] = useState(0);
   const [bg, setBg] = useState<PreviewBg>("checker");
@@ -121,6 +133,44 @@ export function Workspace(props: {
     }
   };
 
+  const pickGenerator = (id: string) =>
+    upd((w) => {
+      const next = generatorById(id) ?? g;
+      return next.id === g.id && !w.rigMode ? w : { ...w, rigMode: false, generatorId: next.id, params: next.id === g.id ? w.params : defaults(next), freeform: null, name: "" };
+    });
+  const modeToggle =
+    siblings.length > 1 || category === "character" ? (
+      <div className="seg" role="group" aria-label="Generator">
+        {siblings.map((x) => (
+          <button key={x.id} className={!ws.rigMode && x.id === g.id ? "on" : ""} onClick={() => pickGenerator(x.id)} title={x.description}>
+            {x.label}
+          </button>
+        ))}
+        {category === "character" && (
+          <button className={ws.rigMode ? "on" : ""} onClick={() => upd((w) => ({ ...w, rigMode: true }))} title="Skeleton rigs with shared clips and attachments">Rigged</button>
+        )}
+      </div>
+    ) : null;
+
+  if (category === "character" && ws.rigMode)
+    return (
+      <div className="rigw-wrap">
+        <div className="rigw-mode">{modeToggle}</div>
+        <RiggedWorkspace
+          kit={kit}
+          pal={pal}
+          sel={ws.rig}
+          update={(fn) => upd((w) => ({ ...w, rig: fn(w.rig) }))}
+          customClips={props.customClips ?? []}
+          customRigs={props.customRigs ?? []}
+          customAttachments={props.customAttachments ?? []}
+          onSave={props.onSave}
+          onSaveClip={props.onSaveClip ?? (() => {})}
+          onError={props.onError}
+        />
+      </div>
+    );
+
   const catLabel = CATEGORIES.find((c) => c.id === category)!.label;
 
   return (
@@ -142,6 +192,7 @@ export function Workspace(props: {
         />
         <section className="card">
           <div className="card-head">
+            {modeToggle}
             <h3 className="card-title">{g.label} parameters</h3>
             <button onClick={randomize} title="Random parameters and a new seed">
               🎲 Randomize

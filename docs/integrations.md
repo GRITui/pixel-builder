@@ -500,11 +500,25 @@ image-reading tool, since looking at the output is part of the workflow.
 
 `get_style_guide`, `list_generators`, `generate_asset`, `generate_variations`,
 `paint_asset`, `edit_asset`, `list_assets`, `get_asset`, `delete_asset`,
-`export_asset`, `import_image`, `list_kits`, `create_kit`, `update_kit`,
-`set_active_kit`, `rerender_assets`. MCP also exposes the resources
+`export_asset` (png, spritesheet, tiled, svg, tiled-tileset, godot, unity, atlas), `import_image`, `import_svg`, `list_kits`, `create_kit`, `update_kit`,
+`set_active_kit`, `rerender_assets`, `list_rigs`, `list_clips`, `list_attachments`,
+`generate_rigged`, `attach`, `create_rig`, `create_clip`, `create_attachment`, `generate_pack` (whole starter set in one call, e.g. `farming-v1`). `export_asset format=svg` writes a layered SVG (layer per material, per part for rigged assets, locked `guides` layer);
+`import_svg` reads it back: edit by layer, keep `data-material` attrs or use kit colours, the guides layer is ignored. MCP also exposes the resources
 `pixel-builder://project`, `pixel-builder://style-guide` and the prompt
 `asset_pack` (`game`, `count`). Inputs and outputs: see
 [`BUILD_PLAN.md`](BUILD_PLAN.md) ("Agent tool contract") and the skill's cheat-sheet.
+
+### Autotile tilesets (`tileset` generator)
+
+`generate_asset generator=tileset params={lower,upper,layout}` makes one atlas PNG of transition
+tiles between two terrains (`layout` `wang16` = 2-corner Wang, index = NE*1 + SE*2 + SW*4 + NW*8,
+bit set = corner is `upper`; `blob47` = 47-tile blob, mask bits N=1 NE=2 E=4 SE=8 S=16 SW=32 W=64
+NW=128, tiles are the valid masks ascending, slot 47 is a plain `lower` tile). `export_asset`
+then writes engine files next to `<slug>.png`: `tiled-tileset` (`.tsj`, corner/mixed wangset,
+colour 1 = lower, 2 = upper), `godot` (`.tres` TileSet, terrain 0 = lower, 1 = upper, peering bits;
+copy the PNG to `res://`), `unity` (`.rules.json`: slice `sprites` with top-left `rect` and
+bottom-left `unityRect`, per-tile `ruleNeighbors` in the order NW N NE W E SW S SE with 0 DontCare,
+1 This, 2 NotThis; "This" = upper) and `atlas` (`.atlas.json` index).
 
 ## Where the skill goes (summary)
 

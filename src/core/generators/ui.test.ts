@@ -129,3 +129,14 @@ describe("ui generator", () => {
     expect(() => uiGenerator.generate(p, KIT_PRESETS[0], 1)).not.toThrow();
   });
 });
+
+describe("weather icons keep falling pieces apart from the cloud", () => {
+  it.each(["rain", "snow"])("%s has an empty row between cloud and pieces in every kit and frame", (weather) => {
+    for (const kit of KIT_PRESETS)
+      for (const fr of gen("weather-icon", { weather }, kit).rows[0].frames) {
+        const rows = Array.from({ length: fr.h }, (_, y) => fr.data.slice(y * fr.w, (y + 1) * fr.w).some(Boolean));
+        const top = rows.indexOf(true), bottom = rows.lastIndexOf(true);
+        expect(rows.slice(top, bottom + 1).includes(false)).toBe(true);
+      }
+  });
+});

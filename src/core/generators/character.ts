@@ -1,6 +1,13 @@
 import { finalize } from "../enforce";
+import { KIT_PRESETS } from "../kit";
+import { buildLegend } from "../legend";
 import { Painter } from "../painter";
-import type { Material } from "../palette";
+import { colorIndex, type Material } from "../palette";
+import { clipFrames, renderRig, type Attachment, type Clip, type PartDef } from "../rig";
+import { HUMANOID_RIGS, humanoidRig, femaleCueParts, AGES, torsoWidth, type Age, type Build, type Sex } from "../rigs/humanoid";
+import { attachmentById, clipById } from "../rigs";
+import { WALK } from "../rigs/example";
+import { hairStyleAttachment } from "../rigs/wardrobe";
 import { rng, type Rng } from "../rng";
 import type { FrameSet, Sprite, StyleKit } from "../types";
 import { bool, mat, PAINT, str, type Generator, type Params } from "./types";
@@ -26,179 +33,166 @@ function rollTraits(r: Rng): Traits {
   return { fringe: r.pick([-1, 0, 1] as const), wideEyes: r.chance(0.4), blush: r.chance(0.3), collar: r.chance(0.4), beltTone: r.pick([0, -1, 1]) };
 }
 
-/**
- * Top-down "chibi" RPG character with a 4-direction, 4-frame walk cycle.
- * All coordinates are authored on a 32px grid and scaled to the kit size.
- */
-function drawHumanoid(p: Params, kit: StyleKit, dir: Dir, frame: number, size: number, t: Traits): Sprite {
-  const P = new Painter(size, size, kit);
-  const k = size / 32;
-  const u = (v: number) => Math.round(v * k);
-  const us = (v: number) => Math.max(1, Math.round(v * k));
-  const side = dir === "left" || dir === "right";
-  const flip = dir === "left";
-  // x transform for boxes (x, width) and points
-  const X = (x: number, w = 0) => (flip ? size - u(x) - us(w) : u(x));
-  const CX = (x: number) => (flip ? size - x * k : x * k);
+const WALK_FRAMES = 4;
 
-  const build = str(p, "build");
-  const tw = build === "slim" ? 8 : build === "stocky" ? 12 : 10; // torso width
-  const skin = mat(p, "skin"), hair = mat(p, "hair"), top = mat(p, "top"), bottom = mat(p, "bottom"), boots = mat(p, "boots");
-  const hairStyle = str(p, "hair_style"), hat = str(p, "headwear"), weapon = str(p, "weapon");
+function walkClip(): Clip {
+  const reg = clipById("walk", "humanoid")?.clip;
+  const ok = reg && (["down", "side", "up"] as const).every((v) => clipFrames(reg, v).length === WALK_FRAMES);
+  return ok ? reg : WALK;
+}
 
-  // walk cycle: 0 neutral, 1 left step, 2 neutral, 3 right step
-  const bob = frame % 2 === 1 ? 1 : 0;
-  const step = frame === 1 ? 1 : frame === 3 ? -1 : 0;
-  const oy = bob; // whole body bob
+const attach = (id: string): Attachment | undefined => attachmentById(id)?.attachment;
 
-  // --- cape (behind everything) ---
-  if (bool(p, "cape")) {
-    const capeMat = mat(p, "accent_mat");
-    if (dir === "up") P.box(X(16 - tw / 2 - 1, tw + 2), u(16) + oy, us(tw + 2), us(12), capeMat, [0, 0, 1]);
-    else if (side) P.box(X(16 - tw / 2 - 2, 3), u(17) + oy, us(3), us(10), capeMat, [flip ? 1 : -1, 0, 0.6]);
-    else {
-      P.box(u(16 - tw / 2 - 1), u(18) + oy, us(1), us(8), capeMat, [-0.5, 0, 0.8]);
-      P.box(u(16 + tw / 2), u(18) + oy, us(1), us(8), capeMat, [0.5, 0, 0.8]);
-    }
-  }
+/** Fallback parts used when the shared attachment catalog has no entry for an id. */
+function fallbackHeadwear(hat: string): PartDef[] {
+  const E = (id: string, o: Record<string, unknown>) => ({ id, kind: "ellipse", joint: "head", z: 4, ...o }) as PartDef;
+  const B = (id: string, o: Record<string, unknown>) => ({ id, kind: "box", joint: "head", z: 4, ...o }) as PartDef;
+  if (hat === "helmet")
+    return [
+      E("helm-dome", { dy: -1.5, rx: 7.8, ry: 5.6, slot: "helm", views: ["down", "side"] }),
+      E("helm-dome-up", { dy: -0.5, rx: 7.8, ry: 6.9, slot: "helm", views: ["up"] }),
+      E("helm-face", { dy: 1.2, rx: 5.8, ry: 4.2, slot: "skin", z: 9, views: ["down"] }),
+      E("helm-face-side", { dx: 3.8, dy: 1.6, rx: 3.4, ry: 3.6, slot: "skin", z: 9, views: ["side"] }),
+    ];
+  if (hat === "hood")
+    return [
+      E("hood-shell", { dy: -0.5, rx: 8.2, ry: 7.2, slot: "accent" }),
+      E("hood-rim", { dy: 1.5, rx: 5.6, ry: 4.8, slot: "accent", tone: -2, z: 9, views: ["down"] }),
+      E("hood-face", { dy: 1.8, rx: 4.6, ry: 3.9, slot: "skin", tone: -1, z: 10, views: ["down"] }),
+      E("hood-rim-side", { dx: 3.5, dy: 1.5, rx: 3.2, ry: 4.2, slot: "accent", tone: -2, z: 9, views: ["side"] }),
+      E("hood-face-side", { dx: 3.8, dy: 1.8, rx: 2.4, ry: 3.3, slot: "skin", tone: -1, z: 10, views: ["side"] }),
+    ];
+  if (hat === "wizard-hat")
+    return [
+      E("wiz-brim", { dy: -3.5, rx: 9.5, ry: 2, flat: 0.4, slot: "accent" }),
+      E("wiz-1", { dy: -5.5, rx: 6, ry: 2.6, slot: "accent", z: 4.1 }),
+      E("wiz-2", { dy: -7.5, rx: 4.2, ry: 2.2, slot: "accent", z: 10 }),
+      E("wiz-3", { dy: -9, rx: 2.2, ry: 1.7, slot: "accent", z: 11 }),
+    ];
+  if (hat === "crown")
+    return [
+      B("crown-band", { dx: -5, dy: -7, w: 10, h: 3, slot: "gold" }),
+      B("crown-pt-a", { dx: -5, dy: -9, w: 2, h: 2, slot: "gold", tone: 1 }),
+      B("crown-pt-b", { dx: -1, dy: -9, w: 2, h: 2, slot: "gold", tone: 1 }),
+      B("crown-pt-c", { dx: 3, dy: -9, w: 2, h: 2, slot: "gold", tone: 1 }),
+      B("crown-gem", { dx: -0.5, dy: -6, w: 1, h: 1, slot: "cloth2", tone: 1, z: 9, views: ["down"] }),
+    ];
+  return [];
+}
 
-  // --- legs ---
-  const legW = Math.max(3, tw / 2 - 1);
-  const legY = 24;
-  if (side) {
-    const back = 16 - legW / 2 - step * 2, front = 16 - legW / 2 + step * 2;
-    P.cylinder(X(back, legW), u(legY) + oy, us(legW), us(5) - oy, bottom, { tone: -1 });
-    P.box(X(back, legW), u(legY + 4), us(legW), us(2), boots, [0, 0, 1], { tone: -1 });
-    P.cylinder(X(front, legW), u(legY) + oy, us(legW), us(5) - oy, bottom);
-    P.box(X(front, legW + 1), u(legY + 4), us(legW + 1), us(2), boots);
-  } else {
-    const lx = 16 - legW - 0.5, rx = 16 + 0.5;
-    const lLift = step === 1 ? 1 : 0, rLift = step === -1 ? 1 : 0;
-    P.cylinder(u(lx), u(legY) + oy, us(legW), us(5) - lLift - oy, bottom);
-    P.box(u(lx), u(legY + 4) - lLift, us(legW), us(2), boots);
-    P.cylinder(u(rx), u(legY) + oy, us(legW), us(5) - rLift - oy, bottom);
-    P.box(u(rx), u(legY + 4) - rLift, us(legW), us(2), boots);
-  }
+function fallbackItem(item: string, tw: number): PartDef[] {
+  // held in the viewer-right hand from the front, the near (L) hand from the side
+  const both = (id: string, o: Record<string, unknown>): PartDef[] =>
+    (["handR", "handL"] as const).map((joint) => ({ id: `${id}-${joint}`, kind: "box", joint, z: 4, views: joint === "handR" ? ["down"] : ["side"], ...o }) as PartDef);
+  if (item === "sword")
+    return [...both("sword-blade", { dx: -1, dy: -10, w: 2, h: 10, slot: "metal", tone: 1 }), ...both("sword-guard", { dx: -2, dy: -0.5, w: 4, h: 1, slot: "gold", z: 4.1 })];
+  if (item === "staff")
+    return [
+      ...both("staff-shaft", { dx: -0.75, dy: -12, w: 1.5, h: 18, slot: "wood" }),
+      ...(["handR", "handL"] as const).map((joint) => ({ id: `staff-gem-${joint}`, kind: "ellipse", joint, dy: -13, rx: 2.2, ry: 2.2, slot: "accent", z: 4.1, views: joint === "handR" ? ["down"] : ["side"] }) as PartDef),
+    ];
+  if (item === "shield")
+    return (["handL"] as const).flatMap((joint) => [
+      { id: "shield-face", kind: "ellipse", joint, dx: -0.5, dy: -2, rx: 3.5, ry: 4.5, flat: 0.3, slot: "metal", z: 4, views: ["down", "side"] } as PartDef,
+      { id: "shield-boss", kind: "ellipse", joint, dx: -0.5, dy: -2, rx: 1.5, ry: 2.5, flat: 0.3, slot: "accent", z: 4.1, views: ["down", "side"] } as PartDef,
+    ]);
+  if (item === "bow")
+    return (["handR", "handL"] as const).map((joint) => ({
+      id: `bow-${joint}`, kind: "pixels", joint, anchor: [0, 7], z: 4, views: joint === "handR" ? ["down"] : ["side"],
+      rows: ["...w", "..w.", ".w..", ".w..", "w...", "w...", "w...", "w...", "w...", ".w..", ".w..", "..w.", "...w"].map((r) => r.replace(/w/g, WOOD)),
+    }) as PartDef);
+  void tw;
+  return [];
+}
+const WOOD = buildLegend(KIT_PRESETS[0]).byIndex.get(colorIndex("wood", 3)) ?? "w";
 
-  // --- torso ---
-  const torsoX = 16 - (side ? tw * 0.4 : tw / 2);
-  const torsoW = side ? tw * 0.8 : tw;
-  P.cylinder(X(torsoX, torsoW), u(17) + oy, us(torsoW), us(8), top);
-  P.rect(X(torsoX, torsoW), u(23) + oy, us(torsoW), us(1), mat(p, "boots"), 2 + t.beltTone); // belt
-  if (t.collar && dir !== "up") P.box(X(torsoX + 1, torsoW - 2), u(17) + oy, us(torsoW - 2), us(1), mat(p, "accent_mat"), [0, -0.5, 0.8]);
-  if (!side && dir === "down") P.px(u(16), u(23) + oy, "gold", 3); // buckle
-
-  // --- arms ---
-  const swing = side ? 0 : step;
-  const armW = 3;
-  const drawArm = (ax: number, dy: number, tone = 0) => {
-    P.cylinder(X(ax, armW), u(17 + dy) + oy, us(armW), us(6), top, { tone });
-    P.box(X(ax, armW), u(23 + dy) + oy, us(armW), us(2), skin, [0, 0, 1], { tone });
-  };
-  if (side) drawArm(16 - 1 - step, 0);
-  else {
-    drawArm(16 - tw / 2 - armW, swing);
-    drawArm(16 + tw / 2, -swing);
-  }
-
-  // --- head ---
-  const hy = 10 + (k < 0.75 ? 0.5 : 0);
-  P.ellipse(CX(16), hy * k + oy, 7.2 * k, 6.6 * k, skin);
-
-  // --- hair ---
-  const hairCut = (x0: number, y0: number, w: number, h: number) => P.box(X(x0, w), u(y0) + oy, us(w), us(h), hair);
-  if (hairStyle !== "bald") {
-    if (dir === "up") P.ellipse(CX(16), hy * k + oy, 7.4 * k, 6.8 * k, hair);
-    else if (side) {
-      P.ellipse(CX(15), (hy - 1.5) * k + oy, 7 * k, 5.2 * k, hair);
-      hairCut(9, hy - 2, 5, 7); // back of head
-    } else {
-      P.ellipse(CX(16), (hy - 2) * k + oy, 7.4 * k, 5 * k, hair);
-      P.erase(u(11 + t.fringe), u(hy) + oy, us(10), us(4)); // forehead/face window (fringe parts left/centre/right)
-      P.ellipse(CX(16 + t.fringe * 0.5), (hy + 1) * k + oy, 6 * k, 4.6 * k, skin);
-      hairCut(9, hy - 1, 2, 5);
-      hairCut(21, hy - 1, 2, 5);
-    }
-    if (hairStyle === "long") {
-      if (dir === "up") hairCut(9, hy, 14, 9);
-      else if (side) hairCut(9, hy, 5, 9);
-      else { hairCut(8, hy + 1, 3, 8); hairCut(21, hy + 1, 3, 8); }
-    } else if (hairStyle === "spiky") {
-      for (let i = 0; i < 4; i++) {
-        const sx = 10 + i * 4;
-        P.poly([[CX(sx), (hy - 4) * k + oy], [CX(sx + 4), (hy - 4) * k + oy], [CX(sx + 2), (hy - 9) * k + oy]], hair, [0, -0.5, 0.8]);
-      }
-    } else if (hairStyle === "ponytail") {
-      if (dir === "up") hairCut(15, hy + 3, 3, 7);
-      else if (side) hairCut(6, hy, 3, 7);
-    }
-  }
-
-  // --- face ---
+/** Seeded face / trim details, drawn above hats so eyes always show. */
+function detailParts(t: Traits, tw: number, size: number, eyeZ: number, fem?: Age): PartDef[] {
   const ex = t.wideEyes ? 1 : 0;
-  const drawFace = () => {
-    if (dir === "down") {
-      P.rect(u(13 - ex), u(hy + 1) + oy, us(1), us(2), "ink", 0);
-      P.rect(u(18 + ex), u(hy + 1) + oy, us(1), us(2), "ink", 0);
-      if (k >= 1) P.px(u(16), u(hy + 4) + oy, skin, 1);
-      if (t.blush && k >= 1) P.px(u(12 - ex), u(hy + 3) + oy, "cloth2", 3), P.px(u(19 + ex), u(hy + 3) + oy, "cloth2", 3);
-    } else if (side) {
-      P.rect(X(19, 1), u(hy + 1) + oy, us(1), us(2), "ink", 0);
-      if (t.blush && k >= 1) P.px(X(20), u(hy + 3) + oy, "cloth2", 3);
+  const big = size >= 32;
+  const P: PartDef[] = [
+    { id: "eyeL", kind: "box", joint: "head", dx: -3 - ex, dy: -1, w: 1, h: 2, slot: "ink", tone: -2, z: eyeZ, views: ["down"] },
+    { id: "eyeR", kind: "box", joint: "head", dx: 2 + ex, dy: -1, w: 1, h: 2, slot: "ink", tone: -2, z: eyeZ, views: ["down"] },
+    { id: "eyeSide", kind: "box", joint: "head", dx: 3, dy: -1, w: 1, h: 2, slot: "ink", tone: -2, z: eyeZ, views: ["side"] },
+  ];
+  if (fem) {
+    // female cues: lashes, lips, always-on blush and a bow for the young (replace the neutral mouth)
+    P.push(...femaleCueParts(fem, eyeZ, ex, big));
+  } else P.push({ id: "mouth", kind: "box", joint: "head", dx: -0.5, dy: 2, w: 1, h: 1, slot: "skin", tone: -2, z: eyeZ, views: ["down"] });
+  if (big) {
+    if (t.blush && !fem) {
+      P.push(
+        { id: "blushL", kind: "box", joint: "head", dx: -4 - ex, dy: 1, w: 1, h: 1, slot: "cloth2", tone: 1, z: eyeZ, views: ["down"] },
+        { id: "blushR", kind: "box", joint: "head", dx: 3 + ex, dy: 1, w: 1, h: 1, slot: "cloth2", tone: 1, z: eyeZ, views: ["down"] },
+        { id: "blushS", kind: "box", joint: "head", dx: 4, dy: 1, w: 1, h: 1, slot: "cloth2", tone: 1, z: eyeZ, views: ["side"] },
+      );
     }
+  }
+  if (t.collar) {
+    P.push({ id: "collar", kind: "box", joint: "chest", dx: -tw / 2 + 1, dy: -1, w: tw - 2, h: 1, slot: "accent", normal: [0, -0.5, 0.8], z: 3.5, views: ["down"] });
+    P.push({ id: "collarSide", kind: "box", joint: "chest", dx: -tw * 0.4 + 1, dy: -1, w: tw * 0.8 - 2, h: 1, slot: "accent", normal: [0, -0.5, 0.8], z: 3.5, views: ["side"] });
+  }
+  P.push({ id: "belt", kind: "box", joint: "chest", dx: -tw / 2, dy: 5.4, w: tw, h: 1, slot: "boots", tone: 2 + t.beltTone, z: 2.5, views: ["down", "up"] });
+  P.push({ id: "beltSide", kind: "box", joint: "chest", dx: -tw * 0.4, dy: 5.4, w: tw * 0.8, h: 1, slot: "boots", tone: 2 + t.beltTone, z: 2.5, views: ["side"] });
+  P.push({ id: "buckle", kind: "box", joint: "chest", dx: -0.5, dy: 5.4, w: 1, h: 1, slot: "gold", tone: 1, z: 2.6, views: ["down"] });
+  return P;
+}
+
+function capeParts(tw: number): PartDef[] {
+  return [
+    { id: "capeL", kind: "box", joint: "chest", dx: -tw / 2 - 1.5, dy: 1, w: 2, h: 10, slot: "accent", normal: [-0.5, 0, 0.8], z: -1, views: ["down"] },
+    { id: "capeR", kind: "box", joint: "chest", dx: tw / 2 - 0.5, dy: 1, w: 2, h: 10, slot: "accent", normal: [0.5, 0, 0.8], z: -1, views: ["down"] },
+    { id: "capeBack", kind: "ellipse", joint: "chest", dx: 0, dy: 4.5, rx: tw / 2 + 1.8, ry: 7, flat: 0.35, slot: "accent", z: 2.7, views: ["up"] },
+    { id: "capeSide", kind: "ellipse", joint: "chest", dx: -tw * 0.4 - 1.2, dy: 4.5, rx: 2.8, ry: 6.5, flat: 0.3, slot: "accent", z: -1, views: ["side"] },
+  ];
+}
+
+const HEADWEAR_ID: Record<string, string> = {
+  helmet: "helmet", hood: "hood", wizard: "wizard-hat", crown: "crown",
+  "straw-hat": "straw-hat", "ngob-hat": "ngob-hat", cap: "hat-cap", bonnet: "hat-bonnet", bandana: "hat-bandana", beanie: "hat-beanie",
+};
+/** Wardrobe layers: the param value maps to an attachment id with this prefix. */
+const WARDROBE_HATS = new Set(["cap", "bonnet", "bandana", "beanie"]);
+const LAYER_PARAMS: [string, string][] = [["facial", "face-"], ["costume", "costume-"], ["bag", "bag-"]];
+
+/**
+ * Top-down "chibi" RPG character on the humanoid rig: 4-direction, 4-frame
+ * walk cycle. Hair, headwear and held items are attachments on rig joints.
+ */
+function drawHumanoid(p: Params, kit: StyleKit, size: number, t: Traits): FrameSet[] {
+  const build = str(p, "build") as Build;
+  const sex = str(p, "sex"), age = str(p, "age");
+  const rig = sex === "male" && age === "young-adult"
+    ? HUMANOID_RIGS.find((r) => r.id === `humanoid-${build}`) ?? HUMANOID_RIGS[1]
+    : humanoidRig(build, age as Age, sex as Sex);
+  const tw = torsoWidth(build);
+  const hat = str(p, "headwear"), weapon = str(p, "weapon");
+  const accent = mat(p, "accent_mat");
+  // helmet keeps its metal look unless the user picked an accent material (#11)
+  const helmMat: Material = accent === "cloth2" ? "metal" : accent;
+  const slots: Record<string, Material> = {
+    skin: mat(p, "skin"), hair: mat(p, "hair"), top: mat(p, "top"), bottom: mat(p, "bottom"), boots: mat(p, "boots"), accent, helm: helmMat,
   };
-  drawFace();
+  const atts: Attachment[] = [hairStyleAttachment(str(p, "hair_style"), t.fringe)];
+  if (bool(p, "cape")) atts.push({ id: "cape", name: "Cape", parts: capeParts(tw) });
 
-  // --- headwear ---
-  const hm = mat(p, "accent_mat");
-  if (hat === "helmet") {
-    P.ellipse(CX(16), (hy - 1.5) * k + oy, 7.8 * k, 5.6 * k, "metal");
-    if (dir !== "up") P.erase(side ? X(17, 8) : u(11), u(hy) + oy, us(side ? 8 : 10), us(4));
-    if (dir === "down") P.ellipse(CX(16), (hy + 1) * k + oy, 5.8 * k, 4.4 * k, skin), P.rect(u(13), u(hy + 1) + oy, us(1), us(2), "ink", 0), P.rect(u(18), u(hy + 1) + oy, us(1), us(2), "ink", 0);
-    if (side) P.ellipse(CX(19), (hy + 1.5) * k + oy, 3.5 * k, 3.5 * k, skin), P.rect(X(19, 1), u(hy + 1) + oy, us(1), us(2), "ink", 0);
-  } else if (hat === "hood") {
-    P.ellipse(CX(16), (hy - 0.5) * k + oy, 8.2 * k, 7.2 * k, hm);
-    // face opening: a rim of shadow inside the hood, then the face itself so it stays readable at 1x
-    if (dir === "down") {
-      P.ellipse(CX(16), (hy + 1.5) * k + oy, 5.6 * k, 4.8 * k, hm, { tone: -2 });
-      P.ellipse(CX(16), (hy + 1.8) * k + oy, 4.6 * k, 3.9 * k, skin, { tone: -1 });
-    }
-    if (side) {
-      P.ellipse(CX(19.5), (hy + 1.5) * k + oy, 3.2 * k, 4.2 * k, hm, { tone: -2 });
-      P.ellipse(CX(19.8), (hy + 1.8) * k + oy, 2.4 * k, 3.3 * k, skin, { tone: -1 });
-    }
-    drawFace();
-  } else if (hat === "wizard") {
-    P.ellipse(CX(16), (hy - 3.5) * k + oy, 9.5 * k, 2 * k, hm, { flat: 0.4 });
-    P.poly([[CX(10), (hy - 4) * k + oy], [CX(22), (hy - 4) * k + oy], [CX(side ? 12 : 18), (hy - 13) * k + oy]], hm, [0.3, -0.3, 0.9]);
-  } else if (hat === "crown") {
-    P.box(X(11, 10), u(hy - 6) + oy, us(10), us(3), "gold");
-    for (const cx of [11, 15, 19]) P.px(X(cx + 1), u(hy - 7) + oy, "gold", 4);
-    if (dir === "down") P.px(u(16), u(hy - 5) + oy, "cloth2", 3);
+  const pushShared = (id: string | undefined, fallback: PartDef[], remapMetalTo?: string) => {
+    const shared = id ? attach(id) : undefined;
+    const parts = shared ? shared.parts.map((q) => (remapMetalTo && q.slot === "metal" ? { ...q, slot: remapMetalTo } : q)) : fallback;
+    // keep the attachment's own joints (tool tips) so its limb parts can resolve them
+    if (parts.length) atts.push({ id: id ?? "extra", name: id ?? "extra", parts, joints: shared?.joints });
+  };
+  if (hat !== "none") pushShared(HEADWEAR_ID[hat], fallbackHeadwear(HEADWEAR_ID[hat]), hat === "helmet" ? "helm" : undefined);
+  if (weapon !== "none") pushShared(weapon, fallbackItem(weapon, tw));
+  for (const [key, prefix] of LAYER_PARAMS) {
+    const v = p[key] === undefined ? "none" : str(p, key);
+    if (v === "none") continue;
+    const a = attach(v === "basket" ? v : prefix + v);
+    if (a) atts.push(a);
   }
+  atts.push({ id: "details", name: "Seeded details", parts: detailParts(t, tw, size, hat !== "none" && (!attach(HEADWEAR_ID[hat]) || WARDROBE_HATS.has(hat)) ? 30 : 7, sex === "female" ? (age as Age) : undefined) });
 
-  // --- weapon (held in front hand) ---
-  if (weapon !== "none" && dir !== "up") {
-    const hx = side ? 16 - 1 - step + 1 : 16 + tw / 2 + 1;
-    const hyy = 23 - (side ? 0 : swing);
-    if (weapon === "sword") {
-      P.line(X(hx), u(hyy - 9) + oy, X(hx), u(hyy) + oy, "metal", 4);
-      P.line(X(hx) + (flip ? 1 : -1), u(hyy - 8) + oy, X(hx) + (flip ? 1 : -1), u(hyy - 1) + oy, "metal", 2);
-      P.rect(X(hx - 1, 3), u(hyy) + oy, us(3), 1, "gold", 3);
-    } else if (weapon === "staff") {
-      P.line(X(hx), u(hyy - 12) + oy, X(hx), u(hyy + 5) + oy, "wood", 2);
-      P.ellipse(X(hx) + 0.5, (hyy - 13) * k + oy, 2.2 * k + 0.4, 2.2 * k + 0.4, hm);
-    } else if (weapon === "shield") {
-      const sx = side ? 18 : 16 - tw / 2 - 4;
-      P.ellipse(CX(sx + 2), (hyy - 2) * k + oy, 3.5 * k, 4.5 * k, "metal", { flat: 0.3 });
-      P.ellipse(CX(sx + 2), (hyy - 2) * k + oy, 1.5 * k, 2.5 * k, hm, { flat: 0.3 });
-    } else if (weapon === "bow") {
-      for (let t = -6; t <= 6; t++) P.px(X(hx + Math.round(2 - (t * t) / 18)), u(hyy - 4 + t) + oy, "wood", 3);
-      P.line(X(hx + 2), u(hyy - 10) + oy, X(hx + 2), u(hyy + 2) + oy, "ui", 4);
-    }
-  }
-
-  return finalize(P.toSprite(), kit);
+  return renderRig({ rig, kit, slots, attachments: atts, size }, [walkClip()]);
 }
 
 function drawSlime(p: Params, kit: StyleKit, dir: Dir, frame: number, size: number, _t: Traits): Sprite {
@@ -226,13 +220,18 @@ export const characterGenerator: Generator = {
   params: [
     { key: "archetype", label: "Archetype", type: "select", options: ["humanoid", "slime"], default: "humanoid" },
     { key: "build", label: "Build", type: "select", options: ["slim", "normal", "stocky"], default: "normal" },
+    { key: "sex", label: "Sex", type: "select", options: ["male", "female"], default: "male" },
+    { key: "age", label: "Age", type: "select", options: [...AGES], default: "young-adult" },
     { key: "skin", label: "Skin / body", type: "material", options: SKINS, default: "skin" },
     { key: "hair", label: "Hair", type: "material", options: PAINT, default: "hair" },
-    { key: "hair_style", label: "Hair style", type: "select", options: ["short", "long", "spiky", "ponytail", "bald"], default: "short" },
+    { key: "hair_style", label: "Hair style", type: "select", options: ["short", "long", "spiky", "ponytail", "bald", "bun", "braids", "pigtails", "bob"], default: "short" },
     { key: "top", label: "Top", type: "material", options: PAINT, default: "cloth" },
     { key: "bottom", label: "Bottom", type: "material", options: PAINT, default: "leather" },
     { key: "boots", label: "Boots / belt", type: "material", options: PAINT, default: "wood" },
-    { key: "headwear", label: "Headwear", type: "select", options: ["none", "helmet", "hood", "wizard", "crown"], default: "none" },
+    { key: "headwear", label: "Headwear", type: "select", options: ["none", "helmet", "hood", "wizard", "crown", "straw-hat", "ngob-hat", "cap", "bonnet", "bandana", "beanie"], default: "none" },
+    { key: "facial", label: "Facial detail", type: "select", options: ["none", "beard", "mustache", "glasses", "freckles", "wrinkles"], default: "none" },
+    { key: "costume", label: "Costume", type: "select", options: ["none", "overalls", "dress", "apron", "sarong", "smock", "sweater"], default: "none" },
+    { key: "bag", label: "Bag", type: "select", options: ["none", "backpack", "satchel", "tote", "basket"], default: "none" },
     { key: "weapon", label: "Held item", type: "select", options: ["none", "sword", "staff", "shield", "bow"], default: "none" },
     { key: "accent_mat", label: "Accent (cape, hat, gem)", type: "material", options: PAINT, default: "cloth2" },
     { key: "cape", label: "Cape", type: "bool", default: false },
@@ -240,8 +239,8 @@ export const characterGenerator: Generator = {
   generate(p, kit, seed) {
     const traits = rollTraits(rng(seed));
     const size = kit.sizes.character;
-    const draw = str(p, "archetype") === "slime" ? drawSlime : drawHumanoid;
-    const rows: FrameSet[] = DIRS.map((d) => ({ name: `walk-${d}`, frames: [0, 1, 2, 3].map((f) => draw(p, kit, d, f, size, traits)) }));
+    if (str(p, "archetype") !== "slime") return { rows: drawHumanoid(p, kit, size, traits), fps: 6 };
+    const rows: FrameSet[] = DIRS.map((d) => ({ name: `walk-${d}`, frames: [0, 1, 2, 3].map((f) => drawSlime(p, kit, d, f, size, traits)) }));
     return { rows, fps: 6 };
   },
 };
