@@ -703,7 +703,7 @@ function drawObject(kind: string, p: Params, kit: StyleKit, seed: number, frame:
     const n = d.size;
     d.P.erase(0, 0, n, 1); d.P.erase(0, n - 1, n, 1); d.P.erase(0, 0, 1, n); d.P.erase(n - 1, 0, 1, n);
   }
-  return finalize(d.sprite(), kit, effect ? { outline: false } : {});
+  return finalize(d.sprite(), kit);
 }
 
 export const objectGenerator: Generator = {

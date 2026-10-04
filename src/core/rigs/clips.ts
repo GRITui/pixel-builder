@@ -289,4 +289,137 @@ const FISH: Clip = {
   },
 };
 
+// ======================= snappy variants (issue #47) =======================
+// Opt-in polish: anticipation (lean back / coil), a one-frame smear on the fast swing, an impact hold,
+// follow-through (the head lags the torso by a frame) and a settle. Selectable by id
+// (`attack-snappy`, `chop-snappy`, `mine-snappy`) and used automatically for the base clip ids when
+// the kit is `detail: "rich"` (see `Clip.rich`). Standard kits keep the plain clips byte for byte.
+
+const ATTACK_SNAPPY: Clip = {
+  id: "attack-snappy",
+  fps: 10,
+  frames: {
+    side: [
+      p({ chest: [-1, 0], elbowR: [-1, -2], handR: [-2, -3], toolTip: [-6, -4] }),
+      // anticipation: coil back, blade raised behind the head
+      p({ hip: [-1, 1], footL: [1, -1], footR: [1, -1], chest: [-2, 0], head: [1, 0], elbowR: [-2, -3], handR: [-4, -4], handL: [-2, 0], toolTip: [-10, -7] }),
+      // smear: the blade is already half way, stretched forward
+      p({ hip: [0, 0], chest: [1, 0], head: [-1, 0], elbowR: [1, -2], handR: [3, -3], handL: [1, 0], toolTip: [14, 2] }),
+      // strike: big arc ends low and far in front, body lunges
+      p({ hip: [2, 0], footL: [-2, 0], footR: [-2, 0], chest: [3, 1], head: [-2, 0], elbowR: [3, 0], handR: [5, 3], handL: [2, 0], toolTip: [13, 19] }),
+      // impact hold
+      p({ hip: [2, 0], footL: [-2, 0], footR: [-2, 0], chest: [3, 1], head: [-1, 0], elbowR: [3, 0], handR: [5, 3], handL: [2, 0], toolTip: [13, 20] }),
+      // follow-through: the blade drifts on, the head catches up
+      p({ hip: [1, 0], footL: [-1, 0], footR: [-1, 0], chest: [2, 1], head: [0, 0], elbowR: [2, 1], handR: [3, 2], toolTip: [9, 18] }),
+      p({ chest: [1, 0], handR: [1, -1], toolTip: [3, 1] }),
+    ],
+    down: [
+      p({ elbowR: [1, -2], handR: [0, -3], toolTip: [2, -3] }),
+      p({ hip: [0, 1], footL: [0, -1], footR: [0, -1], chest: [0, 0], head: [0, 1], elbowR: [2, -3], handR: [1, -5], toolTip: [4, -7] }),
+      p({ chest: [0, 0], head: [0, 0], elbowR: [0, -1], handR: [-1, 1], toolTip: [-3, 6] }),
+      p({ hip: [0, 2], footL: [0, -2], footR: [0, -2], chest: [0, 2], head: [0, -1], elbowR: [-1, 1], handR: [-2, 4], toolTip: [-6, 16] }),
+      p({ hip: [0, 2], footL: [0, -2], footR: [0, -2], chest: [0, 2], head: [0, 0], handR: [-2, 4], toolTip: [-6, 17] }),
+      p({ hip: [0, 1], footL: [0, -1], footR: [0, -1], chest: [0, 1], handR: [-1, 2], toolTip: [-4, 13] }),
+      p({ handR: [0, -1], toolTip: [0, -1] }),
+    ],
+    up: [
+      p({ elbowR: [1, -2], handR: [0, -3], toolTip: [2, -3] }),
+      p({ hip: [0, 1], footL: [0, -1], footR: [0, -1], head: [0, 1], elbowR: [2, -3], handR: [1, -5], toolTip: [4, -7] }),
+      p({ elbowR: [0, -1], handR: [-1, 1], toolTip: [-3, 6] }),
+      p({ hip: [0, 2], footL: [0, -2], footR: [0, -2], chest: [0, 2], head: [0, -1], elbowR: [-1, 1], handR: [-2, 3], toolTip: [-6, 16] }),
+      p({ hip: [0, 2], footL: [0, -2], footR: [0, -2], chest: [0, 2], handR: [-2, 3], toolTip: [-6, 17] }),
+      p({ hip: [0, 1], footL: [0, -1], footR: [0, -1], chest: [0, 1], handR: [-1, 2], toolTip: [-4, 13] }),
+      p({ handR: [0, -1], toolTip: [0, -1] }),
+    ],
+  },
+};
+
+const CHOP_SNAPPY: Clip = {
+  id: "chop-snappy",
+  fps: 8,
+  frames: {
+    side: [
+      p({ chest: [0, 0], handR: [0, -1], handL: [0, -1] }),
+      // anticipation: lean back, axe high over the shoulder
+      p({ hip: [-1, 0], chest: [-2, -1], head: [1, 0], elbowR: [-1, -3], handR: [-2, -5], handL: [-2, -4], toolTip: [-7, -2] }),
+      p({ hip: [-1, 0], chest: [-2, -1], head: [1, 0], elbowR: [-1, -4], handR: [-2, -5], handL: [-2, -4], toolTip: [-8, -2] }),
+      // smear: the head crosses the top of the arc
+      p({ hip: [0, 0], chest: [1, 0], head: [-1, 0], elbowR: [1, -2], handR: [2, -3], handL: [2, -3], toolTip: [10, 1] }),
+      // strike
+      p({ hip: [2, 1], footL: [-2, -1], footR: [-2, -1], chest: [4, 3], head: [-2, 0], elbowR: [2, 0], handR: [5, 4], handL: [5, 4], toolTip: [11, 8] }),
+      // impact hold, then follow-through
+      p({ hip: [2, 1], footL: [-2, -1], footR: [-2, -1], chest: [4, 3], head: [-1, 0], elbowR: [2, 0], handR: [5, 4], handL: [5, 4], toolTip: [11, 9] }),
+      p({ hip: [1, 1], footL: [-1, -1], footR: [-1, -1], chest: [3, 2], elbowR: [2, 1], handR: [4, 3], handL: [4, 3], toolTip: [8, 9] }),
+      p({ chest: [1, 0], handR: [1, -2], handL: [1, -2], toolTip: [3, 2] }),
+    ],
+    down: [
+      p({ handR: [0, -1], handL: [0, -1] }),
+      p({ chest: [0, -2], head: [0, 1], elbowR: [1, -4], handR: [1, -7], handL: [0, -6], toolTip: [3, -6] }),
+      p({ chest: [0, -2], head: [0, 1], elbowR: [1, -4], handR: [1, -8], handL: [0, -7], toolTip: [3, -7] }),
+      p({ chest: [0, 0], elbowR: [0, -1], handR: [-1, 0], handL: [0, 0], toolTip: [-2, 3] }),
+      p({ hip: [0, 2], footL: [0, -2], footR: [0, -2], chest: [0, 3], head: [0, -1], elbowR: [-1, 1], handR: [-2, 5], handL: [-1, 4], toolTip: [-4, 9] }),
+      p({ hip: [0, 2], footL: [0, -2], footR: [0, -2], chest: [0, 3], head: [0, 0], handR: [-2, 5], handL: [-1, 4], toolTip: [-4, 10] }),
+      p({ hip: [0, 1], footL: [0, -1], footR: [0, -1], chest: [0, 2], handR: [-2, 4], handL: [-1, 3], toolTip: [-3, 7] }),
+      p({ handR: [0, -1], handL: [0, -1], toolTip: [0, 1] }),
+    ],
+    up: [
+      p({ handR: [0, -1], handL: [0, -1] }),
+      p({ chest: [0, -2], head: [0, 1], elbowR: [1, -4], handR: [1, -7], handL: [0, -6], toolTip: [3, -6] }),
+      p({ chest: [0, -2], head: [0, 1], elbowR: [1, -4], handR: [1, -8], handL: [0, -7], toolTip: [3, -7] }),
+      p({ chest: [0, 0], elbowR: [0, -1], handR: [-1, 0], handL: [0, 0], toolTip: [-2, 3] }),
+      p({ hip: [0, 2], footL: [0, -2], footR: [0, -2], chest: [0, 3], head: [0, -1], elbowR: [-1, 1], handR: [-2, 4], handL: [-1, 4], toolTip: [-4, 9] }),
+      p({ hip: [0, 2], footL: [0, -2], footR: [0, -2], chest: [0, 3], handR: [-2, 4], handL: [-1, 4], toolTip: [-4, 10] }),
+      p({ hip: [0, 1], footL: [0, -1], footR: [0, -1], chest: [0, 2], handR: [-2, 4], handL: [-1, 3], toolTip: [-3, 7] }),
+      p({ handR: [0, -1], handL: [0, -1], toolTip: [0, 1] }),
+    ],
+  },
+};
+
+const MINE_SNAPPY: Clip = {
+  id: "mine-snappy",
+  fps: 8,
+  frames: {
+    side: [
+      p({ chest: [0, 0], handR: [0, -1], handL: [0, -1] }),
+      p({ hip: [0, 1], footL: [0, -1], footR: [0, -1], chest: [-1, 0], handR: [-1, -2], handL: [-1, -2], toolTip: [-3, -2] }),
+      // anticipation: stretch up, pick behind the head
+      p({ chest: [-1, -2], head: [1, 0], elbowR: [-1, -4], handR: [-1, -7], handL: [-1, -7], toolTip: [-6, -5] }),
+      p({ chest: [-1, -2], head: [1, 0], elbowR: [-1, -4], handR: [0, -7], handL: [0, -7], toolTip: [-4, -7] }),
+      // fast drop, then impact
+      p({ hip: [1, 1], footL: [-1, -1], footR: [-1, -1], chest: [1, 1], head: [-1, 0], elbowR: [1, -1], handR: [3, 1], handL: [3, 1], toolTip: [6, 2] }),
+      p({ hip: [1, 3], footL: [-1, -3], footR: [-1, -3], chest: [3, 4], head: [-2, 0], elbowR: [2, 1], handR: [4, 4], handL: [4, 4], toolTip: [5, 11] }),
+      // rebound: the pick bounces back off the rock
+      p({ hip: [1, 1], footL: [-1, -1], footR: [-1, -1], chest: [2, 2], head: [0, 0], handR: [3, 2], handL: [3, 2], toolTip: [4, 6] }),
+      p({ chest: [0, 0], handR: [0, -1], handL: [0, -1], toolTip: [1, 0] }),
+    ],
+    down: [
+      p({ handR: [0, -1], handL: [0, -1] }),
+      p({ hip: [0, 1], footL: [0, -1], footR: [0, -1], chest: [0, 0], handR: [0, -2], handL: [0, -2] }),
+      p({ chest: [0, -2], head: [0, 1], elbowR: [1, -4], handR: [1, -7], handL: [0, -7], toolTip: [1, -5] }),
+      p({ chest: [0, -2], head: [0, 1], elbowR: [1, -4], handR: [1, -7], handL: [0, -7], toolTip: [1, -6] }),
+      p({ hip: [0, 1], footL: [0, -1], footR: [0, -1], chest: [0, 1], elbowR: [0, -1], handR: [0, 0], handL: [0, 0], toolTip: [-1, 3] }),
+      p({ hip: [0, 3], footL: [0, -3], footR: [0, -3], chest: [0, 4], head: [0, -1], elbowR: [-1, 1], handR: [-1, 5], handL: [-1, 4], toolTip: [-2, 9] }),
+      p({ hip: [0, 1], footL: [0, -1], footR: [0, -1], chest: [0, 2], head: [0, 0], handR: [-1, 2], handL: [-1, 2], toolTip: [-1, 5] }),
+      p({ handR: [0, -1], handL: [0, -1] }),
+    ],
+    up: [
+      p({ handR: [0, -1], handL: [0, -1] }),
+      p({ hip: [0, 1], footL: [0, -1], footR: [0, -1], chest: [0, 0], handR: [0, -2], handL: [0, -2] }),
+      p({ chest: [0, -2], head: [0, 1], elbowR: [1, -4], handR: [1, -7], handL: [0, -7], toolTip: [1, -5] }),
+      p({ chest: [0, -2], head: [0, 1], elbowR: [1, -4], handR: [1, -7], handL: [0, -7], toolTip: [1, -6] }),
+      p({ hip: [0, 1], footL: [0, -1], footR: [0, -1], chest: [0, 1], elbowR: [0, -1], handR: [0, 0], handL: [0, 0], toolTip: [-1, 3] }),
+      p({ hip: [0, 3], footL: [0, -3], footR: [0, -3], chest: [0, 4], head: [0, -1], elbowR: [-1, 1], handR: [-1, 4], handL: [-1, 4], toolTip: [-2, 9] }),
+      p({ hip: [0, 1], footL: [0, -1], footR: [0, -1], chest: [0, 2], handR: [-1, 2], handL: [-1, 2], toolTip: [-1, 5] }),
+      p({ handR: [0, -1], handL: [0, -1] }),
+    ],
+  },
+};
+
+/** Snappy variants, selectable by id; the base ids pick them up on `detail: "rich"` kits via `Clip.rich`. */
+export const HUMANOID_SNAPPY_CLIPS: Clip[] = [ATTACK_SNAPPY, CHOP_SNAPPY, MINE_SNAPPY];
+ATTACK.rich = ATTACK_SNAPPY.frames;
+CHOP.rich = CHOP_SNAPPY.frames;
+MINE.rich = MINE_SNAPPY.frames;
+// ======================= end snappy variants =======================
+
 export const HUMANOID_CLIPS: Clip[] = [IDLE, WALK, RUN, ATTACK, FARM, CARRY, SIT, CHOP, WATER, MINE, FISH];
