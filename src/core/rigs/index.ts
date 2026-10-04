@@ -9,6 +9,7 @@ import { EXAMPLE_RIG, IDLE, NGOB_HAT, WALK } from "./example";
 import { FACE, HAIR_STYLES, hairAttachment, HUMANOID_RIGS, HUMAN_RIGS, NO_FACE } from "./humanoid";
 import { WARDROBE_NEW_ATTACHMENTS } from "./wardrobe";
 import { QUADRUPED_CLIPS, QUADRUPED_RIGS } from "./quadruped";
+import { TOOL_ATTACHMENTS } from "./tools";
 
 /** Which clips/attachments fit which rig: rigs share a `family` via their joint contract. */
 export type RigFamily = "humanoid" | "quadruped" | "bird" | "fish";
@@ -31,6 +32,7 @@ export const CLIPS: { clip: Clip; family: RigFamily }[] = [
 
 export const ATTACHMENTS: { attachment: Attachment; family: RigFamily }[] = [
   ...(HUMANOID_ATTACHMENTS.length ? HUMANOID_ATTACHMENTS : [NGOB_HAT]).map((attachment) => ({ attachment, family: "humanoid" as const })),
+  ...TOOL_ATTACHMENTS.map((attachment) => ({ attachment, family: "humanoid" as const })),
   ...[...HAIR_STYLES.map((s) => hairAttachment(s)), FACE, NO_FACE].map((attachment) => ({ attachment, family: "humanoid" as const })),
   ...WARDROBE_NEW_ATTACHMENTS.map((attachment) => ({ attachment, family: "humanoid" as const })),
 ];
