@@ -1,16 +1,21 @@
 import { finalize } from "../enforce";
 import { lightVector, proportions } from "../kit";
 import { Painter } from "../painter";
-import { colorIndex, type Material } from "../palette";
+import { colorIndex, decodeIndex, type Material } from "../palette";
 import { hashString, rng, valueNoise, type Rng } from "../rng";
-import { createSprite, setPx } from "../sprite";
-import type { Sprite, StyleKit } from "../types";
-import { mat, num, str, type Generator } from "./types";
+import { bounds, createSprite, setPx } from "../sprite";
+import type { FrameSet, Sprite, StyleKit } from "../types";
+import { FENCE_PIECES, fenceRows, type FencePiece } from "./fence";
+import { bool, mat, num, str, type Generator } from "./types";
 
 /** Seamless ground tiles (no outline, exactly kit.sizes.tile square, must tile/wrap). */
 export const TILE_KINDS = ["grass-tile", "dirt-tile", "sand-tile", "water-tile", "stone-path-tile", "snow-tile", "paddy-tile"] as const;
 /** Free-standing props (outlined, transparent background). */
 export const PROP_KINDS = ["oak", "pine", "palm", "dead-tree", "bush", "rock", "boulder", "flowers", "mushroom", "tall-grass", "stump", "crystal"] as const;
+
+/** Farming-kit additions (kept apart so the original lists stay as other code expects them). */
+export const EXTRA_PROP_KINDS = ["old-oak", "fence"] as const;
+export const SOIL_TILE_KINDS = ["tilled-soil-tile", "watered-soil-tile", "dried-soil-tile", "snowed-soil-tile"] as const;
 
 const FOLIAGE: Material[] = ["foliage", "grass", "accent", "cloth", "cloth2", "sand", "gold", "water"];
 const TRUNKS: Material[] = ["wood", "leather", "stone", "dirt", "metal", "hair"];
@@ -19,9 +24,11 @@ const ACCENTS: Material[] = ["cloth2", "accent", "gold", "cloth", "skin", "sand"
 
 const WATER_FRAMES = 4;
 
+const OLD_OAK_SCALE = 1.35;
 export const TREE_KINDS = ["oak", "pine", "palm", "dead-tree"] as const;
 /** Canvas height of a prop: trees are ~2x a character (proportions) plus a 2px margin, the rest are square. */
 export function treeHeight(kit: StyleKit, kind: string): number {
+  if (kind === "old-oak") return Math.round(proportions(kit).tree * OLD_OAK_SCALE) + 2;
   return (TREE_KINDS as readonly string[]).includes(kind) ? proportions(kit).tree + 2 : kit.sizes.environment;
 }
 
@@ -101,6 +108,16 @@ function oak(c: Ctx) {
       if (k >= 1) P.px(x + 1, y, c.accent, 2);
     }
   }
+}
+
+/** Landmark tree: the oak, bigger, with a hollow and mossy roots. */
+function oldOak(c: Ctx) {
+  oak(c);
+  const { P, S, k, G } = c;
+  const cx = S / 2;
+  P.ellipse(cx + 0.5 * k, G - 7 * k, 2 * k, 3.2 * k, c.trunk, { tone: -2 });
+  P.ellipse(cx - 5 * k, G - 1.5 * k, 3 * k, 1.5 * k, c.foliage, { tone: -1 });
+  P.ellipse(cx + 5.5 * k, G - 1.2 * k, 2.5 * k, 1.2 * k, c.foliage, { tone: 0 });
 }
 
 function pine(c: Ctx) {
@@ -598,6 +615,335 @@ function paddyTile(T: number, r: Rng, seed: number, flat: boolean): Sprite[] {
   return frames;
 }
 
+
+// ---------------------------------------------------------------------------
+// Soil tiles: furrows run along x with period 4, so they meet themselves on every edge.
+// ---------------------------------------------------------------------------
+
+function soilTile(T: number, r: Rng, kind: (typeof SOIL_TILE_KINDS)[number], flat: boolean): Sprite {
+  const { s, put } = painter(T);
+  const row = (y: number) => y % 4;
+  const scatter = (n: number, m: Material, level: number, rows: number[]) => {
+    for (let i = 0; i < n; i++) {
+      const y = r.int(0, T - 1);
+      if (rows.includes(row(y))) put(r.int(0, T - 1), y, m, level);
+    }
+  };
+  const n = perArea(T) * 3;
+  for (let y = 0; y < T; y++)
+    for (let x = 0; x < T; x++) {
+      const q = row(y);
+      if (kind === "tilled-soil-tile") put(x, y, "dirt", [2, 2, 1, 0][q]);
+      else if (kind === "watered-soil-tile") put(x, y, "dirt", [1, 1, 0, 0][q]);
+      else if (kind === "dried-soil-tile") put(x, y, "dirt", [4, 4, 3, 3][q]);
+      else put(x, y, "ui", [4, 4, 3, 3][q]);
+    }
+  if (kind === "tilled-soil-tile") {
+    scatter(n, "dirt", 3, [0]);
+    if (!flat) scatter(n, "dirt", 1, [0, 1]);
+  } else if (kind === "watered-soil-tile") {
+    // wet sheen: short glints on the lit ridge, a darker dirt crumb or two
+    for (let i = 0; i < Math.max(2, T / 4); i++) {
+      const x = r.int(0, T - 1), y = r.int(0, Math.floor(T / 4) - 1) * 4;
+      put(x, y, "water", 2);
+      put(x + 1, y, "water", 3);
+    }
+    if (!flat) scatter(n, "dirt", 2, [1]);
+  } else if (kind === "dried-soil-tile") {
+    // cracks: short wrapped random walks
+    const cracks = Math.max(2, Math.round(T / 5));
+    for (let i = 0; i < cracks; i++) {
+      let x = r.int(0, T - 1), y = r.int(0, T - 1);
+      const len = r.int(4, 7);
+      for (let j = 0; j < len; j++) {
+        put(x, y, "dirt", 1);
+        if (r.chance(0.6)) y++;
+        else x += r.chance(0.5) ? 1 : -1;
+        if (j === len - 1) put(x, y, "dirt", 2);
+      }
+    }
+    scatter(n, "dirt", 2, [0, 1, 2, 3]);
+  } else {
+    // snowed: dirt barely shows through at the bottom of each furrow
+    for (let y = 3; y < T; y += 4) for (let x = 0; x < T; x++) if (r.chance(flat ? 0.1 : 0.2)) put(x, y, "dirt", 1);
+    scatter(n, "stone", flat ? 3 : 4, [0]);
+  }
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// Prop animations. Every frame is derived from the idle prop's pre-outline
+// sprite (so one painting, one light) by shearing, shaking, rotating or
+// cutting it, then finalized. Flying bits are stamped afterwards.
+// ---------------------------------------------------------------------------
+
+const sget = (s: Sprite, x: number, y: number) => (x < 0 || y < 0 || x >= s.w || y >= s.h ? 0 : s.data[y * s.w + x]);
+
+function warp(src: Sprite, f: (x: number, y: number) => [number, number] | null): Sprite {
+  const out = createSprite(src.w, src.h);
+  for (let y = 0; y < src.h; y++)
+    for (let x = 0; x < src.w; x++) {
+      const m = f(x, y);
+      if (m) out.data[y * src.w + x] = sget(src, Math.floor(m[0]), Math.floor(m[1]));
+    }
+  return out;
+}
+
+const copy = (s: Sprite): Sprite => ({ w: s.w, h: s.h, data: s.data.slice() });
+
+/** Sway: everything above `thr` (fraction of the prop's height) slides one pixel. */
+function sway(raw: Sprite, G: number, off: number, thr: number): Sprite {
+  const b = bounds(raw);
+  if (!b || !off) return raw;
+  const hgt = G - b.y0 + 1;
+  return warp(raw, (x, y) => [x - ((G - y) / hgt > thr ? off : 0), y]);
+}
+
+/** Whole prop above `fromY` moves by dx; rows above `dipBelow` also drop by dy. */
+function shake(raw: Sprite, fromY: number, dx: number, dy: number, dipBelow: number): Sprite {
+  return warp(raw, (x, y) => (y < fromY ? [x - dx, y - (y < dipBelow ? dy : 0)] : [x, y]));
+}
+
+interface Bit { x: number; y: number; vx: number; vy: number; v: number; wide?: boolean }
+
+function stamp(s: Sprite, bits: Bit[], t: number) {
+  for (const b of bits) {
+    const x = Math.round(b.x + b.vx * t), y = Math.round(b.y + b.vy * t + 0.7 * t * t);
+    for (let i = 0; i < (b.wide ? 2 : 1); i++) if (x + i >= 0 && y >= 0 && x + i < s.w && y < s.h && !s.data[y * s.w + x + i]) s.data[y * s.w + x + i] = b.v;
+  }
+}
+
+const fin = (s: Sprite, kit: StyleKit) => finalize(s, kit);
+
+function centreX(raw: Sprite, y: number): number {
+  let a = -1, z = -1;
+  for (let x = 0; x < raw.w; x++) if (sget(raw, x, y)) { if (a < 0) a = x; z = x; }
+  return a < 0 ? raw.w / 2 : (a + z + 1) / 2;
+}
+
+/** Light cut face on a trunk: used for the stump top. */
+function cutFace(raw: Sprite, y: number, m: Material): Sprite {
+  const out = copy(raw);
+  for (let x = 0; x < raw.w; x++) if (sget(raw, x, y)) out.data[y * raw.w + x] = colorIndex(m, 3);
+  return out;
+}
+
+function woodChips(c: Ctx, x: number, y: number, side: number, n: number, rr: Rng): Bit[] {
+  const sc = Math.max(0.7, c.k);
+  return Array.from({ length: n }, (_, i) => ({
+    x, y,
+    vx: (i % 3 === 2 ? -side : side) * (0.7 + rr.next() * 1.3) * sc,
+    vy: -(1 + rr.next() * 1.6) * sc,
+    v: colorIndex(c.trunk, [4, 3, 2][i % 3]),
+    wide: i % 2 === 0,
+  }));
+}
+
+function leafBits(c: Ctx, raw: Sprite, n: number, rr: Rng): Bit[] {
+  const pts: [number, number, number][] = [];
+  const b = bounds(raw);
+  if (!b) return [];
+  for (let y = b.y0; y < b.y0 + (b.y1 - b.y0) * 0.7; y++)
+    for (let x = b.x0; x <= b.x1; x++) {
+      const v = sget(raw, x, y);
+      if (v && decodeIndex(v)?.mat === c.foliage && (x < b.x0 + 4 * c.k || x > b.x1 - 4 * c.k || y < b.y0 + 3)) pts.push([x, y, v]);
+    }
+  if (!pts.length) return [];
+  return Array.from({ length: n }, () => {
+    const p = pts[rr.int(0, pts.length - 1)];
+    return { x: p[0], y: p[1], vx: (rr.next() - 0.5) * 1.2, vy: 0.5 + rr.next() * 0.8, v: p[2] };
+  });
+}
+
+function treeRows(c: Ctx, raw: Sprite, kit: StyleKit, kind: string, cuttable: boolean, rr: Rng): FrameSet[] {
+  const { G, k } = c;
+  const thr = kind === "pine" ? 0.5 : 0.58;
+  const rows: FrameSet[] = [{ name: "sway", frames: [0, 1, 0, -1].map((o) => fin(sway(raw, G, o, thr), kit)) }];
+  if (!cuttable) return rows;
+
+  const sh = Math.max(2, Math.round(5 * k));
+  const cutY = G - sh;
+  const hitY = G - Math.max(4, Math.round(8 * k));
+  const bx = Math.round(centreX(raw, G - 1));
+  // chop: shake the tree, bite a light wound into the trunk, throw chips and leaves
+  const wound = (s: Sprite, w: number) => {
+    const out = copy(s);
+    let xl = -1;
+    for (let x = 0; x < s.w; x++) if (sget(s, x, hitY)) { xl = x; break; }
+    if (xl < 0) return out;
+    for (let i = 0; i < w + 1; i++) {
+      out.data[hitY * s.w + xl + i] = colorIndex(c.trunk, 4);
+      out.data[(hitY + 1) * s.w + xl + i] = colorIndex(c.trunk, 4);
+      if (i < w) out.data[(hitY + 2) * s.w + xl + i] = colorIndex(c.trunk, 1);
+    }
+    return out;
+  };
+  let hx = bx;
+  for (let x = 0; x < raw.w; x++) if (sget(raw, x, hitY)) { hx = x; break; }
+  const chipsA = woodChips(c, hx - 1, hitY, -1, 6, rr);
+  const leaves = kind === "dead-tree" ? [] : leafBits(c, raw, 4, rr);
+  const plan = [
+    { dx: 1, dy: 0, w: 1, t: 0.6, lv: false },
+    { dx: -1, dy: 1, w: 2, t: 1.6, lv: true },
+    { dx: 1, dy: 0, w: 2, t: 2.8, lv: true },
+    { dx: 0, dy: 0, w: 2, t: 4, lv: true },
+  ];
+  const chop = plan.map((f, i) => {
+    const s = fin(shake(wound(raw, f.w), cutY, f.dx, f.dy, G * 0.55), kit);
+    stamp(s, chipsA, f.t);
+    if (f.lv) stamp(s, leaves, f.t - 0.6 + i * 0.3);
+    return s;
+  });
+  rows.push({ name: "chop", frames: chop });
+
+  // stump (static part of the trunk with a pale cut face) and the falling tree above it
+  const stumpOnly = createSprite(raw.w, raw.h);
+  const crown = createSprite(raw.w, raw.h);
+  for (let y = 0; y < raw.h; y++) for (let x = 0; x < raw.w; x++) (y >= cutY ? stumpOnly : crown).data[y * raw.w + x] = sget(raw, x, y);
+  const stumpCut = cutFace(stumpOnly, cutY, c.trunk);
+  const cb = bounds(crown);
+  const fall: Sprite[] = [];
+  if (cb) {
+    const len = cutY - cb.y0;
+    const hw = Math.max(bx - cb.x0, cb.x1 + 1 - bx);
+    const sFit = Math.min(1, (raw.w - 6) / Math.max(1, len));
+    [10, 34, 62, 90, 90].forEach((deg, i) => {
+      const p = deg / 90;
+      const th = (deg * Math.PI) / 180;
+      const sc = 0.92 + (sFit - 0.92) * p;
+      const px = bx + (3 - bx) * Math.sqrt(p);
+      const lift = hw * sc * Math.sin(th) * 0.7;
+      const rot = warp(crown, (x, y) => {
+        const xr = (x + 0.5 - px) / sc, hr = (cutY - (y + 0.5) - lift) / sc;
+        const u = xr * Math.cos(th) - hr * Math.sin(th);
+        const h = xr * Math.sin(th) + hr * Math.cos(th);
+        const sy = cutY - h;
+        return sy >= cutY ? null : [bx + u, sy];
+      });
+      if (i === 4) for (let y = 0; y < rot.h; y++) for (let x = 0; x < rot.w; x++) if ((x + y) % 2) rot.data[y * rot.w + x] = 0;
+      for (let j = 0; j < stumpCut.data.length; j++) if (stumpCut.data[j]) rot.data[j] = stumpCut.data[j];
+      fall.push(fin(rot, kit));
+    });
+  }
+  rows.push({ name: "fall", frames: fall });
+  rows.push({ name: "stump", frames: [fin(stumpCut, kit)] });
+  return rows;
+}
+
+function cutRows(raw: Sprite, kit: StyleKit, keep: number[], rr: Rng): FrameSet {
+  const b = bounds(raw)!;
+  const hgt = b.y1 - b.y0 + 1;
+  const frames = keep.map((kf, i) => {
+    const cy = b.y1 + 1 - Math.max(2, Math.round(hgt * kf));
+    const kept = createSprite(raw.w, raw.h);
+    const bits: Bit[] = [];
+    for (let y = 0; y < raw.h; y++)
+      for (let x = 0; x < raw.w; x++) {
+        const v = sget(raw, x, y);
+        if (!v) continue;
+        if (y >= cy) kept.data[y * raw.w + x] = v;
+        else if ((x * 7 + y * 13) % 4 === 0 && i < keep.length - 1) bits.push({ x, y, vx: (x - raw.w / 2) * 0.28 + (rr.next() - 0.5), vy: -1.2 - rr.next() * 1.5, v });
+      }
+    const s = fin(kept, kit);
+    stamp(s, bits, 0.7 + i * 1.1);
+    return s;
+  });
+  return { name: "cut", frames };
+}
+
+function breakRows(c: Ctx, raw: Sprite, kit: StyleKit, rr: Rng): FrameSet {
+  const { G, k } = c;
+  const b = bounds(raw)!;
+  const cx = Math.round((b.x0 + b.x1 + 1) / 2);
+  const top = b.y0 + 1;
+  const crackPts: [number, number][] = [];
+  let x = cx + 1;
+  for (let y = top; y < G - 1; y++) {
+    crackPts.push([x, y]);
+    if ((y - top) % 3 === 1) x += rr.chance(0.5) ? 1 : -1;
+  }
+  const dark = colorIndex(c.stone, 0);
+  const cracked = (frac: number) => {
+    const s = copy(raw);
+    crackPts.slice(0, Math.max(2, Math.round(crackPts.length * frac))).forEach(([px, py]) => {
+      if (s.data[py * s.w + px]) s.data[py * s.w + px] = dark;
+    });
+    return s;
+  };
+  const f0 = fin(cracked(0.5), kit);
+  const f1 = fin(warp(cracked(1), (px, py) => (px < cx - 1 ? [px + 1, py] : px > cx ? [px - 1, py] : null)), kit);
+  // crumble: the lower part stays, ragged; the rest drops as chunks
+  const cy = b.y1 + 1 - Math.max(3, Math.round((b.y1 - b.y0 + 1) * 0.42));
+  const kept = createSprite(raw.w, raw.h);
+  const bits: Bit[] = [];
+  for (let y = 0; y < raw.h; y++)
+    for (let xx = 0; xx < raw.w; xx++) {
+      const v = sget(raw, xx, y);
+      if (!v) continue;
+      if (y >= cy + ((xx * 5) % 3 === 0 ? 1 : 0)) kept.data[y * raw.w + xx] = v;
+      else if ((xx + y * 2) % 5 === 0) bits.push({ x: xx, y, vx: (xx - cx) * 0.2, vy: 0.3, v, wide: true });
+    }
+  const f2 = fin(kept, kit);
+  stamp(f2, bits, 1.5);
+  const P = new Painter(raw.w, raw.h, kit);
+  const span = (b.x1 - b.x0) / 2;
+  const pebbles: [number, number, number][] = [[-0.7, 2.4, 0], [0.1, 1.8, -1], [0.7, 2.2, 0], [-0.2, 1.2, 1], [0.45, 1.2, -1]];
+  for (const [dx, rad, tone] of pebbles) {
+    const rpx = Math.max(1, rad * k);
+    P.ellipse(cx + dx * span, G - rpx, rpx, Math.max(0.8, rpx * 0.8), c.stone, { tone, flat: 0.2 });
+  }
+  void rr;
+  return { name: "break", frames: [f0, f1, f2, fin(P.toSprite(), kit)] };
+}
+
+function chopStumpRows(c: Ctx, raw: Sprite, kit: StyleKit, rr: Rng): FrameSet {
+  const { G, k } = c;
+  const b = bounds(raw)!;
+  const hitY = G - Math.max(3, Math.round(6 * k));
+  const wound = (w: number) => {
+    const out = copy(raw);
+    for (let i = 0; i < w + 1; i++) {
+      out.data[hitY * raw.w + b.x0 + 1 + i] = colorIndex(c.trunk, 4);
+      out.data[(hitY + 1) * raw.w + b.x0 + 1 + i] = colorIndex(c.trunk, 4);
+      if (i < w) out.data[(hitY + 2) * raw.w + b.x0 + 1 + i] = colorIndex(c.trunk, 1);
+    }
+    return out;
+  };
+  const chips = woodChips(c, b.x0, hitY, -1, 6, rr);
+  const plan = [{ dx: 1, w: 1, t: 0.6 }, { dx: -1, w: 2, t: 1.6 }, { dx: 1, w: 2, t: 2.8 }, { dx: 0, w: 2, t: 4 }];
+  return {
+    name: "chop",
+    frames: plan.map((f) => {
+      const s = fin(shake(wound(f.w), G - 2, f.dx, 0, 0), kit);
+      stamp(s, chips, f.t);
+      return s;
+    }),
+  };
+}
+
+function propRows(c: Ctx, raw: Sprite, kit: StyleKit, kind: string, cuttable: boolean, mixed: number): FrameSet[] {
+  const rr = rng((mixed ^ 0x51ed27) >>> 0);
+  const swayRow = (thr: number): FrameSet => ({ name: "sway", frames: [0, 1, 0, -1].map((o) => fin(sway(raw, c.G, o, thr), kit)) });
+  switch (kind) {
+    case "oak": case "pine": case "palm": case "dead-tree":
+      return treeRows(c, raw, kit, kind, cuttable, rr);
+    case "old-oak":
+      return treeRows(c, raw, kit, kind, false, rr);
+    case "bush":
+      return [swayRow(0.5), cutRows(raw, kit, [0.85, 0.7, 0.6, 0.6], rr)];
+    case "flowers":
+      return [swayRow(0.45)];
+    case "tall-grass":
+      return [swayRow(0.45), cutRows(raw, kit, [0.7, 0.45, 0.25, 0.2], rr)];
+    case "rock": case "boulder":
+      return [breakRows(c, raw, kit, rr)];
+    case "stump":
+      return [chopStumpRows(c, raw, kit, rr)];
+    default:
+      return [];
+  }
+}
+
 // ---------------------------------------------------------------------------
 
 export const environmentGenerator: Generator = {
@@ -606,12 +952,14 @@ export const environmentGenerator: Generator = {
   label: "Environment",
   description: "Nature props (trees, bushes, rocks, flowers, crystals) and seamless ground tiles (grass, dirt, sand, animated water, stone path, snow, animated flooded rice paddy).",
   params: [
-    { key: "kind", label: "Kind", type: "select", options: [...PROP_KINDS, ...TILE_KINDS], default: "oak" },
+    { key: "kind", label: "Kind", type: "select", options: [...PROP_KINDS, ...EXTRA_PROP_KINDS, ...TILE_KINDS, ...SOIL_TILE_KINDS], default: "oak" },
     { key: "foliage", label: "Foliage", type: "material", options: FOLIAGE, default: "foliage" },
     { key: "trunk", label: "Trunk / wood", type: "material", options: TRUNKS, default: "wood" },
     { key: "stone", label: "Stone / rock", type: "material", options: STONES, default: "stone" },
     { key: "accent", label: "Flowers / fruit / crystal", type: "material", options: ACCENTS, default: "cloth2" },
     { key: "variant", label: "Variant", type: "number", min: 0, max: 9, step: 1, default: 0 },
+    { key: "cuttable", label: "Cuttable tree (chop / fall / stump rows)", type: "bool", default: true },
+    { key: "piece", label: "Fence piece", type: "select", options: [...FENCE_PIECES], default: "h" },
   ],
   generate(p, kit, seed) {
     const kind = str(p, "kind");
@@ -619,9 +967,15 @@ export const environmentGenerator: Generator = {
     const mixed = (seed + hashString(kind) + variant * 7919) >>> 0;
     const r = rng(mixed);
 
-    if ((TILE_KINDS as readonly string[]).includes(kind)) {
+    if (kind === "fence") {
+      const piece = str(p, "piece");
+      return fenceRows(kit, ((FENCE_PIECES as readonly string[]).includes(piece) ? piece : "h") as FencePiece, mat(p, "trunk"));
+    }
+
+    if ((TILE_KINDS as readonly string[]).includes(kind) || (SOIL_TILE_KINDS as readonly string[]).includes(kind)) {
       const T = kit.sizes.tile;
       const flat = kit.shadeSteps <= 3; // few tones: skip patchy noise, keep the texture to tufts/pebbles
+      if ((SOIL_TILE_KINDS as readonly string[]).includes(kind)) return { rows: [{ name: "idle", frames: [soilTile(T, r, kind as (typeof SOIL_TILE_KINDS)[number], flat)] }], fps: 1 };
       if (kind === "paddy-tile") return { rows: [{ name: "idle", frames: paddyTile(T, r, mixed, flat) }], fps: 3 };
       if (kind === "water-tile") return { rows: [{ name: "idle", frames: waterTile(T, r, mixed) }], fps: 4 };
       const sprite =
@@ -633,8 +987,9 @@ export const environmentGenerator: Generator = {
       return { rows: [{ name: "idle", frames: [sprite] }], fps: 1 };
     }
 
-    const S = kit.sizes.environment;
-    const k = S / 32;
+    const old = kind === "old-oak";
+    const S = old ? Math.round(kit.sizes.environment * 1.4) : kit.sizes.environment;
+    const k = (old ? OLD_OAK_SCALE : 1) * (kit.sizes.environment / 32);
     const H = treeHeight(kit, kind);
     const ctx: Ctx = {
       P: new Painter(S, H, kit),
@@ -651,7 +1006,10 @@ export const environmentGenerator: Generator = {
       R: (n) => Math.round(n * k),
       R1: (n) => Math.max(1, Math.round(n * k)),
     };
-    (PROPS[kind as (typeof PROP_KINDS)[number]] ?? oak)(ctx);
-    return { rows: [{ name: "idle", frames: [finalize(ctx.P.toSprite(), kit)] }], fps: 1 };
+    if (old) oldOak(ctx);
+    else (PROPS[kind as (typeof PROP_KINDS)[number]] ?? oak)(ctx);
+    const raw = ctx.P.toSprite();
+    const rows: FrameSet[] = [{ name: "idle", frames: [finalize(raw, kit)] }, ...propRows(ctx, raw, kit, kind, bool(p, "cuttable"), mixed)];
+    return { rows, fps: rows.length > 1 ? 8 : 1 };
   },
 };

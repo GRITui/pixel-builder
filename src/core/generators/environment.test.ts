@@ -3,7 +3,8 @@ import { KIT_PRESETS, proportions } from "../kit";
 import { decodeIndex } from "../palette";
 import { bounds, getPx } from "../sprite";
 import type { Sprite } from "../types";
-import { environmentGenerator, PROP_KINDS, TILE_KINDS } from "./environment";
+import { EXTRA_PROP_KINDS, environmentGenerator, PROP_KINDS, SOIL_TILE_KINDS, TILE_KINDS } from "./environment";
+import { FENCE_PIECES } from "./fence";
 import { coerceParams, defaults } from "./types";
 
 const gen = (kind: string, kitIdx = 0, seed = 1, extra: Record<string, string | number> = {}) =>
@@ -25,7 +26,7 @@ describe("environment generator", () => {
     expect(TILE_KINDS).toEqual(["grass-tile", "dirt-tile", "sand-tile", "water-tile", "stone-path-tile", "snow-tile", "paddy-tile"]);
     for (const k of ["oak", "pine", "palm", "dead-tree", "bush", "rock", "boulder", "flowers", "mushroom", "tall-grass", "stump", "crystal"]) expect(PROP_KINDS).toContain(k);
     const kind = environmentGenerator.params.find((p) => p.key === "kind");
-    expect(kind && kind.type === "select" && kind.options.length).toBe(PROP_KINDS.length + TILE_KINDS.length);
+    expect(kind && kind.type === "select" && kind.options.length).toBe(PROP_KINDS.length + EXTRA_PROP_KINDS.length + TILE_KINDS.length + SOIL_TILE_KINDS.length);
   });
 
   it("exposes material params and a variant param", () => {
@@ -39,7 +40,7 @@ describe("environment generator", () => {
 
     it.each([...PROP_KINDS])("prop %s is environment-sized, outlined and non-empty", (kind) => {
       const { rows, fps } = gen(kind, kitIdx);
-      expect(rows).toHaveLength(1);
+      expect(rows[0].name).toBe("idle");
       expect(rows[0].frames).toHaveLength(1);
       expect(fps).toBeGreaterThan(0);
       const s = rows[0].frames[0];
@@ -143,5 +144,79 @@ describe("environment generator", () => {
     const p = coerceParams(environmentGenerator, { kind: "crystal", foliage: "nope", variant: 99 });
     const s = environmentGenerator.generate(p, KIT_PRESETS[0], 5).rows[0].frames[0];
     expect(s.w).toBe(KIT_PRESETS[0].sizes.environment);
+  });
+
+  describe("farming kit", () => {
+    const names = (kind: string, extra: Record<string, string | number> = {}) => gen(kind, 0, 1, extra).rows.map((r) => r.name);
+
+    it("gives cuttable trees chop/fall/stump rows and old-oak only sway", () => {
+      for (const k of ["oak", "pine", "palm", "dead-tree"]) {
+        expect(names(k)).toEqual(["idle", "sway", "chop", "fall", "stump"]);
+        const rows = gen(k).rows;
+        expect(rows[1].frames).toHaveLength(4);
+        expect(rows[3].frames.length).toBeGreaterThanOrEqual(4);
+        expect(rows[4].frames).toHaveLength(1);
+      }
+      const uncut = environmentGenerator.generate({ ...defaults(environmentGenerator), kind: "oak", cuttable: false }, KIT_PRESETS[0], 1);
+      expect(uncut.rows.map((r) => r.name)).toEqual(["idle", "sway"]);
+      const old = environmentGenerator.generate({ ...defaults(environmentGenerator), kind: "old-oak", cuttable: true }, KIT_PRESETS[0], 1);
+      expect(old.rows.map((r) => r.name)).toEqual(["idle", "sway"]);
+      expect(old.rows[0].frames[0].w).toBeGreaterThan(KIT_PRESETS[0].sizes.environment);
+    });
+
+    it("animates the small props", () => {
+      expect(names("bush")).toEqual(["idle", "sway", "cut"]);
+      expect(names("tall-grass")).toEqual(["idle", "sway", "cut"]);
+      expect(names("flowers")).toEqual(["idle", "sway"]);
+      expect(names("rock")).toEqual(["idle", "break"]);
+      expect(names("boulder")).toEqual(["idle", "break"]);
+      expect(names("stump")).toEqual(["idle", "chop"]);
+      expect(names("crystal")).toEqual(["idle"]);
+    });
+
+    it("keeps every animation frame the same size and non-empty", () => {
+      for (let i = 0; i < KIT_PRESETS.length; i++)
+        for (const kind of [...PROP_KINDS, "old-oak"]) {
+          const { rows } = gen(kind, i);
+          const { w, h } = rows[0].frames[0];
+          for (const r of rows) for (const f of r.frames) { expect(f.w).toBe(w); expect(f.h).toBe(h); expect(bounds(f)).not.toBeNull(); }
+        }
+    });
+
+    it("changes row 0 frame 0 for no existing kind when animation params change", () => {
+      for (const kind of PROP_KINDS) expect(gen(kind, 0, 4, { cuttable: 0 as never }).rows[0].frames[0].data).toEqual(gen(kind, 0, 4).rows[0].frames[0].data);
+    });
+
+    it.each(KIT_PRESETS.map((k, i) => [k.id, i] as const))("soil tiles and fence pieces on %s", (_id, kitIdx) => {
+      const T = KIT_PRESETS[kitIdx].sizes.tile;
+      for (const kind of SOIL_TILE_KINDS) {
+        const f = gen(kind, kitIdx, 3).rows[0].frames[0];
+        expect(f.w).toBe(T);
+        for (const v of f.data) { expect(v).toBeGreaterThan(0); expect(decodeIndex(v)?.mat).not.toBe("ink"); }
+        // furrows have period 4, so the wrap seam is as quiet as any interior pair
+        for (const axis of ["x", "y"] as const) {
+          let interior = 0;
+          for (let i = 0; i < T - 1; i++) interior += lineDiff(f, i, i + 1, axis);
+          // y: the wrap pair (rows 15,0) is a furrow-phase step like rows (3,4); x: no busier than interior
+          const limit = axis === "y" ? lineDiff(f, 3, 4, "y") + 4 : (interior / (T - 1)) * 1.6 + 2;
+          expect(lineDiff(f, T - 1, 0, axis)).toBeLessThanOrEqual(limit);
+        }
+      }
+      const piece = (p: string, extra = {}) => gen("fence", kitIdx, 1, { piece: p, ...extra }).rows[0].frames[0];
+      for (const p of FENCE_PIECES) expect(piece(p).w).toBe(T);
+      const col = (s: Sprite, x: number) => Array.from({ length: s.h }, (_, y) => getPx(s, x, y));
+      const row = (s: Sprite, y: number) => Array.from({ length: s.w }, (_, x) => getPx(s, x, y));
+      // pieces reaching a shared edge present the same pixels there
+      for (const a of ["h", "cross", "corner-ne", "corner-se", "t-n", "t-s", "t-e"])
+        for (const b of ["h", "cross", "corner-nw", "corner-sw", "t-n", "t-s", "t-w"]) {
+          if (!["h", "cross", "corner-ne", "corner-se", "t-n", "t-s"].includes(a) || !["h", "cross", "corner-nw", "corner-sw", "t-n", "t-s"].includes(b)) continue;
+          expect(col(piece(a), T - 1)).toEqual(col(piece(b), 0));
+        }
+      expect(row(piece("v"), T - 1)).toEqual(row(piece("cross"), 0).map((_, i) => row(piece("v"), 0)[i]));
+      expect(row(piece("v"), 0)).toEqual(row(piece("v"), T - 1));
+      expect(col(piece("h"), 0)).toEqual(col(piece("h"), T - 1));
+      expect(gen("fence", kitIdx, 1, { piece: "gate-closed" }).rows.map((r) => r.name)).toEqual(["idle", "open"]);
+      expect(piece("h", { trunk: "stone" }).data).not.toEqual(piece("h").data);
+    });
   });
 });
