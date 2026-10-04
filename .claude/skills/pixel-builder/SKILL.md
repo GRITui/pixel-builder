@@ -43,6 +43,7 @@ hand-write PNGs or invent colours.
 | `generate_rigged` | animated character: rig + `slots` + `attachments` + `clips` -> walk/idle rows in 4 directions, exported as a spritesheet |
 | `attach` | add/remove attachments (hat, tool) on a saved rigged asset; re-renders every frame |
 | `create_rig` / `create_clip` / `create_attachment` | author your own rig/clip/attachment as JSON (see `docs/RIG.md`); validated and stored in the project |
+| `generate_pack` | build a whole starter set in one call: built-in `farming-v1` (104 assets) or your own `manifest` of generate_asset/generate_rigged inputs; `only` filters by tag (`sea`, `normal`, `building`, `tool`...), re-running replaces in place, writes `.svg` too |
 
 **SVG round trip.** `export_asset format=svg` (and `generate_pack`, by default) writes `<slug>.svg`: one layer per material (per part for rigged assets: core, hair, hat...), frames as a grid, and a locked `guides` layer (pixel/tile grid, ground line, frame labels, joints). Open it in Inkscape/Figma or edit the XML, then `import_svg`.
 
@@ -51,12 +52,14 @@ look at it before moving on.
 
 ## What the generators can make (highlights)
 
-- `character`: rigged humanoids (builds, hair styles, headwear and held items from the attachment catalog), 4-direction walk.
-- `animal`: rigged water buffalo, dog, cat, horse, pig, chicken, rooster, duck with idle/walk/graze (or peck/flap).
-- `building`: cottage, shop, tower, keep, barn, `stilt-house` (raised Southeast-Asian house; `access` stairs/ladder) and `half-brick` (two-storey Thai house: masonry ground floor, wooden upper floor, balcony gable; 1.5x building width); roofs gable, hip, flat, dome, spire, `corrugated` (use `roof: "metal"` for zinc).
-- `environment`: props plus seamless tiles incl. animated `water-tile` and `paddy-tile` (rice paddy).
+- `character`: rigged humanoids built from a core + layers: `sex` (male/female), `age` (baby, kid, young-adult, senior, elder), `hair_style`, `facial` (beard, mustache, glasses, freckles, wrinkles), `costume` (overalls, dress, apron, sarong, smock, sweater), `headwear` (straw-hat, ngob-hat, cap, bonnet, bandana, beanie...), `bag` (backpack, satchel, tote, basket); 4-direction walk.
+- `animal`: rigged cow, sheep, water buffalo, dog, cat, horse, pig, chicken, rooster, duck, fish, catfish; `age` adult or baby; idle/walk/graze (or peck/flap, or swim).
+- `building`: cottage, shop, tower, keep, barn, `stilt-house` (raised Southeast-Asian house; `access` stairs/ladder) and `half-brick` (two-storey Thai house: masonry ground floor, wooden upper floor, balcony gable; 1.5x building width); `farmhouse` and `coop` with `size` small/medium/large (barn has a large gambrel version; red barn = `wall: "cloth2", trim: "sand"`); roofs gable, hip, flat, dome, spire, `corrugated` (use `roof: "metal"` for zinc).
+- `environment`: props with animation rows (trees: sway/chop/fall/stump when `cuttable`; `old-oak` landmark; bush/weed cut; rock break), `fence` (`piece`: h, v, post, corners, T, cross, gates), seamless tiles incl. animated `water-tile`, `paddy-tile` and soil `tilled-soil-tile`, `watered-soil-tile`, `dried-soil-tile`, `snowed-soil-tile`.
+- `object`: items plus farm tools `hoe`, `watering-can`, `tool-axe`, `pickaxe`, `sickle`, `hammer`, `fishing-rod`, `seed-bag` (rows `icon` + `use` effect sprite).
+- `ui`: buttons, panels, slots, bars, plus HUD `clock` (`hour`), `time-panel`, `date-panel` (`day`, `weekday`, `season`), `weather-icon` (sunny, cloudy, rain, storm, snow, windy), `season-icon`.
 - `map`: biomes meadow, forest, island, desert, winter, `rice-village`.
-- Rigged assets (`generate_rigged`): any rig + clips (idle, walk, run, attack, farm, carry, sit) + attachments (e.g. `ngob-hat`, `hoe`, `shoulder-pole`); add/remove accessories later with `attach`. Built-in humanoid rigs get short hair and a face by default; pick another `hair-short|long|spiky|ponytail|bald` attachment, or `no-face` to opt out.
+- Rigged assets (`generate_rigged`): any rig (incl. `human-<male|female>-<baby|kid|young-adult|senior|elder>`) + clips (idle, walk, run, attack, farm, carry, sit, chop, water, mine, fish) + attachments (layers `face-*`, `hair-*`, `costume-*`, `hat-*`, `bag-*`, tools `hoe`, `axe`, `watering-can`, `pickaxe`, `hammer`, `fishing-rod`...); add/remove accessories later with `attach`. Built-in humanoid rigs get short hair and a face by default; pick another `hair-short|long|spiky|ponytail|bald` attachment, or `no-face` to opt out.
 
 ## Workflow
 

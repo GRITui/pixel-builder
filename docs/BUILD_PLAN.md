@@ -271,8 +271,9 @@ optional unless marked *; `kit_id` defaults to the active kit.
 | `list_assets` | category, query | summaries |
 | `get_asset` | id*, include_pixels (false) | summary, preview, legend rows if asked |
 | `delete_asset` | id* | ok |
-| `export_asset` | id*, format (png \| spritesheet \| tiled), scale (1), out_dir | file paths |
+| `export_asset` | id*, format (png \| spritesheet \| tiled \| svg), scale (1), out_dir | file paths (svg: layered, guides layer) |
 | `import_image` | path* (PNG), width*, height*, category*, name, remove_background, crop, outline | asset summary, preview |
+| `import_svg` | path*, name, category, replace_id, kit_id | asset summary, preview (layered SVG back into the kit) |
 | `list_kits` | — | kits (id, name, active) |
 | `create_kit` | name*, base_kit_id, changes (partial StyleKit) | kit |
 | `update_kit` | kit_id*, changes* | kit |
@@ -284,6 +285,7 @@ optional unless marked *; `kit_id` defaults to the active kit.
 | `create_rig` | rig* (RigDef JSON), kit_id | validated + stored in the project, 3-view preview |
 | `create_clip` | clip* (Clip JSON), rig, kit_id | validated + stored; preview on `rig` if given |
 | `create_attachment` | attachment* (Attachment JSON), rig, kit_id | validated + stored; preview worn on `rig` if given |
+| `generate_pack` | pack (e.g. `farming-v1`) or manifest {entries}, only[], kit_id, replace (true), svg (true), dry_run | generated assets + files, failures, contact sheet |
 
 MCP also exposes resources `pixel-builder://project` (the project JSON) and
 `pixel-builder://style-guide`, and a prompt `asset_pack` (args: `game`,

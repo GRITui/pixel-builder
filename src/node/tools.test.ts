@@ -393,3 +393,18 @@ describe("svg export/import", () => {
     expect(d.assets[0].files.some((f: string) => f.endsWith(".svg"))).toBe(true);
   });
 });
+
+describe("farming-v1 pack", () => {
+  it("lists every Farming Kit v1 entry with valid generators and rigs", () => {
+    const d = data("generate_pack", { pack: "farming-v1", dry_run: true });
+    expect(d.count).toBeGreaterThanOrEqual(100);
+    const names = d.entries.map((e: any) => e.name);
+    expect(new Set(names).size).toBe(names.length);
+    for (const n of ["human-female-elder", "animal-cow-baby", "animal-water-buffalo", "house-large", "barn-large", "coop-small", "tree-old-oak", "fence-gate-open", "tile-snowed-soil", "tool-watering-can", "ui-season-winter", "farmer-chop"]) expect(names).toContain(n);
+  });
+  it("builds a tagged subset end to end", () => {
+    const d = data("generate_pack", { pack: "farming-v1", only: ["season"] });
+    expect(d.generated).toBe(4);
+    expect(d.failed).toEqual([]);
+  });
+});
