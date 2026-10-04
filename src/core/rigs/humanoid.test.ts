@@ -25,7 +25,7 @@ describe("humanoid rigs", () => {
       const f = gen({ hair_style: "short" }, kit).rows[0].frames[0];
       const rows = [...Array(f.h).keys()].filter((y) => f.data.slice(y * f.w, (y + 1) * f.w).some(Boolean));
       const h = rows[rows.length - 1] - rows[0] + 1;
-      expect(Math.abs(h - proportions(kit).figure)).toBeLessThanOrEqual(3);
+      expect(Math.abs(h - proportions(kit).figure)).toBeLessThanOrEqual(Math.max(3, Math.ceil((3 * kit.sizes.character) / 32)));
     }
   });
 
@@ -33,7 +33,7 @@ describe("humanoid rigs", () => {
     for (const kit of KIT_PRESETS) for (const build of ["slim", "normal", "stocky"]) {
       const f = gen({ build }, kit).rows[0].frames[0];
       const rows = [...Array(f.h).keys()].filter((y) => f.data.slice(y * f.w, (y + 1) * f.w).some(Boolean));
-      expect(Math.abs(rows[rows.length - 1] - rows[0] + 1 - proportions(kit).figure)).toBeLessThanOrEqual(3);
+      expect(Math.abs(rows[rows.length - 1] - rows[0] + 1 - proportions(kit).figure)).toBeLessThanOrEqual(Math.max(3, Math.ceil((3 * kit.sizes.character) / 32)));
     }
   });
 

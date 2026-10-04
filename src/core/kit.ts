@@ -24,6 +24,23 @@ export const RICH_KIT: StyleKit = {
   vibe: "Cozy top-down fantasy RPG with richer pixels: hue-shifted shading, selective outlines, fine detail.",
 };
 
+/** HD kit: the Cozy RPG look with every size scaled 1.5x (48px characters) so world scale stays consistent. */
+export const HD_KIT: StyleKit = {
+  ...DEFAULT_KIT,
+  id: "kit-hd",
+  name: "Cozy RPG HD",
+  sizes: { character: 48, building: 144, environment: 48, object: 24, ui: 24, tile: 24 },
+  vibe: "Cozy top-down fantasy RPG at 1.5x resolution: richer 48px characters, same warm lighting and world scale.",
+};
+
+export const HD_RICH_KIT: StyleKit = {
+  ...HD_KIT,
+  id: "kit-hd-rich",
+  name: "Cozy RPG HD (rich)",
+  detail: "rich",
+  vibe: "Cozy top-down fantasy RPG at 1.5x resolution with richer pixels: hue-shifted shading, selective outlines, fine detail.",
+};
+
 export const KIT_PRESETS: StyleKit[] = [
   DEFAULT_KIT,
   {
@@ -50,6 +67,8 @@ export const KIT_PRESETS: StyleKit[] = [
     ambient: 0.35,
     vibe: "Moody synthwave fantasy at dusk, saturated rim light, soft colored outlines.",
   },
+  HD_KIT,
+  HD_RICH_KIT,
 ];
 
 export function resolveRamps(kit: StyleKit): Ramps {
