@@ -116,8 +116,8 @@ function stiltHouse(p: Params, kit: StyleKit, r: Rng): GenResult {
   const left = Math.round((S - total) / 2);
   const x0 = side === 1 ? left : left + run, x1 = x0 + deckW;
   const bw = Math.round(deckW * 0.64);
-  const bx = side === 1 ? x0 + 2 : x1 - 2 - bw;
   const over = Math.max(2, Math.round(3 * k));
+  const bx = side === 1 ? x0 + over : x1 - over - bw;
   const rh = Math.max(6, Math.round(Math.min(bw * 0.8, wh * 1.35)));
   const topPad = Math.round(3 * k);
   const H = gh + fb + wh + rh + topPad + 3;
