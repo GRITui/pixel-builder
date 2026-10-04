@@ -18,10 +18,12 @@ export interface SideLevelPlan {
   ladders: [number, number][];
   spawn: [number, number];
   goal: [number, number];
+  /** Reserved lot for a building: `x` is the first column, `row` the surface row it stands on (always solid, flat, gap-free). */
+  house?: { x: number; w: number; row: number };
 }
 
 /** Pure layout: heights per column (top solid row, `rows` = gap), then platforms and ladders. */
-export function planSideLevel(cols: number, rows: number, seed: number, difficulty: number, slopes: boolean, withLadders: boolean): SideLevelPlan {
+export function planSideLevel(cols: number, rows: number, seed: number, difficulty: number, slopes: boolean, withLadders: boolean, houseCols = 0): SideLevelPlan {
   const r = rng(seed);
   const cells: Cell[] = new Array(cols * rows).fill("air");
   const base = rows - 4;
@@ -57,24 +59,37 @@ export function planSideLevel(cols: number, rows: number, seed: number, difficul
     for (let y = top[c]; y < rows; y++) cells[y * cols + c] = y === top[c] && sl ? sl : "solid";
   }
   // slope-down sits at the old (higher) surface row of a column that drops to the right: its neighbours decide the look
+  // building lot: the flat gap-free run of plain ground closest to the start, with a solid column of margin each side
+  let house: SideLevelPlan["house"];
+  if (houseCols > 0) {
+    const flat = (c: number) => c >= 1 && c < cols - 1 && top[c] === base && cells[base * cols + c] === "solid";
+    for (let x0 = 3; x0 + houseCols + 1 < cols - 3 && !house; x0++) {
+      let ok = true;
+      for (let c = x0 - 1; c <= x0 + houseCols && ok; c++) ok = flat(c);
+      if (ok) house = { x: x0, w: houseCols, row: base };
+    }
+  }
+  // platforms and ladders keep one column clear of the lot, so they never overlap the building
+  const inLot = (c: number) => !!house && c >= house.x - 1 && c <= house.x + house.w;
   const ladders: [number, number][] = [];
-  const taken = new Set<number>();
   let px = 8;
   while (px < cols - 8) {
     const len = r.int(2, 4);
     const surf = Math.min(...top.slice(px, px + len + 1));
     const py = surf - r.int(3, 4);
-    if (py >= 2 && top.slice(px, px + len).every((t) => t >= py + 3) && r.chance(0.55 + 0.05 * difficulty)) {
-      for (let i = 0; i < len; i++) { cells[py * cols + px + i] = "platform"; taken.add(py * cols + px + i); }
-      if (withLadders && top[px - 1] < rows && top[px - 1] <= py + 4) {
-        const lx = px - 1;
+    const lotHit = Array.from({ length: len + 1 }, (_, i) => px - 1 + i).some(inLot);
+    if (py >= 2 && !lotHit && top.slice(px, px + len).every((t) => t >= py + 3) && r.chance(0.55 + 0.05 * difficulty)) {
+      for (let i = 0; i < len; i++) cells[py * cols + px + i] = "platform";
+      // the ladder stands on plain ground beside the platform and tops out at its row
+      const lx = px - 1;
+      if (withLadders && top[lx] < rows && top[lx] <= py + 4 && cells[top[lx] * cols + lx] === "solid") {
         for (let y = py; y < top[lx]; y++) ladders.push([lx, y]);
       }
     }
     px += len + r.int(3, 6);
   }
   const spawnY = top[1] - 1, goalY = top[cols - 2] - 1;
-  return { cols, rows, cells, ladders, spawn: [1, spawnY], goal: [cols - 2, goalY] };
+  return { cols, rows, cells, ladders, spawn: [1, spawnY], goal: [cols - 2, goalY], house };
 }
 
 export const sideLevelGenerator: Generator = {
@@ -88,13 +103,14 @@ export const sideLevelGenerator: Generator = {
     { key: "difficulty", label: "Gaps and platforms (1-5)", type: "number", min: 1, max: 5, step: 1, default: 2 },
     { key: "slopes", label: "45 degree slopes for steps", type: "bool", default: true },
     { key: "ladders", label: "Ladders to platforms", type: "bool", default: true },
+    { key: "house", label: "Reserve a lot for a house (tiles wide, 0 = none)", type: "number", min: 0, max: 12, step: 1, default: 0 },
     { key: "scenery", label: "Bushes, rocks and flowers", type: "bool", default: true },
     { key: "ground", label: "Grass / cap", type: "material", options: ["grass", "foliage", "sand", "stone", "dirt"], default: "grass" },
     { key: "soil", label: "Soil", type: "material", options: ["dirt", "stone", "sand", "wood"], default: "dirt" },
   ],
   generate(p: Params, kit: StyleKit, seed: number) {
     const cols = num(p, "cols"), rows = num(p, "rows");
-    const plan = planSideLevel(cols, rows, seed, num(p, "difficulty"), bool(p, "slopes"), bool(p, "ladders"));
+    const plan = planSideLevel(cols, rows, seed, num(p, "difficulty"), bool(p, "slopes"), bool(p, "ladders"), Math.round(num(p, "house")));
     const T = kit.sizes.tile;
     const tm = emptyTileMap(cols, rows, T);
     const sv = defaults(sideviewGenerator);
@@ -131,14 +147,15 @@ export const sideLevelGenerator: Generator = {
     if (bool(p, "scenery")) {
       const r = rng(seed + 99);
       for (let x = 2; x < cols - 2; x++) {
+        const lot = plan.house && x >= plan.house.x && x < plan.house.x + plan.house.w;
         const row = Array.from({ length: rows }, (_, y) => y).find((y) => plan.cells[y * cols + x] !== "air");
         const rr = r.next(), kind = r.pick(["bush", "rock", "flowers", "tall-grass"]);
-        if (row === undefined || row < 1 || plan.cells[row * cols + x] !== "solid" || tm.deco[(row - 1) * cols + x] >= 0 || rr > 0.16) continue;
+        if (row === undefined || row < 1 || plan.cells[row * cols + x] !== "solid" || tm.deco[(row - 1) * cols + x] >= 0 || rr > 0.16 || lot) continue;
         if (at(x - 1, row) !== "solid" || at(x + 1, row) !== "solid" || at(x, row - 1) !== "air") continue;
         const sp = environmentIdle({ ...defaults(environmentGenerator), kind, cuttable: false }, kit, seed);
         tm.deco[(row - 1) * cols + x] = ensureTile(tm, kind, sp, false);
       }
     }
-    return { rows: [{ name: "map", frames: [renderTileMap(tm)] }], fps: 1, tilemap: tm, meta: { camera: "side", spawn: plan.spawn, goal: plan.goal } };
+    return { rows: [{ name: "map", frames: [renderTileMap(tm)] }], fps: 1, tilemap: tm, meta: { camera: "side", spawn: plan.spawn, goal: plan.goal, ...(plan.house ? { house: plan.house } : {}) } };
   },
 };
