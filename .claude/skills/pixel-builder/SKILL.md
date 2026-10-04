@@ -35,13 +35,16 @@ hand-write PNGs or invent colours.
 | `paint_asset` | new asset from legend rows (what generators can't do) |
 | `edit_asset` | fix pixels or replace a frame of an existing asset |
 | `list_assets` / `get_asset` / `delete_asset` | manage the library |
-| `export_asset` | `png`, `spritesheet` or `tiled` (maps) at a scale |
+| `export_asset` | `png`, `spritesheet`, `tiled` (maps) or `svg` (layered, see below) |
 | `import_image` | quantise an existing PNG to the kit palette |
+| `import_svg` | read a layered SVG back (new asset, or `replace_id` to retexture an existing one): edit by layer, keep `data-material`/`data-level` or use kit colours, the `guides` layer is ignored |
 | `rerender_assets` | regenerate procedural and rigged assets after a kit change |
 | `list_rigs` / `list_clips` / `list_attachments` | rigs, animation clips and accessories (with family); ids for `generate_rigged` |
 | `generate_rigged` | animated character: rig + `slots` + `attachments` + `clips` -> walk/idle rows in 4 directions, exported as a spritesheet |
 | `attach` | add/remove attachments (hat, tool) on a saved rigged asset; re-renders every frame |
 | `create_rig` / `create_clip` / `create_attachment` | author your own rig/clip/attachment as JSON (see `docs/RIG.md`); validated and stored in the project |
+
+**SVG round trip.** `export_asset format=svg` (and `generate_pack`, by default) writes `<slug>.svg`: one layer per material (per part for rigged assets: core, hair, hat...), frames as a grid, and a locked `guides` layer (pixel/tile grid, ground line, frame labels, joints). Open it in Inkscape/Figma or edit the XML, then `import_svg`.
 
 Every call that makes or changes an asset returns a **preview image**. Always
 look at it before moving on.
