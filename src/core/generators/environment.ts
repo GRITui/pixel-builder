@@ -8,7 +8,7 @@ import type { Sprite, StyleKit } from "../types";
 import { mat, num, str, type Generator } from "./types";
 
 /** Seamless ground tiles (no outline, exactly kit.sizes.tile square, must tile/wrap). */
-export const TILE_KINDS = ["grass-tile", "dirt-tile", "sand-tile", "water-tile", "stone-path-tile", "snow-tile"] as const;
+export const TILE_KINDS = ["grass-tile", "dirt-tile", "sand-tile", "water-tile", "stone-path-tile", "snow-tile", "paddy-tile"] as const;
 /** Free-standing props (outlined, transparent background). */
 export const PROP_KINDS = ["oak", "pine", "palm", "dead-tree", "bush", "rock", "boulder", "flowers", "mushroom", "tall-grass", "stump", "crystal"] as const;
 
@@ -555,13 +555,58 @@ function waterTile(T: number, r: Rng, seed: number): Sprite[] {
   return frames;
 }
 
+/**
+ * Flooded rice field: muddy water with rows of seedlings. Rows and seedlings sit on
+ * lattices that divide the tile, ripples are low-contrast streaks drifting sideways, and
+ * the seedling tips sway one pixel between frames.
+ */
+function paddyTile(T: number, r: Rng, seed: number, flat: boolean): Sprite[] {
+  const mud = valueNoise(seed + 3, 4);
+  const tau = 2 * Math.PI;
+  const rowsN = Math.max(1, Math.round(T / 8));
+  const gap = T / rowsN;
+  const step = Math.max(3, Math.round(T / 4)); // seedling spacing along a row
+  const per = Math.max(1, Math.round(T / step));
+  const off = r.int(0, 2);
+  const rowPhase = Array.from({ length: T }, () => r.next() * tau);
+  const rowOn = Array.from({ length: T }, (_, y) => y % 3 === off % 3 && !(Math.round(gap * 0.5) + 1 === y));
+  const frames: Sprite[] = [];
+  for (let f = 0; f < WATER_FRAMES; f++) {
+    const { s, put } = painter(T);
+    const ph = f / WATER_FRAMES;
+    for (let y = 0; y < T; y++)
+      for (let x = 0; x < T; x++) {
+        const m = mud((x * 4) / T, (y * 4) / T);
+        put(x, y, m > 0.82 && !flat ? "dirt" : "water", m > 0.82 && !flat ? 1 : 1);
+        // sky glints on the surface: short horizontal streaks that drift along their row
+        const w = Math.sin(tau * (x / T - ph) + rowPhase[y]);
+        if (rowOn[y] && w > 0.8) put(x, y, "water", 2);
+      }
+    for (let j = 0; j < rowsN; j++) {
+      const y = Math.round(gap * (j + 0.5)) + 1;
+      for (let i = 0; i < per; i++) {
+        const x = Math.round(((i + (j % 2 ? 0.5 : 0)) * T) / per) + off;
+        const sway = f === 1 ? 1 : f === 3 ? -1 : 0;
+        put(x, y + 1, "water", 0); // root shadow
+        put(x, y, "grass", 2);
+        put(x - 1, y - 1, "grass", 3);
+        put(x + 1, y - 1, "grass", 3);
+        put(x + sway, y - 2, "grass", 4);
+        if (T >= 24) put(x + sway, y - 3, "grass", 3);
+      }
+    }
+    frames.push(s);
+  }
+  return frames;
+}
+
 // ---------------------------------------------------------------------------
 
 export const environmentGenerator: Generator = {
   id: "environment",
   category: "environment",
   label: "Environment",
-  description: "Nature props (trees, bushes, rocks, flowers, crystals) and seamless ground tiles (grass, dirt, sand, animated water, stone path, snow).",
+  description: "Nature props (trees, bushes, rocks, flowers, crystals) and seamless ground tiles (grass, dirt, sand, animated water, stone path, snow, animated flooded rice paddy).",
   params: [
     { key: "kind", label: "Kind", type: "select", options: [...PROP_KINDS, ...TILE_KINDS], default: "oak" },
     { key: "foliage", label: "Foliage", type: "material", options: FOLIAGE, default: "foliage" },
@@ -579,6 +624,7 @@ export const environmentGenerator: Generator = {
     if ((TILE_KINDS as readonly string[]).includes(kind)) {
       const T = kit.sizes.tile;
       const flat = kit.shadeSteps <= 3; // few tones: skip patchy noise, keep the texture to tufts/pebbles
+      if (kind === "paddy-tile") return { rows: [{ name: "idle", frames: paddyTile(T, r, mixed, flat) }], fps: 3 };
       if (kind === "water-tile") return { rows: [{ name: "idle", frames: waterTile(T, r, mixed) }], fps: 4 };
       const sprite =
         kind === "dirt-tile" ? dirtTile(T, r, mixed, flat) :

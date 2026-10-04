@@ -3,6 +3,7 @@ import { aiPixels, vibeParams, type AiStatus } from "../../ai/client";
 import { createAsset } from "../../core/asset";
 import { coerceParams, defaults, generatorFor, randomParams, type GenResult, type Generator, type ParamValue, type Params } from "../../core/generators";
 import { rng, randomSeed } from "../../core/rng";
+import type { Clip } from "../../core/rig";
 import { CATEGORIES, type Asset, type Category, type Sprite, type StyleKit } from "../../core/types";
 import type { FlatPalette } from "../render";
 import { ExportMenu } from "./ExportMenu";
@@ -10,6 +11,7 @@ import { ParamForm } from "./ParamForm";
 import { PromptBox, type AiBusy } from "./PromptBox";
 import { LivePreview, type PreviewBg } from "./SpriteView";
 import { Variations } from "./Variations";
+import { initRigSel, RiggedWorkspace, type RigSel } from "./RiggedWorkspace";
 
 /** Everything the generate workspace remembers per category. */
 export interface WsState {
@@ -21,10 +23,13 @@ export interface WsState {
   origin: { kind: "procedural" | "ai-vibe"; prompt?: string };
   /** A Freeform-pixels result shown instead of the procedural output until a param changes. */
   freeform: { sprite: Sprite; prompt: string } | null;
+  /** Characters only: use the rig method instead of the procedural generator. */
+  rigMode: boolean;
+  rig: RigSel;
 }
 
 export function initWs(g: Generator): WsState {
-  return { params: defaults(g), seed: randomSeed(), prompt: "", name: "", notes: "", origin: { kind: "procedural" }, freeform: null };
+  return { params: defaults(g), seed: randomSeed(), prompt: "", name: "", notes: "", origin: { kind: "procedural" }, freeform: null, rigMode: false, rig: initRigSel() };
 }
 
 const ZOOMS = [0, 1, 2, 3, 4, 6, 8, 12, 16];
@@ -47,6 +52,8 @@ export function Workspace(props: {
   onOpenEditor: (a: Asset) => void;
   onImport: () => void;
   onError: (m: string) => void;
+  customClips?: Clip[];
+  onSaveClip?: (c: Clip) => void;
 }) {
   const { category, kit, pal, ws } = props;
   const g = generatorFor(category);
@@ -121,6 +128,31 @@ export function Workspace(props: {
     }
   };
 
+  const modeToggle =
+    category === "character" ? (
+      <div className="seg" role="group" aria-label="Character method">
+        <button className={!ws.rigMode ? "on" : ""} onClick={() => upd((w) => ({ ...w, rigMode: false }))}>Generator</button>
+        <button className={ws.rigMode ? "on" : ""} onClick={() => upd((w) => ({ ...w, rigMode: true }))} title="Skeleton rigs with shared clips and attachments">Rigged</button>
+      </div>
+    ) : null;
+
+  if (category === "character" && ws.rigMode)
+    return (
+      <div className="rigw-wrap">
+        <div className="rigw-mode">{modeToggle}</div>
+        <RiggedWorkspace
+          kit={kit}
+          pal={pal}
+          sel={ws.rig}
+          update={(fn) => upd((w) => ({ ...w, rig: fn(w.rig) }))}
+          customClips={props.customClips ?? []}
+          onSave={props.onSave}
+          onSaveClip={props.onSaveClip ?? (() => {})}
+          onError={props.onError}
+        />
+      </div>
+    );
+
   const catLabel = CATEGORIES.find((c) => c.id === category)!.label;
 
   return (
@@ -142,6 +174,7 @@ export function Workspace(props: {
         />
         <section className="card">
           <div className="card-head">
+            {modeToggle}
             <h3 className="card-title">{g.label} parameters</h3>
             <button onClick={randomize} title="Random parameters and a new seed">
               🎲 Randomize

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DEFAULT_KIT, newId } from "../core/kit";
 import { emptyProject, mergeProjects, PROJECT_FORMAT, PROJECT_VERSION, type ProjectFile } from "../core/project";
+import type { Clip } from "../core/rig";
 import type { Asset, Sprite, StyleKit } from "../core/types";
 
 const PREFIX = "pixel-builder:v1:";
@@ -168,6 +169,9 @@ export interface ProjectApi {
   project: ProjectFile;
   kits: KitsApi;
   library: LibraryApi;
+  /** Custom rig clips stored on the project (`ProjectFile.clips`, optional). */
+  clips: Clip[];
+  addClip: (c: Clip) => void;
   replaceProject: (p: ProjectFile) => void;
   mergeProject: (p: ProjectFile) => void;
 }
@@ -178,7 +182,13 @@ function revive(raw: any): ProjectFile | undefined {
   if (!kits.length) return undefined;
   const assets = raw.assets.map(unpackAsset).filter((a: Asset | null): a is Asset => !!a);
   const activeKitId = kits.some((k: StyleKit) => k.id === raw.activeKitId) ? raw.activeKitId : kits[0].id;
-  return { format: PROJECT_FORMAT, version: PROJECT_VERSION, activeKitId, kits, assets };
+  const out: ProjectFile = { format: PROJECT_FORMAT, version: PROJECT_VERSION, activeKitId, kits, assets };
+  // optional rig arrays are owned by core/project.ts; keep whatever valid ones are stored
+  const extra = out as unknown as Record<string, unknown>;
+  if (Array.isArray(raw.clips)) extra.clips = raw.clips.filter((c: any) => c && typeof c.id === "string" && Number.isFinite(c.fps) && c.frames);
+  if (Array.isArray(raw.rigs)) extra.rigs = raw.rigs;
+  if (Array.isArray(raw.attachments)) extra.attachments = raw.attachments;
+  return out;
 }
 
 export function useProject(): ProjectApi {
@@ -224,10 +234,19 @@ export function useProject(): ProjectApi {
     },
   };
 
+  const clips = (project as unknown as { clips?: Clip[] }).clips ?? [];
+  const addClip = (c: Clip) =>
+    setProject((p) => {
+      const list = (p as unknown as { clips?: Clip[] }).clips ?? [];
+      return { ...p, clips: [...list.filter((x) => x.id !== c.id), c] } as ProjectFile;
+    });
+
   return {
     project,
     kits,
     library,
+    clips,
+    addClip,
     replaceProject: setProject,
     mergeProject: (incoming) => setProject((p) => mergeProjects(p, incoming)),
   };

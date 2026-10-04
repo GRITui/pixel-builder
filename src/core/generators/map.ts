@@ -7,9 +7,9 @@ import { createSprite } from "../sprite";
 import type { Sprite } from "../types";
 import { bool, defaults, num, str, type Generator } from "./types";
 
-export const BIOMES = ["meadow", "forest", "island", "desert", "winter"] as const;
+export const BIOMES = ["meadow", "forest", "island", "desert", "winter", "rice-village"] as const;
 type Biome = (typeof BIOMES)[number];
-type Ground = "grass" | "dirt" | "sand" | "water" | "stone-path" | "snow";
+type Ground = "grass" | "dirt" | "sand" | "water" | "stone-path" | "snow" | "paddy";
 
 const SOLID_PROPS = new Set(["oak", "pine", "palm", "dead-tree", "rock", "boulder", "crystal", "stump"]);
 /** Props taller/wider than a tile that shouldn't be clipped by the map edge or stacked side by side. */
@@ -44,12 +44,17 @@ const PROPS: Record<Biome, Weights> = {
     grass: { pine: 3, bush: 2 },
     dirt: { rock: 1.5 },
   },
+  // paddies stay clear of props; dry grass gets palms, bushes and tall grass
+  "rice-village": {
+    grass: { palm: 4, bush: 3, "tall-grass": 3, flowers: 0.8, rock: 0.4, stump: 0.3 },
+    dirt: { rock: 0.5 },
+  },
 };
 
 /** Chance (before density and clumping) that a free cell gets a prop. */
-const BASE_CHANCE: Record<Biome, number> = { meadow: 0.22, forest: 0.55, island: 0.3, desert: 0.14, winter: 0.3 };
-const BASE_GROUND: Record<Biome, Ground> = { meadow: "grass", forest: "grass", island: "grass", desert: "sand", winter: "snow" };
-const PATH_GROUND: Record<Biome, Ground> = { meadow: "dirt", forest: "dirt", island: "dirt", desert: "dirt", winter: "stone-path" };
+const BASE_CHANCE: Record<Biome, number> = { meadow: 0.22, forest: 0.55, island: 0.3, desert: 0.14, winter: 0.3, "rice-village": 0.2 };
+const BASE_GROUND: Record<Biome, Ground> = { meadow: "grass", forest: "grass", island: "grass", desert: "sand", winter: "snow", "rice-village": "grass" };
+const PATH_GROUND: Record<Biome, Ground> = { meadow: "dirt", forest: "dirt", island: "dirt", desert: "dirt", winter: "stone-path", "rice-village": "dirt" };
 const VARIANTS = 6;
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
@@ -112,6 +117,19 @@ function buildGround(biome: Biome, cols: number, rows: number, seed: number, r: 
         else if (d < rad + 1.8) ground[at(x, y)] = "grass";
         else if (n2(x / 4, y / 4) > 0.8) ground[at(x, y)] = "dirt";
       }
+  } else if (biome === "rice-village") {
+    // rectangular paddies on both sides of the path, each kept one cell of bund away from path and each other
+    const taken = new Set(clear);
+    const attempts = Math.round((cols * rows) / 18);
+    for (let a = 0; a < attempts; a++) {
+      const w = r.int(4, Math.max(4, Math.min(9, Math.round(cols / 3)))), h = r.int(3, Math.max(3, Math.min(6, Math.round(rows / 3))));
+      const x0 = r.int(1, Math.max(1, cols - w - 1)), y0 = r.int(1, Math.max(1, rows - h - 1));
+      let ok = x0 + w < cols && y0 + h < rows;
+      for (let y = y0 - 1; ok && y <= y0 + h; y++) for (let x = x0 - 1; x <= x0 + w; x++) if (taken.has(at(x, y))) ok = false;
+      if (!ok) continue;
+      for (let y = y0 - 1; y <= y0 + h; y++) for (let x = x0 - 1; x <= x0 + w; x++) taken.add(at(x, y));
+      for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) ground[at(x, y)] = "paddy";
+    }
   } else {
     const threshold = biome === "forest" ? 0.84 : biome === "winter" ? 0.78 : 0.8;
     for (let y = 0; y < rows; y++)
@@ -150,7 +168,7 @@ export const mapGenerator: Generator = {
   id: "map",
   category: "map",
   label: "Map",
-  description: "Procedural top-down tile map (meadow, forest, island, desert, winter) built from the kit's ground tiles and props.",
+  description: "Procedural top-down tile map (meadow, forest, island, desert, winter, rice-village with flooded paddies) built from the kit's ground tiles and props.",
   params: [
     { key: "biome", label: "Biome", type: "select", options: [...BIOMES], default: "meadow" },
     { key: "cols", label: "Columns", type: "number", min: 12, max: 48, step: 1, default: 24 },
@@ -278,6 +296,7 @@ export const mapGenerator: Generator = {
         const kind = pickWeighted(table, pickRoll);
         if (BIG_PROPS.has(kind)) {
           if (y < bigRowsOf(kind) || (wide && (x < 1 || x > cols - 2))) continue;
+          if (biome === "rice-village" && [1, 2].some((d) => y >= d && BIG_PROPS.has(tmKind(tm, tm.deco[i - d * cols])))) continue;
           if (biome !== "forest" && x > 0 && BIG_PROPS.has(tmKind(tm, tm.deco[i - 1]))) continue;
         }
         tm.deco[i] = propTile(kind, vRoll);
