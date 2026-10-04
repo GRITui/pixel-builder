@@ -5,7 +5,7 @@ import type { TileMap } from "../types";
 import { mapGenerator } from "./map";
 import { defaults } from "./types";
 
-const BIOMES = ["meadow", "forest", "island", "desert", "winter", "rice-village", "farm"];
+const BIOMES = ["meadow", "forest", "island", "desert", "winter", "rice-village", "farm", "forest-mmo"];
 const kit = KIT_PRESETS[0];
 
 const make = (extra: Record<string, string | number | boolean> = {}, seed = 1, k = kit) =>

@@ -119,3 +119,55 @@ Before/after sheet: `docs/img/polish-before-after.png` (rows: attack, attack-sna
 | Humanoid attack frames (side) | 4 | 7 snappy (opt-in; 4 on standard kits) |
 
 Notes: the `side-knight-attack` recipe now uses `knight-trim` and `attack-snappy` (the side kit is not a rich kit, so the variant is selected by id). Standard output is byte-identical for every clip (the topdown snapshot test is unchanged); only tool-effect (`use`) frames changed because they now carry an outline. The 4 rich-kit runs use the snappy frames for `attack`/`chop`/`mine`/`jump` automatically.
+
+## Sprint 5: MMO-quality environment (#40-#47)
+
+- Date: 2026-10-04
+- Commit: Sprint 5 wave 3 (lane B, #45) on top of waves 1-2 (`5a88c8e`)
+- Command: `npm run bench` (offline): 43 briefs, 156 runs (the 34 baseline briefs plus `ui-mmo-hud`, `monsters-set`, `trees-hd`, `trees-hd-seasons`, `water-river-map`, `water-pond-map`, `water-props`, `water-depth-autotile` and the new `map-forest-mmo`, which also runs on `kit-hd-deep`). 0 failures.
+- Exit image: `docs/img/mmo-scene.png` (kit-hd-rich) and `docs/img/mmo-scene-deep.png` (kit-hd-deep), made by `npx tsx scripts/mmo-scene.ts`: a `forest-mmo` map, the hero, three monsters (red mushroom, green slime, snapping plant), nameplates, damage numbers and the MMO HUD, y-sorted. 1008 x 672 px each.
+
+### Timing
+
+| Kit | Runs | Total | Slowest brief |
+|---|---:|---:|---|
+| kit-default | 38 | 5.5 s | animal-farm-set 0.56 s |
+| kit-gameboy | 37 | 4.3 s | map-forest-mmo 0.74 s |
+| kit-neon | 37 | 5.2 s | map-forest-mmo 0.54 s |
+| kit-hd-rich | 38 | 11.8 s | map-forest-mmo 1.40 s |
+| kit-hd-deep | 1 | 1.3 s | map-forest-mmo 1.34 s |
+| kit-side | 5 | 0.5 s | side-parallax-level 0.17 s |
+
+`map-forest-mmo` (24x16, detail high) costs 0.5 s in the 16px kits and about 1.4 s in the HD kits (every tree is a real foliage render; the sprites are cached per kit, so a second map in the same kit is about 2x faster). A 36x24 map with detail high is 1.5 s cold in kit-hd-rich.
+
+### Metrics and "nothing down"
+
+Every baseline brief produced the same numbers as in the baseline table above (assets, frames, clips, directions, palette indices, outline compliance, margin), so nothing regressed. Palette indices for the new briefs on kit-default: `map-forest-mmo` 55 (a whole map, vs 44 for `map-meadow`), `monsters-set` 55 (98% outline), `ui-mmo-hud` 53, `trees-hd` 32 (vs 11 for the five classic trees; outline compliance 79% because the canopy edge is deliberately ragged and the ground shadow is soft), `water-river-map` 45.
+
+### Self-ratings, re-scored (our side, 1-5, same rubric, looking at `docs/img/mmo-scene*.png` and the new bench sheets)
+
+| Criterion | Baseline | Sprint 5 | Why |
+|---|---:|---:|---|
+| Readability at 1x | 4 | 5 (HD kits); 16px kits still 3-4 | The HD scene reads instantly: trees, bridge, river bands, monsters and HUD all have clean silhouettes and the layers (ground, props, trees, characters, HUD) separate. The monsters are the cutest sprites we make. In `kit-gameboy` the dense forest is a mush of two greens and the path barely separates from the grass, so the score is for the best output, not the 16px one. |
+| Set consistency | 5 | 5 | Same palette, light and outline across map, trees, monsters and HUD, including in `kit-hd-deep`. |
+| Animation quality | 4 | 4 (monsters 5) | Monsters have idle, walk, attack with anticipation, a white hit flash and a dissolving death, with real squash and stretch on slimes; tree sway and 4-frame water exist too. The score stays 4 because humanoids still have no impact effects or cloth/hair motion, and the composite scene is a still (the map render bakes frame 0 of water and trees). |
+| Direction coverage | 4 | 4 | Unchanged: monsters get 4 (or 8) directions, the new biome is a map. |
+| Time to result | 5 | 5 | 0.5-1.4 s for a whole scene map. |
+| Editability | 5 | 5 | The scene is `biome`, `detail`, `season`, `density`, a seed and a kit; re-skin by kit. Spawn points, y-sorted objects and the Tiled object layer are in the metadata. |
+| Cost | 5 | 5 | Free and offline. |
+
+Honest reading: readability is the only score that moves, and only for the HD kits. The rest was already at the top of the rubric or is limited by things this sprint did not touch. Animation did not go up: the rubric's 5 needs humanoid effects and a moving scene, which we do not have.
+
+### Known gaps, revisited
+
+Baseline gaps 1 (foliage), 2 (palette depth), 3 (water depth), 4 (monster variety) and 5 (UI polish) are largely closed for the HD kits (HD trees with 3 sizes and 7 species, 9-shade deep ramps, depth-banded water with foam and banks, six monster families with five clips each, a glossy HUD). Gaps 6-8 and 10-12 are unchanged. Still missing against a polished 2D MMO, from looking at the scene:
+
+1. **No light or atmosphere.** No dappled light through canopies, no tree shadows cast on the path, no ambient occlusion where trunks meet the ground, no time-of-day tint, fog, god rays, bloom or water reflections. The scene is evenly lit, which is why it reads "clean" more than "lush".
+2. **Terrain is flat.** One height level: no cliffs, ledges, stairs, waterfalls, tributaries, lakes or beaches. The river always runs top to bottom, the path is a constant 2-wide ribbon, and there is exactly one bridge.
+3. **Variety repeats.** Seven species x three sizes x three variants: neighbouring trees of one grove look related, trunks are alike and the crowns are blobby compared with hand-painted trees. Props are one per cell (no multi-cell logs, ruins, signposts, fences, stalls or buildings in this biome), and decals sit on a tile grid.
+4. **Static scene.** The composite and the map preview bake frame 0. Water, foam, tree sway, reeds and monsters animate individually, but nothing combines them into one animated map render, and the hero in the scene is a single standing frame.
+5. **Characters are small against the trees and have one look.** The hero comes from the character generator (no walk cycle in the composite); only 3 of the 12 monster variants appear; there are no NPCs, mounts, pets, buff auras or hit effects.
+6. **HUD is a mock.** The glossy frames are good, but the skill slots hold plain gems (no icons), text uses one small font, the minimap is a coarse tile colour map (no fog of war or markers), and nothing is interactive or animated except the cooldown sweep.
+7. **16px kits.** `kit-gameboy` has too few tones for a dense forest (the detail pass skips colour patches there on purpose); the map is legible but not pretty.
+8. **Water is dark.** The depth ramp goes from bright sand to navy; a polished MMO river is usually a lighter teal with brighter highlights. Fixing it means retuning the shared water depth ramp (`water.ts`), which this lane did not touch.
+9. **Existing test blind spot.** `map.test.ts` "never places deco on water" compares tile names to exactly `water`, so it does not see the depth-band water tiles (`water-d1`, `water-s3-4`); `forest-mmo` has its own checks in `map-forest.test.ts`.

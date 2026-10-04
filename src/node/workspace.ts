@@ -213,7 +213,7 @@ function atlas(sprites: Sprite[], kit: StyleKit, cellW: number, cellH: number, c
  * deco sprites (often bigger than a tile, anchored bottom-centre like the in-app render)
  * go in a second tileset with a centring `tileoffset`.
  */
-function tiledExport(tm: TileMap, slug: string, kit: StyleKit, dir: string): ExportedFile[] {
+function tiledExport(tm: TileMap, slug: string, kit: StyleKit, dir: string, meta?: Record<string, unknown>): ExportedFile[] {
   const files: ExportedFile[] = [];
   const used = (layer: number[]) => [...new Set(layer.filter((i) => i >= 0 && i < tm.tiles.length))].sort((a, b) => a - b);
   const groundIdx = used(tm.ground);
@@ -279,16 +279,39 @@ function tiledExport(tm: TileMap, slug: string, kit: StyleKit, dir: string): Exp
       }
     return { out, nextid: id };
   };
-  const objs = iso ? isoObjects() : null;
+  const isoObjs = iso ? isoObjects() : null;
+  const layers: unknown[] = [
+    layer(1, "ground", toGid(tm.ground, groundIdx, groundFirst)),
+    isoObjs
+      ? { id: 2, name: "props", type: "objectgroup", x: 0, y: 0, opacity: 1, visible: true, draworder: "topdown", objects: isoObjs.out }
+      : layer(2, "deco", toGid(tm.deco, decoIdx, decoFirst)),
+  ];
+  let nextObject = isoObjs ? isoObjs.nextid : 1, nextLayer = 3;
+  // y-sorted maps (forest-mmo): trees and props also as tile objects ordered by base line, so an engine
+  // can draw characters in the same list and walk behind trunks. The flat deco layer is hidden then.
+  const objs = !iso && meta?.ysorted && Array.isArray(meta.objects) ? (meta.objects as { tile: number; name: string; col: number; row: number; y: number; solid: boolean }[]) : null;
+  if (objs) {
+    (layers[1] as { visible: boolean }).visible = false;
+    const sorted = [...objs].sort((a, b) => a.y - b.y || a.col - b.col);
+    layers.push({
+      id: nextLayer++, name: "objects", type: "objectgroup", x: 0, y: 0, opacity: 1, visible: true, draworder: "topdown",
+      properties: [{ name: "ysort", type: "bool", value: true }],
+      objects: sorted.filter((o) => decoIdx.includes(o.tile)).map((o) => ({
+        id: nextObject++, name: o.name, type: o.solid ? "solid" : "prop", gid: decoFirst + decoIdx.indexOf(o.tile),
+        x: o.col * tm.tile, y: o.y, width: Math.max(tm.tile, tm.tiles[o.tile].sprite.w), height: Math.max(tm.tile, tm.tiles[o.tile].sprite.h), rotation: 0, visible: true,
+      })),
+    });
+  }
+  const spawns = Array.isArray(meta?.spawns) ? (meta!.spawns as { x: number; y: number; monster: string }[]) : [];
+  if (spawns.length)
+    layers.push({
+      id: nextLayer++, name: "spawns", type: "objectgroup", x: 0, y: 0, opacity: 1, visible: true, draworder: "topdown",
+      objects: spawns.map((sp) => ({ id: nextObject++, name: sp.monster, type: "spawn", point: true, x: sp.x * tm.tile + tm.tile / 2, y: sp.y * tm.tile + tm.tile / 2, rotation: 0, visible: true })),
+    });
   const map = {
     type: "map", version: "1.10", tiledversion: "1.10.2", orientation: iso ? "isometric" : "orthogonal", renderorder: "right-down", infinite: false,
-    width: tm.cols, height: tm.rows, tilewidth: tm.tile, tileheight: iso ? tm.tile / 2 : tm.tile, nextlayerid: 3, nextobjectid: objs ? objs.nextid : 1,
-    layers: [
-      layer(1, "ground", toGid(tm.ground, groundIdx, groundFirst)),
-      objs
-        ? { id: 2, name: "props", type: "objectgroup", x: 0, y: 0, opacity: 1, visible: true, draworder: "topdown", objects: objs.out }
-        : layer(2, "deco", toGid(tm.deco, decoIdx, decoFirst)),
-    ],
+    width: tm.cols, height: tm.rows, tilewidth: tm.tile, tileheight: iso ? tm.tile / 2 : tm.tile, nextlayerid: nextLayer, nextobjectid: nextObject,
+    layers,
     tilesets,
   };
   const path = join(dir, `${slug}.tiled.json`);
@@ -373,6 +396,6 @@ export function exportAsset(ws: Workspace, project: ProjectFile, asset: Asset, o
   } else {
     files.push(writeImage(join(dir, `${slug}.png`), scaleImage(spriteImage(asset.rows[0].frames[0], kit), scale), "image"));
   }
-  if (asset.tilemap && format !== "spritesheet") files.push(...tiledExport(asset.tilemap, slug, kit, dir));
+  if (asset.tilemap && format !== "spritesheet") files.push(...tiledExport(asset.tilemap, slug, kit, dir, asset.meta));
   return files;
 }
