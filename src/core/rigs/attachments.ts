@@ -33,7 +33,7 @@ const headwear: Attachment[] = [
     name: "Straw hat",
     parts: [
       ell({ id: "hat-brim", joint: "head", dy: -2.8, rx: 8.8, ry: 2.2, slot: "sand", flat: 0.5, z: HZ }),
-      ell({ id: "hat-crown", joint: "head", dy: -4.6, rx: 5.2, ry: 3.2, slot: "sand", z: HZ + 1 }),
+      ell({ id: "hat-crown", joint: "head", dy: -4.2, rx: 5.2, ry: 2.8, slot: "sand", z: HZ + 1 }),
       ell({ id: "hat-band", joint: "head", dy: -3.2, rx: 5.3, ry: 1.1, slot: "cloth2", flat: 0.5, z: HZ + 2 }),
     ],
   },
@@ -64,10 +64,10 @@ const headwear: Attachment[] = [
     name: "Wizard hat",
     parts: [
       ell({ id: "hat-brim", joint: "head", dy: -3, rx: 9, ry: 2, slot: "cloth2", flat: 0.5, z: HZ }),
-      ell({ id: "hat-cone1", joint: "head", dy: -4.3, rx: 5.2, ry: 2.1, slot: "cloth2", z: HZ + 1 }),
-      ell({ id: "hat-cone2", joint: "head", dx: 0.3, dy: -5.6, rx: 3.6, ry: 1.8, slot: "cloth2", z: HZ + 2 }),
-      ell({ id: "hat-cone3", joint: "head", dx: 0.8, dy: -6.6, rx: 2.2, ry: 1.3, slot: "cloth2", z: HZ + 3 }),
-      ell({ id: "hat-tip", joint: "head", dx: 1.6, dy: -7.2, rx: 1.1, ry: 0.9, slot: "cloth2", tone: 1, z: HZ + 4 }),
+      ell({ id: "hat-cone1", joint: "head", dy: -4.0, rx: 5.2, ry: 2.0, slot: "cloth2", z: HZ + 1 }),
+      ell({ id: "hat-cone2", joint: "head", dx: 0.3, dy: -5.0, rx: 3.6, ry: 1.7, slot: "cloth2", z: HZ + 2 }),
+      ell({ id: "hat-cone3", joint: "head", dx: 0.8, dy: -5.9, rx: 2.2, ry: 1.2, slot: "cloth2", z: HZ + 3 }),
+      ell({ id: "hat-tip", joint: "head", dx: 1.6, dy: -6.5, rx: 1.1, ry: 0.8, slot: "cloth2", tone: 1, z: HZ + 4 }),
       ell({ id: "hat-band", joint: "head", dy: -3.8, rx: 5.2, ry: 0.9, slot: "gold", flat: 0.5, z: HZ + 5 }),
     ],
   },
@@ -158,8 +158,8 @@ const held: Attachment[] = [
     name: "Bow",
     // the hand is the belly; both limbs sweep back toward the string
     joints: [
-      { id: "toolTip", parent: "handR", rest: at({ down: [0.5, -9], side: [-2, -9] }) },
-      { id: "bowLow", parent: "handR", rest: at({ down: [0.5, 8], side: [-2, 8] }) },
+      { id: "toolTip", parent: "handR", rest: at({ down: [-2, -9], side: [-3, -9] }) },
+      { id: "bowLow", parent: "handR", rest: at({ down: [-2, 8], side: [-3, 8] }) },
     ],
     parts: [
       shaft("bow-up", "handR", "toolTip", 0.9, "wood"),

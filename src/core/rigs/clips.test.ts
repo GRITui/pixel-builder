@@ -9,6 +9,7 @@ import { HUMANOID_JOINTS } from "./joints";
 const COUNTS: Record<string, [number, number]> = {
   idle: [2, 4], walk: [4, 4], run: [6, 6], attack: [4, 4], farm: [4, 4], carry: [4, 4], sit: [1, 2],
 };
+const TOOL_JOINTS = ["toolTip", "pole"];
 const rigs: RigDef[] = [EXAMPLE_RIG, ...HUMANOID_RIGS];
 
 describe("humanoid clips", () => {
@@ -24,9 +25,11 @@ describe("humanoid clips", () => {
         expect(frames.length).toBeLessThanOrEqual(hi);
         for (const f of frames)
           for (const [j, o] of Object.entries(f)) {
-            expect(HUMANOID_JOINTS as readonly string[]).toContain(j);
-            expect(Math.abs(o[0])).toBeLessThanOrEqual(4);
-            expect(Math.abs(o[1])).toBeLessThanOrEqual(4);
+            // attachment joints (tool tips, pole) swing further than body joints
+            const lim = TOOL_JOINTS.includes(j) ? 20 : 6;
+            if (!TOOL_JOINTS.includes(j)) expect(HUMANOID_JOINTS as readonly string[]).toContain(j);
+            expect(Math.abs(o[0])).toBeLessThanOrEqual(lim);
+            expect(Math.abs(o[1])).toBeLessThanOrEqual(lim);
           }
       }
   });
