@@ -24,7 +24,10 @@ export const ANIMAL_SCALE: Record<string, { height: number; canvas: number }> = 
   rooster: { height: 0.45, canvas: 1 },
 };
 
-export const animalTargetHeight = (species: string, kit: StyleKit) => proportions(kit).figure * (ANIMAL_SCALE[species]?.height ?? 1);
+/** Smallest height (px) at which a creature still reads at 1x; tiny species are clamped up to it on small kits. */
+export const MIN_READABLE_HEIGHT = 9;
+export const animalTargetHeight = (species: string, kit: StyleKit) =>
+  Math.max(Math.min(MIN_READABLE_HEIGHT, kit.sizes.character - 2), proportions(kit).figure * (ANIMAL_SCALE[species]?.height ?? 1));
 export const animalCanvas = (species: string, kit: StyleKit) => Math.round(kit.sizes.character * (ANIMAL_SCALE[species]?.canvas ?? 1));
 
 type Affine = { k: number; ox: number; oy: number };
