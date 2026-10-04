@@ -12,9 +12,10 @@ import { PATTERN_ATTACHMENTS, patternAttachment } from "./shapes-pattern";
 import { QUADRUPED_CLIPS, QUADRUPED_RIGS } from "./quadruped";
 import { TOOL_ATTACHMENTS } from "./tools";
 import { HUMANOID_SIDE_RIG, KNIGHT_TRIM, SIDE_CLIPS } from "./side";
+import { BEAST_CLIPS, BEAST_RIGS, MONSTER_CLIPS, MONSTER_RIGS, UNDEAD_CLIPS, UNDEAD_RIGS } from "./monsters";
 
 /** Which clips/attachments fit which rig: rigs share a `family` via their joint contract. */
-export type RigFamily = "humanoid" | "quadruped" | "bird" | "fish";
+export type RigFamily = "humanoid" | "quadruped" | "bird" | "fish" | "monster" | "beast" | "undead";
 
 export const RIGS: { rig: RigDef; family: RigFamily }[] = [
   { rig: EXAMPLE_RIG, family: "humanoid" },
@@ -24,6 +25,9 @@ export const RIGS: { rig: RigDef; family: RigFamily }[] = [
   ...BIRD_RIGS.map((rig) => ({ rig, family: "bird" as const })),
   ...FISH_RIGS.map((rig) => ({ rig, family: "fish" as const })),
   { rig: HUMANOID_SIDE_RIG, family: "humanoid" as const },
+  ...MONSTER_RIGS.map((rig) => ({ rig, family: "monster" as const })),
+  ...BEAST_RIGS.map((rig) => ({ rig, family: "beast" as const })),
+  ...UNDEAD_RIGS.map((rig) => ({ rig, family: "undead" as const })),
 ];
 
 export const CLIPS: { clip: Clip; family: RigFamily }[] = [
@@ -33,6 +37,9 @@ export const CLIPS: { clip: Clip; family: RigFamily }[] = [
   ...BIRD_CLIPS.map((clip) => ({ clip, family: "bird" as const })),
   ...FISH_CLIPS.map((clip) => ({ clip, family: "fish" as const })),
   ...SIDE_CLIPS.map((clip) => ({ clip, family: "humanoid" as const })),
+  ...MONSTER_CLIPS.map((clip) => ({ clip, family: "monster" as const })),
+  ...BEAST_CLIPS.map((clip) => ({ clip, family: "beast" as const })),
+  ...UNDEAD_CLIPS.map((clip) => ({ clip, family: "undead" as const })),
 ];
 
 export const ATTACHMENTS: { attachment: Attachment; family: RigFamily }[] = [

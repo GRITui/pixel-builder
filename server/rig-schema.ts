@@ -13,16 +13,18 @@ import { renderRigFrame, validateRig, type Attachment, type Clip, type Joint, ty
 import { attachmentById } from "../src/core/rigs";
 import { BIRD_JOINTS, HUMANOID_JOINTS, QUADRUPED_JOINTS } from "../src/core/rigs/joints";
 import { FISH_JOINTS } from "../src/core/rigs/fish";
+import { MONSTER_JOINTS } from "../src/core/rigs/monsters";
 import type { StyleKit } from "../src/core/types";
 import type { JsonSchema } from "./prompts";
 
-export const FAMILIES = ["humanoid", "quadruped", "bird", "fish", "custom"] as const;
+export const FAMILIES = ["humanoid", "quadruped", "bird", "fish", "monster", "custom"] as const;
 export type AuthorFamily = (typeof FAMILIES)[number];
 export const CONTRACTS: Record<Exclude<AuthorFamily, "custom">, readonly string[]> = {
   humanoid: HUMANOID_JOINTS,
   quadruped: QUADRUPED_JOINTS,
   bird: BIRD_JOINTS,
   fish: FISH_JOINTS,
+  monster: MONSTER_JOINTS,
 };
 
 const VIEWS: RigView[] = ["down", "down-side", "side", "up-side", "up"];
