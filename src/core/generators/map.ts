@@ -69,6 +69,13 @@ const BASE_CHANCE: Record<Biome, number> = { meadow: 0.22, forest: 0.55, island:
 const BASE_GROUND: Record<Biome, Ground> = { meadow: "grass", forest: "grass", island: "grass", desert: "sand", winter: "snow", "rice-village": "grass" };
 const PATH_GROUND: Record<Biome, Ground> = { meadow: "dirt", forest: "dirt", island: "dirt", desert: "dirt", winter: "stone-path", "rice-village": "dirt" };
 const VARIANTS = 6;
+/** Which ground spreads over which at a seam (higher wins); water uses shoreTile instead. */
+const BLEND_PRIORITY: Record<Ground, number> = { water: -1, paddy: 0, dirt: 1, "stone-path": 1, sand: 2, grass: 3, snow: 4 };
+const BLEND_ORDER = (Object.keys(BLEND_PRIORITY) as Ground[]).filter((g) => g !== "water").sort((a, b) => BLEND_PRIORITY[a] - BLEND_PRIORITY[b]);
+/** 8-neighbour offsets; bit k of a blend mask = NEIGHBOURS[k]. */
+const NEIGHBOURS: [number, number][] = [[0, -1], [1, 0], [0, 1], [-1, 0], [-1, -1], [1, -1], [1, 1], [-1, 1]];
+/** Smooth noise in [-1, 1] with period T, so edge wobble continues across tile seams. */
+const EDGE_WOBBLE = (i: number, T: number) => 0.75 * Math.sin((2 * Math.PI * i) / T + 1.3) + 0.25 * Math.sin((2 * Math.PI * 2 * i) / T + 0.4);
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
@@ -250,49 +257,29 @@ export const mapGenerator: Generator = {
       const rr = r.next(), rv = r.int(1, VARIANTS - 1);
       const v = rr < 0.4 ? 0 : (rv + Math.floor(vNoise(x / 2, y / 2) * VARIANTS)) % VARIANTS;
       if (g === "water") { tm.ground[i] = groundTile(g, 0); continue; }
-      if (path.has(i) && g === PATH_GROUND[biome]) {
-        // path cell: ragged border of the neighbouring ground on sides that touch non-path land
-        const nb = (dx: number, dy: number): Ground | null => {
+      // higher-priority neighbours spread into this cell along a smooth curve (see blendTile)
+      const layers: { g: Ground; mask: number }[] = [];
+      for (const h of BLEND_ORDER) {
+        if (BLEND_PRIORITY[h] <= BLEND_PRIORITY[g]) continue;
+        let m = 0;
+        NEIGHBOURS.forEach(([dx, dy], k) => {
           const xx = x + dx, yy = y + dy;
-          if (xx < 0 || yy < 0 || xx >= cols || yy >= rows) return null;
-          const j = yy * cols + xx;
-          return path.has(j) || ground[j] === "water" ? null : ground[j];
-        };
-        const sides = [nb(0, -1), nb(1, 0), nb(0, 1), nb(-1, 0)];
-        let emask = 0;
-        let nground: Ground | null = null;
-        sides.forEach((sg, k) => { if (sg) { emask |= 1 << k; nground ??= sg; } });
-        const diag: [number, number, number][] = [[-1, -1, 16], [1, -1, 32], [1, 1, 64], [-1, 1, 128]];
-        const covered = [(1 | 8), (1 | 2), (4 | 2), (4 | 8)];
-        diag.forEach(([dx, dy, bit], k) => {
-          if (emask & covered[k]) return;
-          const dg = nb(dx, dy);
-          if (dg && !path.has((y + dy) * cols + x) ) { emask |= bit; nground ??= dg; }
+          if (xx >= 0 && yy >= 0 && xx < cols && yy < rows && ground[yy * cols + xx] === h) m |= 1 << k;
         });
-        if (emask) {
-          const sv = v % 2;
-          const name = `${g}-edge-${emask}-${nground}${sv ? "b" : ""}`;
-          let idx = tileCache.get(name);
-          if (idx === undefined) {
-            idx = ensureTile(tm, name, pathEdgeTile(baseSprite(g, sv), baseSprite(nground!, sv), emask), false);
-            tileCache.set(name, idx);
-          }
-          tm.ground[i] = idx;
-          continue;
-        }
+        if (m) layers.push({ g: h, mask: m });
       }
-      // 4-neighbour water mask (N,E,S,W) plus diagonal notches for corners not already covered
-      let mask = (isWater(x, y - 1) ? 1 : 0) | (isWater(x + 1, y) ? 2 : 0) | (isWater(x, y + 1) ? 4 : 0) | (isWater(x - 1, y) ? 8 : 0);
-      if (!(mask & 1) && !(mask & 8) && isWater(x - 1, y - 1)) mask |= 16;
-      if (!(mask & 1) && !(mask & 2) && isWater(x + 1, y - 1)) mask |= 32;
-      if (!(mask & 4) && !(mask & 2) && isWater(x + 1, y + 1)) mask |= 64;
-      if (!(mask & 4) && !(mask & 8) && isWater(x - 1, y + 1)) mask |= 128;
-      if (mask === 0) { tm.ground[i] = groundTile(g, v); continue; }
-      const sv = v % 2; // two shore texture variants per mask is plenty
-      const name = `${g}-shore-${mask}${sv ? "b" : ""}`;
+      const edgeKey = layers.map((l) => `${l.mask}${l.g}`).join("-");
+      let wmask = 0;
+      NEIGHBOURS.forEach(([dx, dy], k) => { if (isWater(x + dx, y + dy)) wmask |= 1 << k; });
+      if (!wmask && !edgeKey) { tm.ground[i] = groundTile(g, v); continue; }
+      const sv = v % 2; // two texture variants per transition is plenty
+      const name = `${g}${wmask ? `-shore-${wmask}` : ""}${edgeKey ? `-edge-${edgeKey}` : ""}${sv ? "b" : ""}`;
       let idx = tileCache.get(name);
       if (idx === undefined) {
-        idx = ensureTile(tm, name, shoreTile(baseSprite(g, sv), baseSprite("water", 0), mask), false);
+        // water spreads last, with a foam rim, so shores round off the same way as land seams
+        const all = [...layers.map((l) => ({ sprite: baseSprite(l.g, sv), mask: l.mask })), ...(wmask ? [{ sprite: baseSprite("water", 0), mask: wmask, foam: true }] : [])];
+        const sp = blendTile(baseSprite(g, sv), all);
+        idx = ensureTile(tm, name, sp, false);
         tileCache.set(name, idx);
       }
       tm.ground[i] = idx;
@@ -389,97 +376,55 @@ function tmKind(tm: TileMap, idx: number): string {
 }
 
 /**
- * Land tile touching water: a foam line on the water-facing edges, a darker wet line behind it,
- * and rounded corners where two water sides meet (or a notch for a diagonal-only water cell).
- * mask bits: 1=N 2=E 4=S 8=W water neighbours; 16=NW 32=NE 64=SE 128=SW diagonal-only.
+ * Ground tile with higher-priority neighbours spreading into it. Each neighbour cell (mask bits
+ * follow NEIGHBOURS) radiates an influence that fades with distance; a pixel turns into the
+ * neighbour's ground where the summed influence passes a wobbly threshold. Summing rounds the
+ * corners (convex ones more), and because the field is continuous in world space and the wobble
+ * is periodic in T, adjacent transition tiles line up. A 1px darker rim marks the lip.
  */
-function shoreTile(land: Sprite, water: Sprite, mask: number): Sprite {
-  const T = land.w;
+function blendTile(base: Sprite, layers: { sprite: Sprite; mask: number; foam?: boolean }[]): Sprite {
+  const T = base.w;
   const out = createSprite(T, T);
-  for (let i = 0; i < land.data.length; i++) out.data[i] = land.data[i];
-  const dark = (v: number) => {
-    const d = decodeIndex(v);
-    return d ? colorIndex(d.mat, Math.max(0, d.level - 1)) : v;
+  for (let i = 0; i < base.data.length; i++) out.data[i] = base.data[i];
+  const R = Math.max(3, T * 0.55);
+  const wob = (x: number, y: number) => 0.07 * (EDGE_WOBBLE(((x % T) + T) % T, T) + EDGE_WOBBLE(((y % T) + T) % T, T));
+  const taken = (x: number, y: number, mask: number) => {
+    const px = x + 0.5, py = y + 0.5;
+    let sum = 0;
+    NEIGHBOURS.forEach(([dx, dy], k) => {
+      if (!(mask & (1 << k))) return;
+      const ex = Math.max(dx * T - px, 0, px - (dx * T + T)), ey = Math.max(dy * T - py, 0, py - (dy * T + T));
+      sum += Math.max(0, 1 - Math.hypot(ex, ey) / R);
+    });
+    return sum > 0.65 + wob(x, y);
   };
+  // which layer owns each pixel (-1 = this tile's own ground); later layers win
+  const owner = new Array(T * T).fill(-1);
+  layers.forEach(({ sprite, mask }, li) => {
+    for (let y = 0; y < T; y++)
+      for (let x = 0; x < T; x++)
+        if (taken(x, y, mask)) { out.data[y * T + x] = sprite.data[y * T + x]; owner[y * T + x] = li; }
+  });
+  const ownerAt = (x: number, y: number) => {
+    if (x >= 0 && y >= 0 && x < T && y < T) return owner[y * T + x];
+    for (let li = layers.length - 1; li >= 0; li--) if (taken(x, y, layers[li].mask)) return li;
+    return -1;
+  };
+  const foamy = (li: number) => li >= 0 && !!layers[li].foam;
   const foam = colorIndex("water", 4);
-  const set = (x: number, y: number, v: number) => { if (x >= 0 && y >= 0 && x < T && y < T) out.data[y * T + x] = v; };
-  const N = mask & 1, E = mask & 2, S = mask & 4, W = mask & 8;
-  // wet line first, then foam on top
-  for (let i = 0; i < T; i++) {
-    if (N) set(i, 1, dark(land.data[T + i]));
-    if (S) set(i, T - 2, dark(land.data[(T - 2) * T + i]));
-    if (W) set(1, i, dark(land.data[i * T + 1]));
-    if (E) set(T - 2, i, dark(land.data[i * T + T - 2]));
-  }
-  for (let i = 0; i < T; i++) {
-    if (N) set(i, 0, foam);
-    if (S) set(i, T - 1, foam);
-    if (W) set(0, i, foam);
-    if (E) set(T - 1, i, foam);
-  }
-  const wv = (x: number, y: number) => water.data[y * T + x];
-  const corner = (cx: number, cy: number, sx: number, sy: number) => {
-    // water-filled rounded corner (cut radius 3), foam on its rim
-    for (let dy = 0; dy < 4; dy++)
-      for (let dx = 0; dx < 4; dx++) {
-        const d = dx + dy;
-        const x = cx + sx * dx, y = cy + sy * dy;
-        if (d <= 2) set(x, y, wv(x, y));
-        else if (d === 3 && dx < 3 && dy < 3) set(x, y, foam);
+  const next = out.data.slice();
+  for (let y = 0; y < T; y++)
+    for (let x = 0; x < T; x++) {
+      const o = owner[y * T + x];
+      const nbs = [ownerAt(x, y - 1), ownerAt(x - 1, y), ownerAt(x + 1, y), ownerAt(x, y + 1)];
+      if (foamy(o)) {
+        if (nbs.some((n) => !foamy(n))) next[y * T + x] = foam;
+      } else if (o === -1 && nbs.some((n) => n !== -1)) {
+        // 1px darker lip on this ground where a neighbour spreads over it (the wet line at shores)
+        const d = decodeIndex(out.data[y * T + x]);
+        if (d) next[y * T + x] = colorIndex(d.mat, Math.max(0, d.level - 1));
       }
-  };
-  if (N && W) corner(0, 0, 1, 1);
-  if (N && E) corner(T - 1, 0, -1, 1);
-  if (S && E) corner(T - 1, T - 1, -1, -1);
-  if (S && W) corner(0, T - 1, 1, -1);
-  const notch = (cx: number, cy: number, sx: number, sy: number) => {
-    set(cx, cy, foam);
-    set(cx + sx, cy, foam);
-    set(cx, cy + sy, foam);
-  };
-  if (mask & 16) notch(0, 0, 1, 1);
-  if (mask & 32) notch(T - 1, 0, -1, 1);
-  if (mask & 64) notch(T - 1, T - 1, -1, -1);
-  if (mask & 128) notch(0, T - 1, 1, -1);
-  return out;
-}
-
-/**
- * Path tile whose non-path sides fray into the neighbouring ground: a ragged 1-2px border
- * (depth depends only on the position along the edge so adjacent edge tiles line up),
- * rounded outer corners where two sides meet and a small notch for diagonal-only neighbours.
- * mask bits as shoreTile.
- */
-function pathEdgeTile(pathSp: Sprite, ground: Sprite, mask: number): Sprite {
-  const T = pathSp.w;
-  const out = createSprite(T, T);
-  for (let i = 0; i < pathSp.data.length; i++) out.data[i] = pathSp.data[i];
-  const set = (x: number, y: number) => { if (x >= 0 && y >= 0 && x < T && y < T) out.data[y * T + x] = ground.data[y * T + x]; };
-  const depth = (i: number, side: number) => {
-    const h = Math.imul(i + 1 + side * 31, 2654435761) >>> 0;
-    return 1 + ((h >>> 13) % 5 < 2 ? 1 : 0) + (T >= 24 && (h >>> 7) % 7 === 0 ? 1 : 0);
-  };
-  const N = mask & 1, E = mask & 2, S = mask & 4, W = mask & 8;
-  for (let i = 0; i < T; i++) {
-    if (N) for (let d = 0; d < depth(i, 0); d++) set(i, d);
-    if (S) for (let d = 0; d < depth(i, 2); d++) set(i, T - 1 - d);
-    if (W) for (let d = 0; d < depth(i, 3); d++) set(d, i);
-    if (E) for (let d = 0; d < depth(i, 1); d++) set(T - 1 - d, i);
-  }
-  const corner = (cx: number, cy: number, sx: number, sy: number) => {
-    for (let dy = 0; dy < 4; dy++)
-      for (let dx = 0; dx < 4; dx++) if (dx + dy <= 3 - (T < 12 ? 1 : 0)) set(cx + sx * dx, cy + sy * dy);
-  };
-  if (N && W) corner(0, 0, 1, 1);
-  if (N && E) corner(T - 1, 0, -1, 1);
-  if (S && E) corner(T - 1, T - 1, -1, -1);
-  if (S && W) corner(0, T - 1, 1, -1);
-  const notch = (cx: number, cy: number, sx: number, sy: number) => {
-    set(cx, cy); set(cx + sx, cy); set(cx, cy + sy);
-  };
-  if (mask & 16) notch(0, 0, 1, 1);
-  if (mask & 32) notch(T - 1, 0, -1, 1);
-  if (mask & 64) notch(T - 1, T - 1, -1, -1);
-  if (mask & 128) notch(0, T - 1, 1, -1);
+    }
+  out.data = next;
   return out;
 }
