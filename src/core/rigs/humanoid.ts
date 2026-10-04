@@ -67,8 +67,8 @@ export function humanoidRig(build: Build, age: Age = "young-adult", sex: Sex = "
   const { tw, leg: leg0, arm: arm0 } = BUILDS[build];
   const leg = leg0 * A.limb * (1 - 0.08 * fem), arm = arm0 * A.limb * (1 - 0.12 * fem);
   const s = A.torso / 7.5;
-  const trw = tw / 2 + 0.6 - 0.4 * fem; // torso half width
-  const trs = tw * 0.4 + 0.6 - 0.3 * fem;
+  const trw = tw / 2 + 0.6 - 0.9 * fem; // torso half width
+  const trs = tw * 0.4 + 0.6 - 0.5 * fem;
   const parts: PartDef[] = [
     // legs: far leg in side view is a separate, darker part behind the torso
     { id: "legL", kind: "limb", from: "hip", to: "footL", r: leg, slot: "bottom", z: 1, views: ["down", "up", "side"] },
@@ -96,8 +96,8 @@ export function humanoidRig(build: Build, age: Age = "young-adult", sex: Sex = "
   if (fem > 0) {
     // slightly wider hips, drawn in the trouser/skirt slot under the torso
     parts.push(
-      { id: "hips", kind: "ellipse", joint: "hip", dy: -0.6, rx: tw / 2 + 0.4 + 0.8 * fem, ry: 2.4, flat: 0.4, slot: "bottom", z: 1.8, views: ["down", "up"] },
-      { id: "hipsSide", kind: "ellipse", joint: "hip", dy: -0.6, rx: tw * 0.4 + 0.4 + 0.6 * fem, ry: 2.4, flat: 0.4, slot: "bottom", z: 1.8, views: ["side"] },
+      { id: "hips", kind: "ellipse", joint: "hip", dy: -0.6, rx: tw / 2 + 0.4 + 1.5 * fem, ry: 2.6, flat: 0.4, slot: "bottom", z: 1.8, views: ["down", "up"] },
+      { id: "hipsSide", kind: "ellipse", joint: "hip", dy: -0.6, rx: tw * 0.4 + 0.4 + 1 * fem, ry: 2.6, flat: 0.4, slot: "bottom", z: 1.8, views: ["side"] },
     );
   }
   const def = age === "young-adult" && sex === "male";
@@ -193,3 +193,45 @@ export const FACE: Attachment = {
 };
 /** Opt-out marker: a rigged humanoid with this attachment gets no default face. */
 export const NO_FACE: Attachment = { id: "no-face", name: "No face", parts: [] };
+
+/**
+ * Female face cues as parts: an outer lash pixel per eye, two-pixel lips and cheek blush, plus a
+ * hair bow for baby/kid (the only cue that survives a 4-tone kit on a head that is otherwise
+ * identical). `ex` widens the eye spacing like the generator's seeded wide eyes.
+ */
+export function femaleCueParts(age: Age, z: number, ex = 0, withBlush = true): PartDef[] {
+  const B = (id: string, o: Record<string, unknown>) => ({ id, kind: "box", joint: "head", z, ...o }) as PartDef;
+  const P: PartDef[] = [
+    B("fem-lashL", { dx: -4 - ex, dy: -2, w: 1, h: 1, slot: "ink", tone: -2, views: ["down"] }),
+    B("fem-lashR", { dx: 3 + ex, dy: -2, w: 1, h: 1, slot: "ink", tone: -2, views: ["down"] }),
+    B("fem-lashS", { dx: 4, dy: -2, w: 1, h: 1, slot: "ink", tone: -2, views: ["side"] }),
+    B("fem-lips", { dx: -1, dy: 2, w: 2, h: 1, slot: "accent", tone: 0, views: ["down"] }),
+    B("fem-lipsS", { dx: 5, dy: 2, w: 1, h: 1, slot: "accent", tone: 0, views: ["side"] }),
+  ];
+  if (withBlush)
+    P.push(
+      B("fem-blushL", { dx: -4 - ex, dy: 1, w: 1, h: 1, slot: "accent", tone: 1, views: ["down"] }),
+      B("fem-blushR", { dx: 3 + ex, dy: 1, w: 1, h: 1, slot: "accent", tone: 1, views: ["down"] }),
+    );
+  if (age !== "baby")
+    // side locks falling past the jaw: the one cue that survives a 4-tone kit at adult sizes
+    P.push(
+      B("fem-lockL", { dx: -8, dy: 0, w: 2, h: age === "kid" ? 5 : 7, slot: "hair", z: 5.5, views: ["down"] }),
+      B("fem-lockR", { dx: 6, dy: 0, w: 2, h: age === "kid" ? 5 : 7, slot: "hair", z: 5.5, views: ["down"] }),
+      B("fem-lockS", { dx: -8, dy: 0, w: 3, h: age === "kid" ? 6 : 8, slot: "hair", z: 5.5, views: ["side"] }),
+      B("fem-lockU", { dx: -8, dy: 0, w: 16, h: age === "kid" ? 6 : 8, slot: "hair", z: 4.5, views: ["up"] }),
+    );
+  if (age === "baby" || age === "kid")
+    P.push(
+      B("fem-bowL", { dx: 0, dy: -8, w: 2, h: 2, slot: "accent", tone: 1, z: z + 1, views: ["down", "up"] }),
+      B("fem-bowR", { dx: 3, dy: -8, w: 2, h: 2, slot: "accent", tone: 1, z: z + 1, views: ["down", "up"] }),
+      B("fem-bowKnot", { dx: 2, dy: -7, w: 1, h: 1, slot: "accent", tone: -1, z: z + 1, views: ["down", "up"] }),
+      B("fem-bowSide", { dx: -1, dy: -8, w: 3, h: 2, slot: "accent", tone: 1, z: z + 1, views: ["side"] }),
+    );
+  return P;
+}
+
+/** Face for female rigs; the bow follows the age encoded in the rig id. */
+export function femaleFace(age: Age): Attachment {
+  return { id: "face-female", name: "Face (female)", parts: [...FACE.parts, ...femaleCueParts(age, 30)] };
+}

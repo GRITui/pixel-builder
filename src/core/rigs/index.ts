@@ -6,7 +6,7 @@ import { BIRD_CLIPS, BIRD_RIGS } from "./bird";
 import { HUMANOID_CLIPS } from "./clips";
 import { FISH_CLIPS, FISH_RIGS } from "./fish";
 import { EXAMPLE_RIG, IDLE, NGOB_HAT, WALK } from "./example";
-import { FACE, HAIR_STYLES, hairAttachment, HUMANOID_RIGS, HUMAN_RIGS, NO_FACE } from "./humanoid";
+import { AGES, FACE, femaleFace, HAIR_STYLES, hairAttachment, HUMANOID_RIGS, HUMAN_RIGS, NO_FACE } from "./humanoid";
 import { WARDROBE_NEW_ATTACHMENTS } from "./wardrobe";
 import { QUADRUPED_CLIPS, QUADRUPED_RIGS } from "./quadruped";
 import { TOOL_ATTACHMENTS } from "./tools";
@@ -50,6 +50,8 @@ export function withHumanoidDefaults(rig: RigDef, attachments: Attachment[]): At
   if (rigById(rig.id)?.family !== "humanoid" || rig.parts.some((p) => p.slot === "hair" || /eye/i.test(p.id))) return attachments;
   const ids = attachments.map((a) => a.id);
   const hair = ids.some((id) => id.startsWith("hair-")) ? [] : [hairAttachment("short")];
-  const face = ids.includes("face") || ids.includes("no-face") ? [] : [FACE];
+  const female = /-female-|^human-female-/.test(rig.id);
+  const age = AGES.find((a) => rig.id.endsWith(`-${a}`)) ?? "young-adult";
+  const face = ids.includes("face") || ids.includes("face-female") || ids.includes("no-face") ? [] : [female ? femaleFace(age) : FACE];
   return [...hair, ...attachments, ...face];
 }

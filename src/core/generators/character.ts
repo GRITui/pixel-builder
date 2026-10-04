@@ -4,7 +4,7 @@ import { buildLegend } from "../legend";
 import { Painter } from "../painter";
 import { colorIndex, type Material } from "../palette";
 import { clipFrames, renderRig, type Attachment, type Clip, type PartDef } from "../rig";
-import { HUMANOID_RIGS, humanoidRig, AGES, torsoWidth, type Age, type Build, type Sex } from "../rigs/humanoid";
+import { HUMANOID_RIGS, humanoidRig, femaleCueParts, AGES, torsoWidth, type Age, type Build, type Sex } from "../rigs/humanoid";
 import { attachmentById, clipById } from "../rigs";
 import { WALK } from "../rigs/example";
 import { hairStyleAttachment } from "../rigs/wardrobe";
@@ -107,7 +107,7 @@ function fallbackItem(item: string, tw: number): PartDef[] {
 const WOOD = buildLegend(KIT_PRESETS[0]).byIndex.get(colorIndex("wood", 3)) ?? "w";
 
 /** Seeded face / trim details, drawn above hats so eyes always show. */
-function detailParts(t: Traits, tw: number, size: number, eyeZ: number): PartDef[] {
+function detailParts(t: Traits, tw: number, size: number, eyeZ: number, fem?: Age): PartDef[] {
   const ex = t.wideEyes ? 1 : 0;
   const big = size >= 32;
   const P: PartDef[] = [
@@ -115,9 +115,12 @@ function detailParts(t: Traits, tw: number, size: number, eyeZ: number): PartDef
     { id: "eyeR", kind: "box", joint: "head", dx: 2 + ex, dy: -1, w: 1, h: 2, slot: "ink", tone: -2, z: eyeZ, views: ["down"] },
     { id: "eyeSide", kind: "box", joint: "head", dx: 3, dy: -1, w: 1, h: 2, slot: "ink", tone: -2, z: eyeZ, views: ["side"] },
   ];
-  P.push({ id: "mouth", kind: "box", joint: "head", dx: -0.5, dy: 2, w: 1, h: 1, slot: "skin", tone: -2, z: eyeZ, views: ["down"] });
+  if (fem) {
+    // female cues: lashes, lips, always-on blush and a bow for the young (replace the neutral mouth)
+    P.push(...femaleCueParts(fem, eyeZ, ex, big));
+  } else P.push({ id: "mouth", kind: "box", joint: "head", dx: -0.5, dy: 2, w: 1, h: 1, slot: "skin", tone: -2, z: eyeZ, views: ["down"] });
   if (big) {
-    if (t.blush) {
+    if (t.blush && !fem) {
       P.push(
         { id: "blushL", kind: "box", joint: "head", dx: -4 - ex, dy: 1, w: 1, h: 1, slot: "cloth2", tone: 1, z: eyeZ, views: ["down"] },
         { id: "blushR", kind: "box", joint: "head", dx: 3 + ex, dy: 1, w: 1, h: 1, slot: "cloth2", tone: 1, z: eyeZ, views: ["down"] },
@@ -187,7 +190,7 @@ function drawHumanoid(p: Params, kit: StyleKit, size: number, t: Traits): FrameS
     const a = attach(v === "basket" ? v : prefix + v);
     if (a) atts.push(a);
   }
-  atts.push({ id: "details", name: "Seeded details", parts: detailParts(t, tw, size, hat !== "none" && (!attach(HEADWEAR_ID[hat]) || WARDROBE_HATS.has(hat)) ? 30 : 7) });
+  atts.push({ id: "details", name: "Seeded details", parts: detailParts(t, tw, size, hat !== "none" && (!attach(HEADWEAR_ID[hat]) || WARDROBE_HATS.has(hat)) ? 30 : 7, sex === "female" ? (age as Age) : undefined) });
 
   return renderRig({ rig, kit, slots, attachments: atts, size }, [walkClip()]);
 }
