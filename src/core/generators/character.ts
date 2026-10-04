@@ -110,17 +110,17 @@ function detailParts(t: Traits, tw: number, size: number, eyeZ: number): PartDef
   const ex = t.wideEyes ? 1 : 0;
   const big = size >= 32;
   const P: PartDef[] = [
-    { id: "eyeL", kind: "box", joint: "head", dx: -3 - ex, dy: 1, w: 1, h: 2, slot: "ink", tone: -2, z: eyeZ, views: ["down"] },
-    { id: "eyeR", kind: "box", joint: "head", dx: 2 + ex, dy: 1, w: 1, h: 2, slot: "ink", tone: -2, z: eyeZ, views: ["down"] },
-    { id: "eyeSide", kind: "box", joint: "head", dx: 3, dy: 1, w: 1, h: 2, slot: "ink", tone: -2, z: eyeZ, views: ["side"] },
+    { id: "eyeL", kind: "box", joint: "head", dx: -3 - ex, dy: -1, w: 1, h: 2, slot: "ink", tone: -2, z: eyeZ, views: ["down"] },
+    { id: "eyeR", kind: "box", joint: "head", dx: 2 + ex, dy: -1, w: 1, h: 2, slot: "ink", tone: -2, z: eyeZ, views: ["down"] },
+    { id: "eyeSide", kind: "box", joint: "head", dx: 3, dy: -1, w: 1, h: 2, slot: "ink", tone: -2, z: eyeZ, views: ["side"] },
   ];
-  P.push({ id: "mouth", kind: "box", joint: "head", dx: -0.5, dy: 4, w: 1, h: 1, slot: "skin", tone: -2, z: eyeZ, views: ["down"] });
+  P.push({ id: "mouth", kind: "box", joint: "head", dx: -0.5, dy: 2, w: 1, h: 1, slot: "skin", tone: -2, z: eyeZ, views: ["down"] });
   if (big) {
     if (t.blush) {
       P.push(
-        { id: "blushL", kind: "box", joint: "head", dx: -4 - ex, dy: 3, w: 1, h: 1, slot: "cloth2", tone: 1, z: eyeZ, views: ["down"] },
-        { id: "blushR", kind: "box", joint: "head", dx: 3 + ex, dy: 3, w: 1, h: 1, slot: "cloth2", tone: 1, z: eyeZ, views: ["down"] },
-        { id: "blushS", kind: "box", joint: "head", dx: 4, dy: 3, w: 1, h: 1, slot: "cloth2", tone: 1, z: eyeZ, views: ["side"] },
+        { id: "blushL", kind: "box", joint: "head", dx: -4 - ex, dy: 1, w: 1, h: 1, slot: "cloth2", tone: 1, z: eyeZ, views: ["down"] },
+        { id: "blushR", kind: "box", joint: "head", dx: 3 + ex, dy: 1, w: 1, h: 1, slot: "cloth2", tone: 1, z: eyeZ, views: ["down"] },
+        { id: "blushS", kind: "box", joint: "head", dx: 4, dy: 1, w: 1, h: 1, slot: "cloth2", tone: 1, z: eyeZ, views: ["side"] },
       );
     }
   }
