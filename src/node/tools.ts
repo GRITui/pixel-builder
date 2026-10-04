@@ -1004,7 +1004,8 @@ function renderRecipe(project: ProjectFile, kit: StyleKit, recipe: RigRecipe) {
   if (errs.length) throw new ToolError(`Cannot render rig '${lib.rig.id}': ${[...new Set(errs)].slice(0, 6).join("; ")}.`);
   // built-in animals share one world scale with the `animal` generator (issue #24)
   const fit = lib.builtin && !atts.length ? fitRigToWorld(lib.rig, kit, recipe.slots ?? {}, clips) : undefined;
-  const rows = fit ? renderRig({ rig: fit.rig, kit, slots: recipe.slots, size: fit.size }, fit.clips) : renderRig({ rig: lib.rig, kit, slots: recipe.slots, attachments: atts }, clips);
+  const ro = { directions: recipe.directions === 8 ? (8 as const) : (4 as const) };
+  const rows = fit ? renderRig({ rig: fit.rig, kit, slots: recipe.slots, size: fit.size }, fit.clips, ro) : renderRig({ rig: lib.rig, kit, slots: recipe.slots, attachments: atts }, clips, ro);
   return { rows, fps: clips[0].fps, lib, attachments: atts, clips };
 }
 
@@ -1050,12 +1051,13 @@ const generateRigged = defineTool({
   name: "generate_rigged",
   title: "Generate rigged character",
   description:
-    "Render a rigged character: one skeleton, material slots, optional attachments, and animation clips x 4 directions (rows '<clip>-<dir>'). Lit by the kit like every generator. Saves (as a character) and exports a spritesheet + .json, with a preview. Re-render later with rerender_assets; change accessories with attach.",
+    "Render a rigged character: one skeleton, material slots, optional attachments, and animation clips x 4 or 8 directions (rows '<clip>-<dir>'; 8 adds the 3/4 diagonals down-right, up-right, up-left, down-left). Lit by the kit like every generator. Saves (as a character) and exports a spritesheet + .json, with a preview. Re-render later with rerender_assets; change accessories with attach.",
   shape: {
     rig: z.string().describe("Rig id (see list_rigs), e.g. a humanoid."),
     slots: slotsField,
     attachments: z.array(z.string()).optional().describe("Attachment ids (see list_attachments)."),
     clips: z.array(z.string()).optional().describe("Clip ids (see list_clips). Default: walk and idle when available."),
+    directions: z.union([z.literal(4), z.literal(8)]).default(4).describe("4 (down, left, right, up) or 8 (adds down-right, up-right, up-left, down-left as 3/4 views). Default 4."),
     name: z.string().min(1).max(80).optional(),
     kit_id: kitIdField,
     save: z.boolean().default(true),
@@ -1066,7 +1068,7 @@ const generateRigged = defineTool({
     const kit = getKit(project, i.kit_id);
     const lib = resolveRig(project, i.rig);
     const defClips = allClips(project).filter((c) => c.family === lib.family && ["walk", "idle"].includes(c.clip.id)).map((c) => c.clip.id).sort().reverse();
-    const recipe: RigRecipe = { rig: lib.rig.id, ...(i.slots ? { slots: i.slots as Record<string, Material> } : {}), attachments: i.attachments ?? [], clips: i.clips?.length ? i.clips : defClips.length ? defClips : [allClips(project).find((c) => c.family === lib.family)?.clip.id ?? "walk"] };
+    const recipe: RigRecipe = { rig: lib.rig.id, ...(i.slots ? { slots: i.slots as Record<string, Material> } : {}), attachments: i.attachments ?? [], clips: i.clips?.length ? i.clips : defClips.length ? defClips : [allClips(project).find((c) => c.family === lib.family)?.clip.id ?? "walk"], ...(i.directions === 8 ? { directions: 8 as const } : {}) };
     const res = renderRecipe(project, kit, recipe);
     const asset = createAsset({
       name: uniqueName(project, "character", i.name ?? lib.rig.name.toLowerCase()),

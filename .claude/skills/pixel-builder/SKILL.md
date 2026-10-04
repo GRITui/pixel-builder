@@ -40,7 +40,7 @@ hand-write PNGs or invent colours.
 | `import_svg` | read a layered SVG back (new asset, or `replace_id` to retexture an existing one): edit by layer, keep `data-material`/`data-level` or use kit colours, the `guides` layer is ignored |
 | `rerender_assets` | regenerate procedural and rigged assets after a kit change |
 | `list_rigs` / `list_clips` / `list_attachments` | rigs, animation clips and accessories (with family); ids for `generate_rigged` |
-| `generate_rigged` | animated character: rig + `slots` + `attachments` + `clips` -> walk/idle rows in 4 directions, exported as a spritesheet |
+| `generate_rigged` | animated character: rig + `slots` + `attachments` + `clips` -> walk/idle rows in 4 directions (`directions: 8` adds the 3/4 diagonals down-right, up-right, up-left, down-left), exported as a spritesheet |
 | `attach` | add/remove attachments (hat, tool) on a saved rigged asset; re-renders every frame |
 | `create_rig` / `create_clip` / `create_attachment` | author your own rig/clip/attachment as JSON (see `docs/RIG.md`); validated and stored in the project |
 | `generate_pack` | build a whole starter set in one call: built-in `farming-v1` (104 assets) or your own `manifest` of generate_asset/generate_rigged inputs; `only` filters by tag (`sea`, `normal`, `building`, `tool`...), re-running replaces in place, writes `.svg` too |

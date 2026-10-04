@@ -37,6 +37,16 @@ describe("tool contract", () => {
     expect(() => call("generate_variations", { generator: "environment", count: 13 })).toThrow(/count/);
     expect(() => call("paint_asset", { name: "x", category: "object", width: 0, height: 4, frames: [["."]] })).toThrow(/width/);
   });
+
+  it("generate_rigged takes directions 4 (default) or 8", () => {
+    const rows = (a: any) => a.rows ?? a.animations?.map((r: any) => r.name);
+    const a4 = data("generate_rigged", { rig: "humanoid-normal", clips: ["walk"], name: "d4", save: false }).asset;
+    const a8 = data("generate_rigged", { rig: "humanoid-normal", clips: ["walk"], directions: 8, name: "d8", save: false }).asset;
+    expect(JSON.stringify(a8)).toContain("walk-down-right");
+    expect(JSON.stringify(a4)).not.toContain("walk-down-right");
+    void rows;
+    expect(() => call("generate_rigged", { rig: "humanoid-normal", directions: 6 })).toThrow();
+  });
 });
 
 describe("get_style_guide / list_generators", () => {

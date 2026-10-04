@@ -69,6 +69,7 @@ function build(s: Spec, variant = 0): RigDef {
     { id: "beakUp", kind: "ellipse", joint: "beak", dx: -s.beakLen * 0.4, rx: s.beakLen, ry: s.beakH, slot: "beak", tone: 1, z: 6, views: ["side"] },
     { id: "beakF", kind: "ellipse", joint: "beak", dy: -0.5, rx: s.duck ? 2.2 : 1.3, ry: s.duck ? 1.2 : 1.3, slot: "beak", tone: 1, z: 6, views: ["down"] },
     { id: "eye", kind: "box", joint: "head", dx: s.headR * 0.3, dy: -s.headR * 0.35, w: 1, h: 1, slot: "ink", tone: -4, z: 9, views: ["side"] },
+    { id: "eyeD", kind: "box", joint: "head", dx: s.headR * 0.7, dy: -s.headR * 0.35, w: 1, h: 1, slot: "ink", tone: -4, z: 9, views: ["down-side"] },
     { id: "eyeL", kind: "box", joint: "head", dx: -s.headR * 0.55, dy: -0.5, w: 1, h: 1, slot: "ink", tone: -4, z: 9, views: ["down"] },
     { id: "eyeR", kind: "box", joint: "head", dx: s.headR * 0.45, dy: -0.5, w: 1, h: 1, slot: "ink", tone: -4, z: 9, views: ["down"] },
   );
