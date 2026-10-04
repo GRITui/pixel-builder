@@ -1,0 +1,34 @@
+name: Auto-merge
+
+# Merges Claude's PRs once CI is green, so nobody has to press the button.
+# Only PRs from `claude/*` branches in this repository (never forks) and not drafts.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  merge:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      startsWith(github.event.workflow_run.head_branch, 'claude/') &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Merge the PR if CI passed on its current head
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          pr=$(gh pr list --repo "$REPO" --head "$BRANCH" --state open --json number,headRefOid,isDraft,baseRefName \
+            --jq ".[] | select(.headRefOid == \"$SHA\" and (.isDraft | not) and .baseRefName == \"main\") | .number")
+          if [ -z "$pr" ]; then echo "No open, non-draft PR at $SHA; nothing to merge."; exit 0; fi
+          gh pr merge "$pr" --repo "$REPO" --merge --match-head-commit "$SHA"

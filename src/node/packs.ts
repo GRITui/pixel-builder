@@ -118,7 +118,7 @@ const SIDE_VIEW_STARTER: PackManifest = {
     g("bg-sky", "sideview", { kind: "bg-sky" }, ["environment", "background"]),
     g("bg-hills", "sideview", { kind: "bg-hills" }, ["environment", "background"]),
     g("bg-trees", "sideview", { kind: "bg-trees" }, ["environment", "background"]),
-    g("level-1", "sidelevel", { cols: 48, rows: 14 }, ["map", "level"], 3),
+    g("level-1", "sidelevel", { cols: 48, rows: 14, house: 7 }, ["map", "level"], 3),
   ],
 };
 

@@ -63,4 +63,6 @@ Make it an internal tool the whole team shares, add side-view, and measure again
 | V | #20 Side-view (platformer) camera | `kit.ts` camera field, the side humanoid and its clips, side-view tiles, buildings and parallax backgrounds, the level generator | Adds `camera` to the kit; top-down outputs must stay unchanged. |
 | B | #23 Quality benchmark against PixelLab | `bench/`, `scripts/bench.ts` | Runs last so it measures everything above. PixelLab outputs are made by hand, if the licence allows. |
 
+**Benchmark (#23):** `npm run bench` runs 34 briefs offline across the kits and writes `bench/out/report.html`; rubric in `bench/RUBRIC.md`, baseline in `bench/RESULTS.md`. PixelLab outputs are collected by hand (`bench/pixellab/README.md`).
+
 **Exit:** two browsers and one Claude Code session share one library, a side-view starter pack exists, and `bench/RESULTS.md` has a baseline. This closes epic #14.
