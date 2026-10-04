@@ -126,6 +126,7 @@ Owns: `server/**`, `src/ai/**`, `src/ai/*.test.ts`.
     -> `{ name, params, notes }`. Build a JSON schema from the generator's
     `ParamSpec`s (select/material -> enum, number -> number, bool -> boolean,
     all required, `additionalProperties: false`) plus `name`, `notes`.
+  - `POST /api/inpaint` `{ rows: string[] (sprite legend rows), mask: {rect:{x,y,w,h}} | {cells:[[x,y]]}, prompt, kit }` -> `{ rect, rows }` (legend rows for the mask bbox, one repair round)
   - `POST /api/pixels` `{ prompt, category, w, h, kit, references?: Sprite[] }`
     -> `{ name, sprite }`. Encode the kit palette as a legend of single chars
     (`.` = transparent), ask for `rows: string[]` of exactly `h` strings of
@@ -268,6 +269,7 @@ optional unless marked *; `kit_id` defaults to the active kit.
 | `generate_variations` | generator*, count (1-12), params, vary ("seed" \| "params"), kit_id | contact-sheet image + [{seed, params}] (not saved) |
 | `paint_asset` | name*, category*, width*, height*, frames* (string[][] of legend rows; one inner array per frame), row_names, fps, outline (true), cleanup (true), kit_id | asset summary, files, preview |
 | `edit_asset` | id*, row, frame, pixels [{x,y,char}], rows (replace frame), name, tags | asset summary, preview |
+| `edit_region` | id*, row, frame, rect {x,y,w,h} \| cells [[x,y]], rows (legend rows for the selection bbox) \| prompt (needs ANTHROPIC_API_KEY), all_frames (false), outline (true) | asset summary, changed_pixels, preview. Only masked cells change; cleanup + outline are re-applied around them only. Async tool (`callToolAsync`) |
 | `list_assets` | category, query | summaries |
 | `get_asset` | id*, include_pixels (false) | summary, preview, legend rows if asked |
 | `delete_asset` | id* | ok |

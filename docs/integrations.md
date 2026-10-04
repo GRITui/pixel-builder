@@ -499,7 +499,7 @@ image-reading tool, since looking at the output is part of the workflow.
 ## Tool reference (same names in MCP and CLI)
 
 `get_style_guide`, `list_generators`, `generate_asset`, `generate_variations`,
-`paint_asset`, `edit_asset`, `list_assets`, `get_asset`, `delete_asset`,
+`paint_asset`, `edit_asset`, `edit_region` (change only a rect/cells region: your own legend `rows`, or a `prompt` for the server model when `ANTHROPIC_API_KEY` is set), `list_assets`, `get_asset`, `delete_asset`,
 `export_asset` (png, spritesheet, tiled, svg, aseprite, tiled-tileset, godot, unity, atlas), `import_image`, `import_svg`, `list_kits`, `create_kit`, `update_kit`,
 `set_active_kit`, `rerender_assets`, `list_rigs`, `list_clips`, `list_attachments`,
 `generate_rigged` (`directions: 4|8`; 8 adds 3/4 diagonal rows), `attach`, `create_rig`, `create_clip`, `create_attachment`, `generate_pack` (whole starter set in one call, e.g. `farming-v1`). `export_asset format=svg` writes a layered SVG (layer per material, per part for rigged assets, locked `guides` layer);

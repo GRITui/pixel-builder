@@ -22,7 +22,7 @@ const isPng = (b: Buffer) => b.subarray(1, 4).toString() === "PNG";
 describe("tool contract", () => {
   it("exposes exactly the planned tool names", () => {
     expect(TOOLS.map((t) => t.name)).toEqual([
-      "get_style_guide", "list_generators", "generate_asset", "generate_variations", "paint_asset", "edit_asset", "list_assets",
+      "get_style_guide", "list_generators", "generate_asset", "generate_variations", "paint_asset", "edit_asset", "edit_region", "list_assets",
       "get_asset", "delete_asset", "export_asset", "import_image", "list_kits", "create_kit", "update_kit", "set_active_kit", "rerender_assets",
       "list_rigs", "list_clips", "list_attachments", "generate_rigged", "attach", "create_rig", "create_clip", "create_attachment",
       "generate_pack", "import_svg",

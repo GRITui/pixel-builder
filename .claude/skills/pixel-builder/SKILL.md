@@ -34,6 +34,7 @@ hand-write PNGs or invent colours.
 | `generate_variations` | contact sheet of 1-12 seeds or param sets (not saved) |
 | `paint_asset` | new asset from legend rows (what generators can't do) |
 | `edit_asset` | fix pixels or replace a frame of an existing asset |
+| `edit_region` | change only a rect or cell region (add a scarf, recolour a hat): your own `rows`, or `prompt` with an API key |
 | `list_assets` / `get_asset` / `delete_asset` | manage the library |
 | `export_asset` | `png`, `spritesheet`, `tiled` (maps), `svg` (layered, see below), `aseprite` (see below) or, for `tileset` assets, `tiled-tileset` / `godot` / `unity` / `atlas` (engine autotile files, see reference) |
 | `import_image` | quantise an existing PNG to the kit palette |
@@ -137,6 +138,13 @@ Rules:
   that already went through them.
 - `edit_asset`: `pixels: [{x, y, char}]` for touch-ups, `rows` to replace a
   frame (`row` + `frame` select it). Re-look at the preview after every edit.
+- `edit_region`: to add or change one part (scarf, hat colour) without touching
+  the rest, select `rect: {x,y,w,h}` (or `cells`) and give `rows` for that
+  selection's bounding box (read pixels with `get_asset include_pixels`; an
+  invalid answer lists the box's current rows). Only the selected cells change
+  and the outline is redone around them only. `prompt` instead of `rows` asks
+  the server model and needs `ANTHROPIC_API_KEY`. `all_frames` repeats it on
+  every frame of the row. For rigged assets prefer an attachment.
 
 ## Consistency rules (read before generating)
 
