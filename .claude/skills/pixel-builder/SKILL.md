@@ -58,7 +58,7 @@ look at it before moving on.
 - `environment`: props with animation rows (trees: sway/chop/fall/stump when `cuttable`; `old-oak` landmark; bush/weed cut; rock break), `fence` (`piece`: h, v, post, corners, T, cross, gates), seamless tiles incl. animated `water-tile`, `paddy-tile` and soil `tilled-soil-tile`, `watered-soil-tile`, `dried-soil-tile`, `snowed-soil-tile`.
 - `object`: items plus farm tools `hoe`, `watering-can`, `tool-axe`, `pickaxe`, `sickle`, `hammer`, `fishing-rod`, `seed-bag` (rows `icon` + `use` effect sprite).
 - `ui`: buttons, panels, slots, bars, plus HUD `clock` (`hour`), `time-panel`, `date-panel` (`day`, `weekday`, `season`), `weather-icon` (sunny, cloudy, rain, storm, snow, windy), `season-icon`.
-- `map`: biomes meadow, forest, island, desert, winter, `rice-village`.
+- `map`: biomes meadow, forest, island, desert, winter, `rice-village`, `farm` (farmstead, fenced fields with gates, pen with animals, pond; `set` normal or `sea`).
 - Rigged assets (`generate_rigged`): any rig (incl. `human-<male|female>-<baby|kid|young-adult|senior|elder>`) + clips (idle, walk, run, attack, farm, carry, sit, chop, water, mine, fish) + attachments (layers `face-*`, `hair-*`, `costume-*`, `hat-*`, `bag-*`, tools `hoe`, `axe`, `watering-can`, `pickaxe`, `hammer`, `fishing-rod`...); add/remove accessories later with `attach`. Built-in humanoid rigs get short hair and a face by default; pick another `hair-short|long|spiky|ponytail|bald` attachment, or `no-face` to opt out.
 
 ## Workflow
