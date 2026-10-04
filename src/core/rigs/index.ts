@@ -5,7 +5,7 @@ import { HUMANOID_ATTACHMENTS } from "./attachments";
 import { BIRD_CLIPS, BIRD_RIGS } from "./bird";
 import { HUMANOID_CLIPS } from "./clips";
 import { EXAMPLE_RIG, IDLE, NGOB_HAT, WALK } from "./example";
-import { HUMANOID_RIGS } from "./humanoid";
+import { FACE, HAIR_STYLES, hairAttachment, HUMANOID_RIGS, NO_FACE } from "./humanoid";
 import { QUADRUPED_CLIPS, QUADRUPED_RIGS } from "./quadruped";
 
 /** Which clips/attachments fit which rig: rigs share a `family` via their joint contract. */
@@ -26,8 +26,22 @@ export const CLIPS: { clip: Clip; family: RigFamily }[] = [
 
 export const ATTACHMENTS: { attachment: Attachment; family: RigFamily }[] = [
   ...(HUMANOID_ATTACHMENTS.length ? HUMANOID_ATTACHMENTS : [NGOB_HAT]).map((attachment) => ({ attachment, family: "humanoid" as const })),
+  ...[...HAIR_STYLES.map((s) => hairAttachment(s)), FACE, NO_FACE].map((attachment) => ({ attachment, family: "humanoid" as const })),
 ];
 
 export const rigById = (id: string) => RIGS.find((r) => r.rig.id === id);
 export const clipById = (id: string, family?: RigFamily) => CLIPS.find((c) => c.clip.id === id && (!family || c.family === family));
 export const attachmentById = (id: string) => ATTACHMENTS.find((a) => a.attachment.id === id);
+
+/**
+ * Built-in humanoid rigs are bare skeletons; hair and a face come as attachments. When a recipe
+ * picks neither, give it short hair and a face so rigged characters are never faceless.
+ * `hair-bald` / `no-face` opt out. Rigs that draw their own hair or eyes are left alone.
+ */
+export function withHumanoidDefaults(rig: RigDef, attachments: Attachment[]): Attachment[] {
+  if (rigById(rig.id)?.family !== "humanoid" || rig.parts.some((p) => p.slot === "hair" || /eye/i.test(p.id))) return attachments;
+  const ids = attachments.map((a) => a.id);
+  const hair = ids.some((id) => id.startsWith("hair-")) ? [] : [hairAttachment("short")];
+  const face = ids.includes("face") || ids.includes("no-face") ? [] : [FACE];
+  return [...hair, ...attachments, ...face];
+}

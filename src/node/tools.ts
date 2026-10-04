@@ -14,7 +14,7 @@ import { buildLegend, decodeRows, encodeSprite, legendText, type Legend } from "
 import { MATERIALS, PALETTES, RAMP_LEN, type Material } from "../core/palette";
 import type { ProjectFile } from "../core/project";
 import { renderRig, renderRigFrame, validateRig, type Attachment, type Clip, type RigDef, type RigRecipe } from "../core/rig";
-import { ATTACHMENTS, CLIPS, RIGS } from "../core/rigs";
+import { ATTACHMENTS, CLIPS, RIGS, withHumanoidDefaults } from "../core/rigs";
 import { randomSeed, rng } from "../core/rng";
 import { CATEGORIES, type Asset, type Category, type Sprite, type StyleKit } from "../core/types";
 import { decodePng, contactSheet, encodePng, previewScale, sheetImage, spriteImage, type RgbaImage } from "./png";
@@ -908,7 +908,7 @@ function resolveAttachment(project: ProjectFile, a: string | Attachment): Attach
 /** Render a recipe to animation rows; unknown joints in clips/attachments become readable errors. */
 function renderRecipe(project: ProjectFile, kit: StyleKit, recipe: RigRecipe) {
   const lib = resolveRig(project, recipe.rig);
-  const atts = (recipe.attachments ?? []).map((a) => resolveAttachment(project, a));
+  const atts = withHumanoidDefaults(lib.rig, (recipe.attachments ?? []).map((a) => resolveAttachment(project, a)));
   const clips = recipe.clips.map((c) => resolveClip(project, c, lib));
   if (!clips.length) throw new ToolError("At least one clip is required (see list_clips).");
   const errs = validateRig(lib.rig, atts);

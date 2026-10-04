@@ -23,7 +23,7 @@ function cachedSprite(kit: StyleKit, key: string, make: () => Sprite): Sprite {
 
 export const BIOMES = ["meadow", "forest", "island", "desert", "winter", "rice-village"] as const;
 type Biome = (typeof BIOMES)[number];
-type Ground = "grass" | "dirt" | "sand" | "water" | "stone-path" | "snow" | "paddy";
+export type Ground = "grass" | "dirt" | "sand" | "water" | "stone-path" | "snow" | "paddy";
 
 const SOLID_PROPS = new Set(["oak", "pine", "palm", "dead-tree", "rock", "boulder", "crystal", "stump"]);
 /** Props taller/wider than a tile that shouldn't be clipped by the map edge or stacked side by side. */
@@ -225,63 +225,7 @@ export const mapGenerator: Generator = {
     const tm: TileMap = emptyTileMap(cols, rows, T);
     const { ground, path } = buildGround(biome, cols, rows, seed >>> 0, r, wantPath);
 
-    // --- ground layer: a few texture variants per kind so it doesn't read as a grid ---
-    const tileCache = new Map<string, number>();
-    const spriteCache = new Map<string, Sprite>();
-    const baseSprite = (g: Ground, v: number): Sprite => {
-      const name = v === 0 || g === "water" ? g : `${g}-${v + 1}`;
-      let sp = spriteCache.get(name);
-      if (!sp) {
-        sp = environmentGenerator.generate({ ...envDefaults, kind: `${g}-tile`, variant: g === "water" ? 0 : v }, kit, seed).rows[0].frames[0];
-        spriteCache.set(name, sp);
-      }
-      return sp;
-    };
-    const groundTile = (g: Ground, v: number): number => {
-      const name = v === 0 || g === "water" ? g : `${g}-${v + 1}`;
-      let idx = tileCache.get(name);
-      if (idx === undefined) {
-        idx = ensureTile(tm, name, baseSprite(g, v), g === "water");
-        tileCache.set(name, idx);
-      }
-      return idx;
-    };
-    const isWater = (x: number, y: number) => x >= 0 && y >= 0 && x < cols && y < rows && ground[y * cols + x] === "water";
-    // Seeded value noise picks the texture variant so repeats form no visible lattice.
-    const vNoise = valueNoise((seed ^ 0x7f31) >>> 0, 16);
-    for (let i = 0; i < ground.length; i++) {
-      const g = ground[i];
-      const x = i % cols, y = Math.floor(i / cols);
-      const rr = r.next(), rv = r.int(1, VARIANTS - 1);
-      const v = rr < 0.4 ? 0 : (rv + Math.floor(vNoise(x / 2, y / 2) * VARIANTS)) % VARIANTS;
-      if (g === "water") { tm.ground[i] = groundTile(g, 0); continue; }
-      // higher-priority neighbours spread into this cell along a smooth curve (see blendTile)
-      const layers: { g: Ground; mask: number }[] = [];
-      for (const h of BLEND_ORDER) {
-        if (BLEND_PRIORITY[h] <= BLEND_PRIORITY[g]) continue;
-        let m = 0;
-        NEIGHBOURS.forEach(([dx, dy], k) => {
-          const xx = x + dx, yy = y + dy;
-          if (xx >= 0 && yy >= 0 && xx < cols && yy < rows && ground[yy * cols + xx] === h) m |= 1 << k;
-        });
-        if (m) layers.push({ g: h, mask: m });
-      }
-      const edgeKey = layers.map((l) => `${l.mask}${l.g}`).join("-");
-      let wmask = 0;
-      NEIGHBOURS.forEach(([dx, dy], k) => { if (isWater(x + dx, y + dy)) wmask |= 1 << k; });
-      if (!wmask && !edgeKey) { tm.ground[i] = groundTile(g, v); continue; }
-      const sv = v % 2; // two texture variants per transition is plenty
-      const name = `${g}${wmask ? `-shore-${wmask}` : ""}${edgeKey ? `-edge-${edgeKey}` : ""}${sv ? "b" : ""}`;
-      let idx = tileCache.get(name);
-      if (idx === undefined) {
-        // water spreads last, with a foam rim, so shores round off the same way as land seams
-        const all = [...layers.map((l) => ({ sprite: baseSprite(l.g, sv), mask: l.mask })), ...(wmask ? [{ sprite: baseSprite("water", 0), mask: wmask, foam: true }] : [])];
-        const sp = blendTile(baseSprite(g, sv), all);
-        idx = ensureTile(tm, name, sp, false);
-        tileCache.set(name, idx);
-      }
-      tm.ground[i] = idx;
-    }
+    paintGround(tm, ground, kit, seed, r);
 
     // --- deco layer ---
     const propCache = new Map<string, number>();
@@ -376,6 +320,72 @@ export const mapGenerator: Generator = {
     return { rows: [{ name: "map", frames: [renderTileMap(tm)] }], fps: 1, tilemap: tm };
   },
 };
+
+/**
+ * Fill `tm.ground` from a ground-type grid: textured kit tiles with blended edges between
+ * grounds and foam-rimmed shores. Exported so hand-laid scenes get the same transitions as maps.
+ */
+export function paintGround(tm: TileMap, ground: Ground[], kit: StyleKit, seed: number, r: Rng = rng(seed >>> 0)): void {
+  const { cols, rows } = tm;
+  const envDefaults = defaults(environmentGenerator);
+  // --- ground layer: a few texture variants per kind so it doesn't read as a grid ---
+  const tileCache = new Map<string, number>();
+  const spriteCache = new Map<string, Sprite>();
+  const baseSprite = (g: Ground, v: number): Sprite => {
+    const name = v === 0 || g === "water" ? g : `${g}-${v + 1}`;
+    let sp = spriteCache.get(name);
+    if (!sp) {
+      sp = environmentGenerator.generate({ ...envDefaults, kind: `${g}-tile`, variant: g === "water" ? 0 : v }, kit, seed).rows[0].frames[0];
+      spriteCache.set(name, sp);
+    }
+    return sp;
+  };
+  const groundTile = (g: Ground, v: number): number => {
+    const name = v === 0 || g === "water" ? g : `${g}-${v + 1}`;
+    let idx = tileCache.get(name);
+    if (idx === undefined) {
+      idx = ensureTile(tm, name, baseSprite(g, v), g === "water");
+      tileCache.set(name, idx);
+    }
+    return idx;
+  };
+  const isWater = (x: number, y: number) => x >= 0 && y >= 0 && x < cols && y < rows && ground[y * cols + x] === "water";
+  // Seeded value noise picks the texture variant so repeats form no visible lattice.
+  const vNoise = valueNoise((seed ^ 0x7f31) >>> 0, 16);
+  for (let i = 0; i < ground.length; i++) {
+    const g = ground[i];
+    const x = i % cols, y = Math.floor(i / cols);
+    const rr = r.next(), rv = r.int(1, VARIANTS - 1);
+    const v = rr < 0.4 ? 0 : (rv + Math.floor(vNoise(x / 2, y / 2) * VARIANTS)) % VARIANTS;
+    if (g === "water") { tm.ground[i] = groundTile(g, 0); continue; }
+    // higher-priority neighbours spread into this cell along a smooth curve (see blendTile)
+    const layers: { g: Ground; mask: number }[] = [];
+    for (const h of BLEND_ORDER) {
+      if (BLEND_PRIORITY[h] <= BLEND_PRIORITY[g]) continue;
+      let m = 0;
+      NEIGHBOURS.forEach(([dx, dy], k) => {
+        const xx = x + dx, yy = y + dy;
+        if (xx >= 0 && yy >= 0 && xx < cols && yy < rows && ground[yy * cols + xx] === h) m |= 1 << k;
+      });
+      if (m) layers.push({ g: h, mask: m });
+    }
+    const edgeKey = layers.map((l) => `${l.mask}${l.g}`).join("-");
+    let wmask = 0;
+    NEIGHBOURS.forEach(([dx, dy], k) => { if (isWater(x + dx, y + dy)) wmask |= 1 << k; });
+    if (!wmask && !edgeKey) { tm.ground[i] = groundTile(g, v); continue; }
+    const sv = v % 2; // two texture variants per transition is plenty
+    const name = `${g}${wmask ? `-shore-${wmask}` : ""}${edgeKey ? `-edge-${edgeKey}` : ""}${sv ? "b" : ""}`;
+    let idx = tileCache.get(name);
+    if (idx === undefined) {
+      // water spreads last, with a foam rim, so shores round off the same way as land seams
+      const all = [...layers.map((l) => ({ sprite: baseSprite(l.g, sv), mask: l.mask })), ...(wmask ? [{ sprite: baseSprite("water", 0), mask: wmask, foam: true }] : [])];
+      const sp = blendTile(baseSprite(g, sv), all);
+      idx = ensureTile(tm, name, sp, false);
+      tileCache.set(name, idx);
+    }
+    tm.ground[i] = idx;
+  }
+}
 
 /** Prop kind of a deco tile index ("oak-1" -> "oak"); "" for empty. */
 function tmKind(tm: TileMap, idx: number): string {

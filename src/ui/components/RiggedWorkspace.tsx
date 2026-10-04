@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createAsset } from "../../core/asset";
 import { MATERIALS, type Material } from "../../core/palette";
 import { DIRS, renderRig, validateRig, type Attachment, type Clip, type RigDef, type RigRecipe } from "../../core/rig";
-import { ATTACHMENTS, CLIPS, RIGS, rigById, type RigFamily } from "../../core/rigs";
+import { ATTACHMENTS, CLIPS, RIGS, rigById, withHumanoidDefaults, type RigFamily } from "../../core/rigs";
 import type { Asset, FrameSet, StyleKit } from "../../core/types";
 import { RigEditor } from "../rig/RigEditor";
 import { drawSprite, type FlatPalette } from "../render";
@@ -124,7 +124,7 @@ export function RiggedWorkspace(props: {
   const gen = useMemo(() => {
     try {
       if (!clips.length) return { rows: null, error: "Pick at least one clip." };
-      return { rows: renderRig({ rig, kit, slots, attachments }, clips), error: null };
+      return { rows: renderRig({ rig, kit, slots, attachments: withHumanoidDefaults(rig, attachments) }, clips), error: null };
     } catch (e) {
       return { rows: null, error: e instanceof Error ? e.message : String(e) };
     }

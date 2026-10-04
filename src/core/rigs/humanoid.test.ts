@@ -3,7 +3,8 @@ import { characterGenerator } from "../generators/character";
 import { defaults } from "../generators/types";
 import { KIT_PRESETS, proportions } from "../kit";
 import { colorIndex } from "../palette";
-import { validateRig } from "../rig";
+import { renderRig, validateRig } from "../rig";
+import { attachmentById, clipById, rigById, withHumanoidDefaults } from "./index";
 import { HAIR_STYLES, HUMANOID_RIGS, hairAttachment } from "./humanoid";
 import { HUMANOID_JOINTS } from "./joints";
 
@@ -46,5 +47,27 @@ describe("humanoid rigs", () => {
     expect(has({ headwear: "helmet" }, "metal")).toBe(true);
     expect(has({ headwear: "helmet", accent_mat: "gold" }, "gold")).toBe(true);
     expect(has({ headwear: "helmet", accent_mat: "gold" }, "metal")).toBe(false);
+  });
+});
+
+describe("withHumanoidDefaults", () => {
+  const rig = HUMANOID_RIGS[1];
+  const ids = (a: { id: string }[]) => a.map((x) => x.id);
+  it("gives bare humanoid rigs short hair and a face", () => {
+    expect(ids(withHumanoidDefaults(rig, []))).toEqual(["hair-short", "face"]);
+  });
+  it("keeps a chosen hair style and honours no-face", () => {
+    const long = attachmentById("hair-long")!.attachment, none = attachmentById("no-face")!.attachment;
+    expect(ids(withHumanoidDefaults(rig, [long, none]))).toEqual(["hair-long", "no-face"]);
+  });
+  it("leaves non-humanoid rigs and rigs with their own face alone", () => {
+    expect(withHumanoidDefaults(rigById("quadruped-dog")!.rig, [])).toEqual([]);
+    expect(withHumanoidDefaults(rigById("example-biped")!.rig, [])).toEqual([]);
+  });
+  it("draws eyes on a rigged humanoid's front view", () => {
+    const kit = KIT_PRESETS[0];
+    const bare = renderRig({ rig, kit }, [clipById("idle")!.clip])[0].frames[0];
+    const faced = renderRig({ rig, kit, attachments: withHumanoidDefaults(rig, []) }, [clipById("idle")!.clip])[0].frames[0];
+    expect(faced.data).not.toEqual(bare.data);
   });
 });

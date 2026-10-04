@@ -133,3 +133,20 @@ for (const r of HUMANOID_RIGS) {
   const ids = new Set(r.joints.map((j) => j.id));
   for (const j of HUMANOID_JOINTS) if (!ids.has(j)) throw new Error(`humanoid rig ${r.id} is missing joint ${j}`);
 }
+
+/**
+ * Plain face for rigged humanoids (eyes, mouth). Drawn high in z so a hat brim never hides it;
+ * the character generator adds its own seeded variant instead.
+ */
+export const FACE: Attachment = {
+  id: "face",
+  name: "Face",
+  parts: [
+    { id: "face-eyeL", kind: "box", joint: "head", dx: -3, dy: -1, w: 1, h: 2, slot: "ink", tone: -2, z: 30, views: ["down"] },
+    { id: "face-eyeR", kind: "box", joint: "head", dx: 2, dy: -1, w: 1, h: 2, slot: "ink", tone: -2, z: 30, views: ["down"] },
+    { id: "face-eyeSide", kind: "box", joint: "head", dx: 3, dy: -1, w: 1, h: 2, slot: "ink", tone: -2, z: 30, views: ["side"] },
+    { id: "face-mouth", kind: "box", joint: "head", dx: -0.5, dy: 2, w: 1, h: 1, slot: "skin", tone: -2, z: 30, views: ["down"] },
+  ],
+};
+/** Opt-out marker: a rigged humanoid with this attachment gets no default face. */
+export const NO_FACE: Attachment = { id: "no-face", name: "No face", parts: [] };

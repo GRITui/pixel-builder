@@ -1,5 +1,5 @@
 import { renderRig, type Attachment, type Clip, type RigDef, type RigRecipe } from "../../core/rig";
-import { attachmentById, clipById, rigById, RIGS } from "../../core/rigs";
+import { attachmentById, clipById, rigById, RIGS, withHumanoidDefaults } from "../../core/rigs";
 import type { FrameSet, StyleKit } from "../../core/types";
 
 export interface ResolvedRecipe {
@@ -20,7 +20,7 @@ export function resolveRecipe(r: RigRecipe, customClips: Clip[] = []): ResolvedR
     const hit = typeof c === "string" ? (clipById(c)?.clip ?? customClips.find((x) => x.id === c)) : c;
     return hit ? [hit] : [];
   });
-  return { rig, attachments, clips };
+  return { rig, attachments: withHumanoidDefaults(rig, attachments), clips };
 }
 
 export function renderRecipe(r: RigRecipe, kit: StyleKit, customClips: Clip[] = []): { rows: FrameSet[]; fps: number } {
