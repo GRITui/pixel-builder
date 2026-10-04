@@ -60,6 +60,15 @@ describe("painter lighting", () => {
     expect(getPx(s, 1, 1)).toBe(OUTLINE_INDEX);
   });
 
+  it("dithers gradients but never a flat face", () => {
+    const kit = { ...DEFAULT_KIT, dither: true, shadeSteps: 3 };
+    const flat = new Painter(32, 32, kit).box(0, 0, 32, 32, "stone").toSprite();
+    expect(new Set(flat.data).size).toBe(1);
+    const ball = new Painter(32, 32, kit).ellipse(16, 16, 15, 15, "stone").toSprite();
+    const plain = new Painter(32, 32, { ...kit, dither: false }).ellipse(16, 16, 15, 15, "stone").toSprite();
+    expect(ball.data).not.toEqual(plain.data);
+  });
+
   it("is deterministic", () => {
     const a = new Painter(16, 16, DEFAULT_KIT).ellipse(8, 8, 6, 5, "foliage").cylinder(6, 8, 4, 7, "wood").toSprite();
     const b = new Painter(16, 16, DEFAULT_KIT).ellipse(8, 8, 6, 5, "foliage").cylinder(6, 8, 4, 7, "wood").toSprite();

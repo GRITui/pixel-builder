@@ -190,6 +190,23 @@ export class Painter {
     return this.mat[y * this.w + x] >= 0;
   }
 
+  /**
+   * Dither is for blending a changing light value, not for flat faces: a wall
+   * whose constant light sits near a shade boundary would otherwise turn into
+   * a full checkerboard. A pixel counts as on a gradient when a lit neighbour
+   * of the same material falls in a different shade band.
+   */
+  private onGradient(x: number, y: number, S: number): boolean {
+    const i = y * this.w + x;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx, ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= this.w || ny >= this.h) continue;
+      const j = ny * this.w + nx;
+      if (this.mat[j] === this.mat[i] && this.fixed[j] < 0 && Math.floor(this.light[j] * S) !== Math.floor(this.light[i] * S)) return true;
+    }
+    return false;
+  }
+
   /** Quantise lighting into palette indices using the kit's shade steps and dithering. */
   toSprite(): Sprite {
     const s = createSprite(this.w, this.h);
@@ -208,7 +225,7 @@ export class Painter {
           level = this.fixed[i];
         } else {
           let q = this.light[i] * S;
-          if (dither) q += (BAYER4[(y & 3) * 4 + (x & 3)] - 0.5) * 0.6;
+          if (dither && this.onGradient(x, y, S)) q += (BAYER4[(y & 3) * 4 + (x & 3)] - 0.5) * 0.6;
           level = levels[Math.max(0, Math.min(S - 1, Math.floor(q)))];
         }
         s.data[i] = colorIndex(m, Math.max(0, Math.min(4, level + this.tone[i])));
