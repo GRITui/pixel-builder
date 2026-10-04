@@ -205,6 +205,18 @@ export function renderRig(r: RigRender, clips: Clip[]): FrameSet[] {
   return rows;
 }
 
+/**
+ * How a rigged asset was made, stored on `Asset.source.rig` so it can be
+ * re-rendered when the kit changes. Rigs, clips and attachments are referenced
+ * by registry id (src/core/rigs/index.ts) or embedded as JSON (agent/user-authored).
+ */
+export interface RigRecipe {
+  rig: string | RigDef;
+  slots?: Record<string, Material>;
+  attachments?: (string | Attachment)[];
+  clips: (string | Clip)[];
+}
+
 /** Structural checks so hand-written or agent-written rigs fail with a clear message. */
 export function validateRig(rig: RigDef, attachments: Attachment[] = []): string[] {
   const errs: string[] = [];

@@ -1,4 +1,5 @@
 import type { Category } from "../types";
+import { animalGenerator } from "./animal";
 import { buildingGenerator } from "./building";
 import { characterGenerator } from "./character";
 import { environmentGenerator } from "./environment";
@@ -7,8 +8,9 @@ import { objectGenerator } from "./object";
 import type { Generator } from "./types";
 import { uiGenerator } from "./ui";
 
-export const GENERATORS: Generator[] = [characterGenerator, buildingGenerator, environmentGenerator, objectGenerator, uiGenerator, mapGenerator];
+export const GENERATORS: Generator[] = [characterGenerator, animalGenerator, buildingGenerator, environmentGenerator, objectGenerator, uiGenerator, mapGenerator];
 
+/** Primary generator for a category (the first registered; "character" also has "animal"). */
 export function generatorFor(category: Category): Generator {
   return GENERATORS.find((g) => g.category === category)!;
 }
