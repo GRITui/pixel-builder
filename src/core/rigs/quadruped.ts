@@ -114,7 +114,7 @@ function build(s: Spec): RigDef {
   }
   if (s.horns) {
     // swept-back crescent: base on the brow, arcs back, tip curls down
-    const arc: [number, number, number][] = [[1, -2.6, 1.8], [-0.5, -4.8, 1.7], [-2.8, -6.2, 1.6], [-5.4, -6.4, 1.4], [-7.4, -5, 1.2]];
+    const arc: [number, number, number][] = [[1.5, -3.6, 1.5], [0, -5.4, 1.4], [-2.4, -6.4, 1.3], [-5, -6.4, 1.2], [-7, -5, 1.0]];
     arc.forEach(([dx, dy, r], i) => add({ id: `horn${i}`, kind: "ellipse", joint: "head", dx, dy, rx: r, ry: r, slot: "accent", z: 7 - i * 0.1, views: ["side"] }));
     const out: [number, number, number][] = [[2.2, -0.8, 1.5], [3.6, -1.6, 1.4], [4.6, -3.2, 1.2], [4.8, -4.6, 1.0]];
     for (const sgn of [-1, 1]) out.forEach(([dx, dy, r], i) => add(
