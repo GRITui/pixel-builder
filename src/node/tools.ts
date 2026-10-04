@@ -2,6 +2,7 @@
 // (workspace, validated input) to plain data + PNG buffers. The MCP server
 // (mcp.ts) and the CLI (cli.ts) are thin adapters over TOOLS, so tool names and
 // input fields are identical in both.
+import { fitRigToWorld } from "../core/rigs/fit";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { z } from "zod";
@@ -998,7 +999,9 @@ function renderRecipe(project: ProjectFile, kit: StyleKit, recipe: RigRecipe) {
       for (const j of Object.keys(pose)) if (!joints.has(j) && !optional.has(j)) errs.push(`clip '${c.id}' moves unknown joint '${j}' (rig '${lib.rig.id}' joints: ${[...joints].join(", ")})`);
   }
   if (errs.length) throw new ToolError(`Cannot render rig '${lib.rig.id}': ${[...new Set(errs)].slice(0, 6).join("; ")}.`);
-  const rows = renderRig({ rig: lib.rig, kit, slots: recipe.slots, attachments: atts }, clips);
+  // built-in animals share one world scale with the `animal` generator (issue #24)
+  const fit = lib.builtin && !atts.length ? fitRigToWorld(lib.rig, kit, recipe.slots ?? {}, clips) : undefined;
+  const rows = fit ? renderRig({ rig: fit.rig, kit, slots: recipe.slots, size: fit.size }, fit.clips) : renderRig({ rig: lib.rig, kit, slots: recipe.slots, attachments: atts }, clips);
   return { rows, fps: clips[0].fps, lib, attachments: atts, clips };
 }
 
