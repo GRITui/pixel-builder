@@ -4,9 +4,10 @@ import { buildLegend } from "../legend";
 import { Painter } from "../painter";
 import { colorIndex, type Material } from "../palette";
 import { clipFrames, renderRig, type Attachment, type Clip, type PartDef } from "../rig";
-import { HUMANOID_RIGS, humanoidRig, AGES, hairAttachment, torsoWidth, type Age, type Build, type HairStyle, type Sex } from "../rigs/humanoid";
+import { HUMANOID_RIGS, humanoidRig, AGES, torsoWidth, type Age, type Build, type Sex } from "../rigs/humanoid";
 import { attachmentById, clipById } from "../rigs";
 import { WALK } from "../rigs/example";
+import { hairStyleAttachment } from "../rigs/wardrobe";
 import { rng, type Rng } from "../rng";
 import type { FrameSet, Sprite, StyleKit } from "../types";
 import { bool, mat, PAINT, str, type Generator, type Params } from "./types";
@@ -143,7 +144,13 @@ function capeParts(tw: number): PartDef[] {
   ];
 }
 
-const HEADWEAR_ID: Record<string, string> = { helmet: "helmet", hood: "hood", wizard: "wizard-hat", crown: "crown" };
+const HEADWEAR_ID: Record<string, string> = {
+  helmet: "helmet", hood: "hood", wizard: "wizard-hat", crown: "crown",
+  "straw-hat": "straw-hat", "ngob-hat": "ngob-hat", cap: "hat-cap", bonnet: "hat-bonnet", bandana: "hat-bandana", beanie: "hat-beanie",
+};
+/** Wardrobe layers: the param value maps to an attachment id with this prefix. */
+const WARDROBE_HATS = new Set(["cap", "bonnet", "bandana", "beanie"]);
+const LAYER_PARAMS: [string, string][] = [["facial", "face-"], ["costume", "costume-"], ["bag", "bag-"]];
 
 /**
  * Top-down "chibi" RPG character on the humanoid rig: 4-direction, 4-frame
@@ -163,7 +170,7 @@ function drawHumanoid(p: Params, kit: StyleKit, size: number, t: Traits): FrameS
   const slots: Record<string, Material> = {
     skin: mat(p, "skin"), hair: mat(p, "hair"), top: mat(p, "top"), bottom: mat(p, "bottom"), boots: mat(p, "boots"), accent, helm: helmMat,
   };
-  const atts: Attachment[] = [hairAttachment(str(p, "hair_style") as HairStyle, t.fringe)];
+  const atts: Attachment[] = [hairStyleAttachment(str(p, "hair_style"), t.fringe)];
   if (bool(p, "cape")) atts.push({ id: "cape", name: "Cape", parts: capeParts(tw) });
 
   const pushShared = (id: string | undefined, fallback: PartDef[], remapMetalTo?: string) => {
@@ -174,7 +181,13 @@ function drawHumanoid(p: Params, kit: StyleKit, size: number, t: Traits): FrameS
   };
   if (hat !== "none") pushShared(HEADWEAR_ID[hat], fallbackHeadwear(HEADWEAR_ID[hat]), hat === "helmet" ? "helm" : undefined);
   if (weapon !== "none") pushShared(weapon, fallbackItem(weapon, tw));
-  atts.push({ id: "details", name: "Seeded details", parts: detailParts(t, tw, size, hat !== "none" && !attach(HEADWEAR_ID[hat]) ? 30 : 7) });
+  for (const [key, prefix] of LAYER_PARAMS) {
+    const v = p[key] === undefined ? "none" : str(p, key);
+    if (v === "none") continue;
+    const a = attach(v === "basket" ? v : prefix + v);
+    if (a) atts.push(a);
+  }
+  atts.push({ id: "details", name: "Seeded details", parts: detailParts(t, tw, size, hat !== "none" && (!attach(HEADWEAR_ID[hat]) || WARDROBE_HATS.has(hat)) ? 30 : 7) });
 
   return renderRig({ rig, kit, slots, attachments: atts, size }, [walkClip()]);
 }
@@ -208,11 +221,14 @@ export const characterGenerator: Generator = {
     { key: "age", label: "Age", type: "select", options: [...AGES], default: "young-adult" },
     { key: "skin", label: "Skin / body", type: "material", options: SKINS, default: "skin" },
     { key: "hair", label: "Hair", type: "material", options: PAINT, default: "hair" },
-    { key: "hair_style", label: "Hair style", type: "select", options: ["short", "long", "spiky", "ponytail", "bald"], default: "short" },
+    { key: "hair_style", label: "Hair style", type: "select", options: ["short", "long", "spiky", "ponytail", "bald", "bun", "braids", "pigtails", "bob"], default: "short" },
     { key: "top", label: "Top", type: "material", options: PAINT, default: "cloth" },
     { key: "bottom", label: "Bottom", type: "material", options: PAINT, default: "leather" },
     { key: "boots", label: "Boots / belt", type: "material", options: PAINT, default: "wood" },
-    { key: "headwear", label: "Headwear", type: "select", options: ["none", "helmet", "hood", "wizard", "crown"], default: "none" },
+    { key: "headwear", label: "Headwear", type: "select", options: ["none", "helmet", "hood", "wizard", "crown", "straw-hat", "ngob-hat", "cap", "bonnet", "bandana", "beanie"], default: "none" },
+    { key: "facial", label: "Facial detail", type: "select", options: ["none", "beard", "mustache", "glasses", "freckles", "wrinkles"], default: "none" },
+    { key: "costume", label: "Costume", type: "select", options: ["none", "overalls", "dress", "apron", "sarong", "smock", "sweater"], default: "none" },
+    { key: "bag", label: "Bag", type: "select", options: ["none", "backpack", "satchel", "tote", "basket"], default: "none" },
     { key: "weapon", label: "Held item", type: "select", options: ["none", "sword", "staff", "shield", "bow"], default: "none" },
     { key: "accent_mat", label: "Accent (cape, hat, gem)", type: "material", options: PAINT, default: "cloth2" },
     { key: "cape", label: "Cape", type: "bool", default: false },
