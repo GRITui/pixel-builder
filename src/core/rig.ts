@@ -1,0 +1,229 @@
+// Rig method: a character is a skeleton of joints plus declarative parts
+// attached to them. Animations are poses (joint offsets per frame), so every
+// rig gets every clip, and accessories attach to a joint once and follow every
+// frame and direction. Parts are drawn with the lit Painter, so rigged sprites
+// keep the kit's lighting, shade steps and outline like everything else.
+//
+// Rigs, clips and attachments are plain JSON (serialisable in the project
+// file, editable in the UI, authorable by agents through MCP).
+import { finalize } from "./enforce";
+import { buildLegend } from "./legend";
+import { Painter } from "./painter";
+import { decodeIndex, MATERIALS, type Material } from "./palette";
+import type { FrameSet, Sprite, StyleKit } from "./types";
+
+/** Drawing views. "left" is rendered as the mirror of "side" (lighting is recomputed, not flipped). */
+export type View = "down" | "side" | "up";
+export type Dir = "down" | "left" | "right" | "up";
+export const DIRS: Dir[] = ["down", "left", "right", "up"];
+export const viewOf = (d: Dir): View => (d === "left" || d === "right" ? "side" : d);
+
+type PerView<T> = T | Partial<Record<View, T>>;
+
+export interface Joint {
+  id: string;
+  parent: string | null;
+  /** Rest position on the rig's design grid, per view (absolute, not relative to the parent). */
+  rest: PerView<[number, number]>;
+}
+
+interface PartBase {
+  /** Unique within the rig (attachments may replace a part by reusing its id). */
+  id: string;
+  /** Draw order; higher is in front. May differ per view (e.g. a held tool is behind the body in "up"). */
+  z: PerView<number>;
+  /** Views the part appears in (default: all). */
+  views?: View[];
+  /** Material slot ("skin", "top", ...) resolved through the asset's slot map, or a literal material name. */
+  slot?: string;
+  /** Shift the shade by whole ramp levels. */
+  tone?: number;
+}
+
+export type PartDef =
+  | (PartBase & { kind: "ellipse"; joint: string; rx: number; ry: number; dx?: number; dy?: number; flat?: number })
+  | (PartBase & { kind: "box"; joint: string; w: number; h: number; dx?: number; dy?: number; normal?: [number, number, number] })
+  /** Limb between two joints, lit like a cylinder along its length. */
+  | (PartBase & { kind: "limb"; from: string; to: string; r: number })
+  /** Hand-painted detail in palette legend chars, pinned at a joint (eyes, hats, tools). Rows are mirrored for "left". */
+  | (PartBase & { kind: "pixels"; joint: string; rows: PerView<string[]>; anchor: [number, number] });
+
+export interface RigDef {
+  id: string;
+  name: string;
+  /** Design grid size; rendering scales coordinates by kitSize / grid. */
+  grid: number;
+  joints: Joint[];
+  parts: PartDef[];
+  /** Material slots this rig expects, with defaults. */
+  slots: Record<string, Material>;
+}
+
+/** Per-frame joint offsets [dx, dy] in grid units; children inherit their parent's offset. */
+export type Pose = Record<string, [number, number]>;
+
+export interface Clip {
+  id: string;
+  fps: number;
+  /** Frames for all views, or per-view overrides (e.g. side view swings legs on x, front view lifts them on y). */
+  frames: PerView<Pose[]>;
+}
+
+/** An accessory: extra parts attached to joints of a rig (hat, hoe, basket...). */
+export interface Attachment {
+  id: string;
+  name: string;
+  parts: PartDef[];
+}
+
+export interface RigRender {
+  rig: RigDef;
+  slots?: Record<string, Material>;
+  attachments?: Attachment[];
+  kit: StyleKit;
+  /** Output size in pixels (square). Default: kit.sizes.character. */
+  size?: number;
+}
+
+function pick<T>(v: PerView<T>, view: View): T {
+  if (v !== null && typeof v === "object" && !Array.isArray(v) && ("down" in v || "side" in v || "up" in v)) {
+    const pv = v as Partial<Record<View, T>>;
+    return (pv[view] ?? pv.down ?? pv.side ?? pv.up) as T;
+  }
+  return v as T;
+}
+
+/** World positions of every joint for a view and pose (offsets accumulate down the hierarchy). */
+export function solvePose(rig: RigDef, view: View, pose: Pose = {}): Record<string, [number, number]> {
+  const byId = new Map(rig.joints.map((j) => [j.id, j]));
+  const acc = new Map<string, [number, number]>();
+  const offset = (id: string): [number, number] => {
+    const hit = acc.get(id);
+    if (hit) return hit;
+    const j = byId.get(id);
+    if (!j) throw new Error(`Unknown joint "${id}" in rig "${rig.id}"`);
+    const own = pose[id] ?? [0, 0];
+    const parent = j.parent ? offset(j.parent) : [0, 0];
+    const o: [number, number] = [own[0] + parent[0], own[1] + parent[1]];
+    acc.set(id, o);
+    return o;
+  };
+  const out: Record<string, [number, number]> = {};
+  for (const j of rig.joints) {
+    const r = pick(j.rest, view);
+    const o = offset(j.id);
+    out[j.id] = [r[0] + o[0], r[1] + o[1]];
+  }
+  return out;
+}
+
+export function clipFrames(clip: Clip, view: View): Pose[] {
+  return pick(clip.frames, view);
+}
+
+/** Render one frame of a rig to a finished sprite. */
+export function renderRigFrame(r: RigRender, dir: Dir, pose: Pose = {}): Sprite {
+  const { rig, kit } = r;
+  const size = r.size ?? kit.sizes.character;
+  const k = size / rig.grid;
+  const view = viewOf(dir);
+  const flip = dir === "left";
+  const J = solvePose(rig, view, pose);
+  const X = (x: number) => (flip ? size - x * k : x * k);
+  const Y = (y: number) => y * k;
+  const slots = { ...rig.slots, ...(r.slots ?? {}) };
+  const mat = (p: PartDef): Material => {
+    const s = p.slot ?? "skin";
+    const m = (slots[s] ?? s) as Material;
+    return (MATERIALS as readonly string[]).includes(m) ? m : "skin";
+  };
+  const legend = buildLegend(kit);
+
+  // attachments replace parts with the same id, otherwise add to them
+  const parts = new Map<string, PartDef>(rig.parts.map((p) => [p.id, p]));
+  for (const a of r.attachments ?? []) for (const p of a.parts) parts.set(p.id, p);
+  const ordered = [...parts.values()]
+    .filter((p) => !p.views || p.views.includes(view))
+    .sort((a, b) => pick(a.z, view) - pick(b.z, view));
+
+  const P = new Painter(size, size, kit);
+  for (const p of ordered) {
+    const opts = { tone: p.tone };
+    const joint = (id: string) => {
+      const j = J[id];
+      if (!j) throw new Error(`Part "${p.id}" references unknown joint "${id}"`);
+      return j;
+    };
+    switch (p.kind) {
+      case "ellipse": {
+        const [x, y] = joint(p.joint);
+        P.ellipse(X(x + (p.dx ?? 0)), Y(y + (p.dy ?? 0)), p.rx * k, p.ry * k, mat(p), { ...opts, flat: p.flat });
+        break;
+      }
+      case "box": {
+        const [x, y] = joint(p.joint);
+        const w = Math.max(1, Math.round(p.w * k));
+        const left = flip ? size - (x + (p.dx ?? 0)) * k - w : (x + (p.dx ?? 0)) * k;
+        const n = p.normal ? ([flip ? -p.normal[0] : p.normal[0], p.normal[1], p.normal[2]] as [number, number, number]) : undefined;
+        P.box(Math.round(left), Math.round(Y(y + (p.dy ?? 0))), w, Math.max(1, Math.round(p.h * k)), mat(p), n, opts);
+        break;
+      }
+      case "limb": {
+        const [ax, ay] = joint(p.from), [bx, by] = joint(p.to);
+        P.capsule(X(ax), Y(ay), X(bx), Y(by), Math.max(0.6, p.r * k), mat(p), opts);
+        break;
+      }
+      case "pixels": {
+        const [x, y] = joint(p.joint);
+        const rows = pick(p.rows, view);
+        const w = Math.max(...rows.map((s) => s.length), 0);
+        // pixel details are authored at 1 px per cell and are not scaled; anchor scales with the rig
+        const ox = Math.round(X(x)) - (flip ? w - 1 - p.anchor[0] : p.anchor[0]);
+        const oy = Math.round(Y(y)) - p.anchor[1];
+        rows.forEach((row, j) => {
+          for (let i = 0; i < row.length; i++) {
+            const idx = legend.byChar.get(row[flip ? row.length - 1 - i : i]);
+            const d = idx ? decodeIndex(idx) : null;
+            if (d) P.px(ox + i, oy + j, d.mat, d.level + (p.tone ?? 0));
+          }
+        });
+        break;
+      }
+    }
+  }
+  return finalize(P.toSprite(), kit);
+}
+
+/** Render clips x 4 directions as animation rows named `<clip>-<dir>`. */
+export function renderRig(r: RigRender, clips: Clip[]): FrameSet[] {
+  const rows: FrameSet[] = [];
+  for (const clip of clips)
+    for (const dir of DIRS) {
+      const frames = clipFrames(clip, viewOf(dir));
+      rows.push({ name: `${clip.id}-${dir}`, frames: (frames.length ? frames : [{}]).map((pose) => renderRigFrame(r, dir, pose)) });
+    }
+  return rows;
+}
+
+/** Structural checks so hand-written or agent-written rigs fail with a clear message. */
+export function validateRig(rig: RigDef, attachments: Attachment[] = []): string[] {
+  const errs: string[] = [];
+  const ids = new Set(rig.joints.map((j) => j.id));
+  if (ids.size !== rig.joints.length) errs.push("duplicate joint ids");
+  for (const j of rig.joints) if (j.parent && !ids.has(j.parent)) errs.push(`joint ${j.id}: unknown parent ${j.parent}`);
+  // cycle check
+  for (const j of rig.joints) {
+    const seen = new Set<string>();
+    let cur: string | null = j.id;
+    while (cur) {
+      if (seen.has(cur)) { errs.push(`joint ${j.id}: parent cycle`); break; }
+      seen.add(cur);
+      cur = rig.joints.find((x) => x.id === cur)?.parent ?? null;
+    }
+  }
+  for (const p of [...rig.parts, ...attachments.flatMap((a) => a.parts)]) {
+    const refs = p.kind === "limb" ? [p.from, p.to] : [p.joint];
+    for (const r of refs) if (!ids.has(r)) errs.push(`part ${p.id}: unknown joint ${r}`);
+  }
+  return errs;
+}

@@ -154,6 +154,29 @@ export class Painter {
     return this;
   }
 
+  /**
+   * Capsule between two points (rigged limbs, tails, horns): a cylinder of
+   * radius r along any direction, lit across its width like `cylinder`.
+   */
+  capsule(ax: number, ay: number, bx: number, by: number, r: number, m: Material, opts: ShapeOpts = {}): this {
+    const flat = opts.flat ?? 0;
+    const vx = bx - ax, vy = by - ay;
+    const len2 = vx * vx + vy * vy || 1e-6;
+    const len = Math.sqrt(len2);
+    const px = -vy / len, py = vx / len; // unit perpendicular
+    for (let y = Math.floor(Math.min(ay, by) - r - 1); y <= Math.ceil(Math.max(ay, by) + r + 1); y++)
+      for (let x = Math.floor(Math.min(ax, bx) - r - 1); x <= Math.ceil(Math.max(ax, bx) + r + 1); x++) {
+        const cx = x + 0.5 - ax, cy = y + 0.5 - ay;
+        const t = Math.max(0, Math.min(1, (cx * vx + cy * vy) / len2));
+        const dx = cx - t * vx, dy = cy - t * vy;
+        const d = Math.hypot(dx, dy);
+        if (d > r) continue;
+        const u = (dx * px + dy * py) / r; // -1..1 across the limb
+        this.put(x, y, m, [px * u * (1 - flat), py * u * (1 - flat) - 0.15, Math.sqrt(Math.max(0, 1 - u * u)) + flat], 0, opts);
+      }
+    return this;
+  }
+
   /** Filled polygon with a single face normal (roofs, pine layers, blades). */
   poly(points: [number, number][], m: Material, normal: Vec3 = [0, 0, 1], opts: ShapeOpts = {}): this {
     const ys = points.map((p) => p[1]);
