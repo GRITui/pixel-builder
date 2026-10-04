@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { aiRig, type AiStatus } from "../../ai/client";
 import { createAsset } from "../../core/asset";
 import { MATERIALS, type Material } from "../../core/palette";
 import { DIRS, DIRS8, validateRig, type Directions, type Attachment, type Clip, type RigDef, type RigRecipe } from "../../core/rig";
@@ -7,7 +8,7 @@ import type { Asset, FrameSet, StyleKit } from "../../core/types";
 import { RigEditor } from "../rig/RigEditor";
 import { drawSprite, type FlatPalette } from "../render";
 import { renderRigWorld } from "../rig/recipe";
-import { RampSwatch } from "./common";
+import { RampSwatch, aiOffReason } from "./common";
 import { ExportMenu } from "./ExportMenu";
 import "../rig/rig.css";
 
@@ -95,6 +96,10 @@ export function RiggedWorkspace(props: {
   customAttachments?: Attachment[];
   onSave: (a: Asset) => void;
   onSaveClip: (c: Clip) => void;
+  /** AI availability (the Describe box is disabled without a server key). */
+  status?: AiStatus | null;
+  /** Store an AI-authored rig / attachments / clips on the project. */
+  onAuthored?: (a: { rig?: RigDef; attachments?: Attachment[]; clips?: Clip[] }) => void;
   onError: (m: string) => void;
 }) {
   const { kit, pal, sel, update } = props;
@@ -108,6 +113,11 @@ export function RiggedWorkspace(props: {
   const family = entry.family;
   const customRig = family === "custom";
   const [editing, setEditing] = useState(false);
+  const [desc, setDesc] = useState("");
+  const [descBusy, setDescBusy] = useState(false);
+  const [descNotes, setDescNotes] = useState("");
+  const [keepRig, setKeepRig] = useState(false);
+  const aiOn = !!props.status?.enabled;
 
   const clipsAvail = useMemo(
     () => [...CLIPS.filter((c) => c.family === family || customRig).map((c) => ({ clip: c.clip, custom: false })), ...props.customClips.map((clip) => ({ clip, custom: true }))],
@@ -153,12 +163,65 @@ export function RiggedWorkspace(props: {
     return createAsset({ name, category: "character", kit, rows: gen.rows, fps: clips[0].fps, source: { kind: "rigged", rig: recipe } });
   }, [gen.rows, rig, customRig, sel.slots, attachments, clips, props.customClips, name, kit, directions]);
 
+  const describe = async () => {
+    setDescBusy(true);
+    setDescNotes("");
+    try {
+      const r = await aiRig({ prompt: desc.trim(), kit, base: keepRig ? rig.id : undefined });
+      // ids must not shadow built-ins: the registry wins on lookup, so authored clips/attachments get a prefix when they collide
+      const att = r.attachments.map((a) => (ATTACHMENTS.some((x) => x.attachment.id === a.id) ? { ...a, id: `ai-${a.id}` } : a));
+      const prefix = r.rig?.id ?? "ai";
+      const clips = r.clips.map((c) => ({ ...c, id: `${prefix}-${c.id}` }));
+      const nextRig = r.rig && rigById(r.rig.id) ? { ...r.rig, id: `ai-${r.rig.id}` } : r.rig;
+      props.onAuthored?.({ rig: nextRig, attachments: att, clips });
+      update((s) => ({
+        ...s,
+        rigId: nextRig?.id ?? r.baseRig ?? s.rigId,
+        slots: Object.fromEntries(Object.entries(r.slots).filter(([, m]) => (MATERIALS as readonly string[]).includes(m))) as Record<string, Material>,
+        attachments: [...r.attachmentIds, ...att.map((a) => a.id)],
+        clips: clips.map((c) => c.id),
+        name: r.name,
+      }));
+      setDescNotes(r.notes);
+    } catch (e) {
+      props.onError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDescBusy(false);
+    }
+  };
   const pickRig = (id: string) => update((s) => ({ ...s, rigId: id, slots: {}, attachments: [], clips: [] }));
   const familyRigs = allRigs.filter((r) => r.family === family);
 
   return (
     <div className="workspace">
       <div className="ws-left">
+        <section className="card" aria-label="Describe a character">
+          <h3 className="card-title">Describe</h3>
+          <textarea
+            id="rig-describe"
+            aria-label="Describe a character or creature"
+            rows={3}
+            value={desc}
+            placeholder="e.g. a monk in saffron robes carrying an alms bowl, or a river crab"
+            onChange={(e) => setDesc(e.target.value)}
+          />
+          <label className="rigw-check" title="Keep the selected rig's body and only author attachments and colours">
+            <input type="checkbox" checked={keepRig} onChange={(e) => setKeepRig(e.target.checked)} />
+            Build on the selected rig
+          </label>
+          <div className="btn-row">
+            <button
+              className="primary"
+              disabled={!aiOn || !desc.trim() || descBusy}
+              title={!aiOn ? aiOffReason(props.status ?? null) : !desc.trim() ? "Describe what you want first" : "Claude authors a rig (or attachments for the selected one) and loads it here"}
+              onClick={describe}
+            >
+              {descBusy ? "Designing…" : "✦ Design it"}
+            </button>
+          </div>
+          {!aiOn && <p className="hint">{aiOffReason(props.status ?? null).replace(/\.?$/, ".")} Agents can author rigs without a key: see the design_creature prompt.</p>}
+          {descNotes && <p className="dim fine">{descNotes}</p>}
+        </section>
         <section className="card">
           <h3 className="card-title">Rig</h3>
           <div className="rigw-slot">

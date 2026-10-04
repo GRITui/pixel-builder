@@ -146,6 +146,56 @@ Rules:
   the server model and needs `ANTHROPIC_API_KEY`. `all_frames` repeats it on
   every frame of the row. For rigged assets prefer an attachment.
 
+## Authoring a creature yourself (no API key)
+
+The web app's "Describe" box (`POST /api/rig`) needs a server key; you do not.
+You can write the same JSON. The MCP prompt `design_creature`
+(`description`, `family?`) walks through it:
+
+1. `list_rigs`: if a built-in rig fits the body (people, common animals, birds,
+   fish) keep it and author only attachments plus `slots`. Otherwise write a rig.
+2. Rig JSON: `{id, name, grid: 32, joints:[{id, parent, rest}], parts:[...], slots:{slot: material}}`.
+   One root joint, absolute `rest: [x, y]` on the 32 grid (y down; or per view
+   `{down, side, up}`), 1px margin, side view faces right. Parts: `ellipse
+   {joint, rx, ry, dx?, dy?}`, `box {joint, w, h}`, `limb {from, to, r}`; each
+   with a unique `id`, `z` (higher = in front, may be per view) and a `slot`
+   (or a material name). Use `views: ["down","side"]` for eyes and faces. Reuse
+   a family's joint names (humanoid, quadruped, bird, fish: see `list_rigs`) to
+   inherit its clips and attachments; a free-form skeleton needs its own clips.
+3. `create_rig {rig}` (validated, test-rendered in 3 views), `create_clip`
+   for `idle` and `walk`, `create_attachment {rig, attachment}` for props.
+4. `generate_rigged {rig, clips: ["idle","walk"]}`, look at the sheet, fix, repeat.
+
+Worked example, a river crab (one root, two claws, legs):
+
+```json
+create_rig { "rig": {
+  "id": "river-crab", "name": "River crab", "grid": 32,
+  "slots": { "shell": "accent", "eye": "ink" },
+  "joints": [
+    { "id": "body", "parent": null, "rest": [16, 19] },
+    { "id": "clawL", "parent": "body", "rest": { "down": [7, 11], "side": [20, 13], "up": [7, 11] } },
+    { "id": "clawR", "parent": "body", "rest": { "down": [25, 11], "side": [22, 13], "up": [25, 11] } },
+    { "id": "footL0", "parent": "body", "rest": [8, 22] },
+    { "id": "footR0", "parent": "body", "rest": [24, 22] }
+  ],
+  "parts": [
+    { "id": "legL0", "kind": "limb", "from": "body", "to": "footL0", "r": 0.9, "slot": "shell", "z": 1 },
+    { "id": "legR0", "kind": "limb", "from": "body", "to": "footR0", "r": 0.9, "slot": "shell", "z": 1 },
+    { "id": "shell", "kind": "ellipse", "joint": "body", "rx": 9, "ry": 6, "slot": "shell", "z": 3 },
+    { "id": "pincerL", "kind": "ellipse", "joint": "clawL", "rx": 3, "ry": 2.5, "slot": "shell", "z": 4 },
+    { "id": "pincerR", "kind": "ellipse", "joint": "clawR", "rx": 3, "ry": 2.5, "slot": "shell", "z": 4 }
+  ] } }
+create_clip { "rig": "river-crab", "clip": { "id": "crab-idle", "fps": 3, "frames": [{}, { "clawL": [0, -1], "clawR": [0, -1], "body": [0, 0.5] }] } }
+create_clip { "rig": "river-crab", "clip": { "id": "crab-walk", "fps": 8, "frames": [{ "footL0": [-1, -1] }, { "body": [0, 0.5] }, { "footR0": [1, -1] }, { "body": [0, 0.5] }] } }
+generate_rigged { "rig": "river-crab", "clips": ["crab-idle", "crab-walk"] }
+```
+
+Extending instead ("a monk in saffron robes carrying an alms bowl"):
+`create_attachment {rig: "humanoid-normal", attachment: {id: "alms-bowl", name: "Alms bowl", parts: [{id: "bowl", kind: "ellipse", joint: "handL", dy: 1, rx: 3, ry: 2, slot: "metal", z: 6}]}}`
+then `generate_rigged {rig: "humanoid-normal", slots: {top: "gold"}, attachments: ["alms-bowl"], clips: ["idle","walk"]}`.
+Name your own clips with a prefix (`crab-idle`): a built-in clip with the same id wins.
+
 ## Consistency rules (read before generating)
 
 - Stay in the kit palette. Never ask for or paint arbitrary hex colours; to get a
@@ -169,7 +219,7 @@ Assets live in a workspace directory (`--workspace <dir>`, else env
 (`characters/`, `buildings/`, `environments/`, `objects/`, `ui/`, `maps/`).
 Copy or point the game at those files. MCP also exposes the resources
 `pixel-builder://project` and `pixel-builder://style-guide`, and a prompt
-`asset_pack` (`game`, `count`) that walks through a starter pack.
+`asset_pack` (`game`, `count`) that walks through a starter pack, and `design_creature` (`description`, `family?`) for authoring a rigged creature.
 
 ## No MCP? Use the CLI
 

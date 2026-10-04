@@ -20,7 +20,7 @@ import { STORAGE_ERROR_EVENT, usePref, useProject } from "./ui/store";
 const VIEWS = new Set<string>([...CATEGORIES.map((c) => c.id), "library"]);
 
 export default function App() {
-  const { project, kits, library, mergeProject, clips, customRigs, customAttachments, addClip } = useProject();
+  const { project, kits, library, mergeProject, clips, customRigs, customAttachments, addClip, addAuthored } = useProject();
   const kit = kits.active;
   const pal = usePalette(kit);
   const { status, refresh } = useAiStatus();
@@ -161,6 +161,7 @@ export default function App() {
               customClips={clips}
               customRigs={customRigs}
               customAttachments={customAttachments}
+              onAuthored={addAuthored}
               onSaveClip={(c) => {
                 addClip(c);
                 push(`Saved clip “${c.id}” to the project.`);
