@@ -133,6 +133,22 @@ const MONSTERS_V1: PackManifest = {
   entries: ["mushroom-red", "mushroom-brown", "mushroom-poison", "mushroom-king", "slime-green", "slime-blue", "slime-fire", "slime-metal", "plant", "bat", "wolf", "skeleton"].map((m) => mon(`monster-${m}`)),
 };
 
-export const PACKS: PackManifest[] = [FARMING_V1, SIDE_VIEW_STARTER, MONSTERS_V1];
+/** Isometric starter (#17): use with the `kit-iso` kit. Hero with idle/walk on the four iso diagonals, ground tiles (flat and raised), props, a house and a map. */
+const ISO_STARTER: PackManifest = {
+  id: "iso-starter",
+  name: "Isometric starter",
+  description: "2:1 dimetric starter for the kit-iso camera: a hero with idle and walk rows for the four iso diagonals (walk-se, walk-sw, walk-ne, walk-nw), grass/dirt/sand/water/stone diamond tiles plus raised grass and stone blocks, tree, pine, rock, bush, fence segments along both iso axes, a gable house and a generated isometric map (Tiled isometric export with a props object layer).",
+  entries: [
+    { name: "hero-iso", rig: "human-male-young-adult", attachments: ["costume-overalls", "straw-hat"], clips: ["idle", "walk"], tags: ["character", "player"] },
+    ...(["grass", "dirt", "sand", "water", "stone"] as const).map((kind) => g(`iso-tile-${kind}`, "iso-tile", { kind }, ["environment", "tile"])),
+    g("iso-block-grass", "iso-tile", { kind: "grass", height: 1 }, ["environment", "tile", "block"]),
+    g("iso-block-stone", "iso-tile", { kind: "stone", height: 2 }, ["environment", "tile", "block"]),
+    ...(["tree", "pine", "rock", "bush", "fence-se", "fence-sw", "post"] as const).map((kind) => g(`iso-${kind}`, "iso-prop", { kind }, ["environment", "prop"])),
+    g("iso-house", "iso-building", { size: 2 }, ["building", "house"]),
+    g("iso-map", "isomap", { cols: 14, rows: 14 }, ["map"], 2),
+  ],
+};
+
+export const PACKS: PackManifest[] = [FARMING_V1, SIDE_VIEW_STARTER, MONSTERS_V1, ISO_STARTER];
 
 export const packById = (id: string) => PACKS.find((p) => p.id === id);

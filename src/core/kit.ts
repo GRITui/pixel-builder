@@ -50,6 +50,16 @@ export const SIDE_KIT: StyleKit = {
   vibe: "Cozy side-view platformer, profile characters standing on a ground line, chunky readable silhouettes, warm lighting.",
 };
 
+/** Isometric kit: 2:1 dimetric, 32x16 diamond tiles, characters facing the four iso diagonals. Light from the top-left lights the left (SW) wall and shades the right (SE) wall. */
+export const ISO_KIT: StyleKit = {
+  ...DEFAULT_KIT,
+  id: "kit-iso",
+  name: "Cozy Isometric",
+  camera: "iso",
+  sizes: { character: 32, building: 96, environment: 32, object: 16, ui: 16, tile: 32 },
+  vibe: "Cozy isometric (2:1 dimetric) fantasy RPG: diamond tiles, raised blocks, characters facing the diagonals, warm light from the top-left.",
+};
+
 /** HD kit with 9-shade hue-shifted ramps: the lit Painter uses the extra shades for smooth volumes. */
 export const HD_DEEP_KIT: StyleKit = {
   ...HD_RICH_KIT,
@@ -90,6 +100,9 @@ export const KIT_PRESETS: StyleKit[] = [
   SIDE_KIT,
   HD_DEEP_KIT,
 ];
+
+/** Presets seeded into new projects: KIT_PRESETS (pinned by tests) plus the isometric kit. */
+export const ALL_KIT_PRESETS: StyleKit[] = [...KIT_PRESETS, ISO_KIT];
 
 export function resolveRamps(kit: StyleKit): Ramps {
   const base = (PALETTES.find((p) => p.id === kit.paletteId) ?? PALETTES[0]).ramps;

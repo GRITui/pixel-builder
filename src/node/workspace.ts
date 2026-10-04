@@ -13,6 +13,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync 
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { emptyProject, parseProject, serializeProject, type ProjectFile } from "../core/project";
 import type { Asset, Category, Sprite, StyleKit, TileMap } from "../core/types";
+import { isoPropOrigin } from "../core/generators/isomap";
 import { spriteSheetToSvg, type RigSvgInfo } from "../core/svg";
 import { ENGINE_FORMATS, engineFiles, tilesetMetaOf, type EngineFormat } from "./engine-export";
 import { asepriteBytes } from "./aseprite";
@@ -228,15 +229,19 @@ function tiledExport(tm: TileMap, slug: string, kit: StyleKit, dir: string): Exp
       ],
     }));
 
+  // Isometric maps: 2:1 diamond cells (tile wide, tile/2 tall); ground sprites are taller than a cell
+  // (raised blocks) and Tiled bottom-aligns them; props become tile objects (see below).
+  const iso = tm.orientation === "isometric";
+  const cellH = iso ? Math.max(tm.tile / 2, ...groundIdx.map((i) => tm.tiles[i].sprite.h)) : tm.tile;
   let next = 1;
   let groundFirst = 0, decoFirst = 0;
   if (groundIdx.length) {
-    const { image, columns } = atlas(groundIdx.map((i) => tm.tiles[i].sprite), kit, tm.tile, tm.tile, false);
+    const { image, columns } = atlas(groundIdx.map((i) => tm.tiles[i].sprite), kit, tm.tile, cellH, false);
     files.push(writeImage(join(dir, `${slug}.tileset.png`), image, "tileset"));
     groundFirst = next;
     tilesets.push({
       firstgid: next, name: `${slug}-ground`, image: `${slug}.tileset.png`, imagewidth: image.width, imageheight: image.height,
-      tilewidth: tm.tile, tileheight: tm.tile, tilecount: groundIdx.length, columns, margin: 0, spacing: 0, tiles: props(groundIdx),
+      tilewidth: tm.tile, tileheight: cellH, tilecount: groundIdx.length, columns, margin: 0, spacing: 0, tiles: props(groundIdx),
     });
     next += groundIdx.length;
   }
@@ -249,16 +254,41 @@ function tiledExport(tm: TileMap, slug: string, kit: StyleKit, dir: string): Exp
     tilesets.push({
       firstgid: next, name: `${slug}-deco`, image: `${slug}.deco.png`, imagewidth: image.width, imageheight: image.height,
       tilewidth: cw, tileheight: ch, tilecount: decoIdx.length, columns, margin: 0, spacing: 0,
-      tileoffset: { x: -Math.floor((cw - tm.tile) / 2), y: 0 }, tiles: props(decoIdx),
+      ...(iso ? {} : { tileoffset: { x: -Math.floor((cw - tm.tile) / 2), y: 0 } }), tiles: props(decoIdx),
     });
   }
   const layer = (id: number, name: string, data: number[]) => ({
     id, name, type: "tilelayer", x: 0, y: 0, width: tm.cols, height: tm.rows, opacity: 1, visible: true, data,
   });
+  // Tiled isometric object coordinates are in "tile height" units along the two diamond axes.
+  const isoObjects = () => {
+    const out: unknown[] = [];
+    let id = 1;
+    const cw = Math.max(tm.tile, ...decoIdx.map((i) => tm.tiles[i].sprite.w)), ch = Math.max(tm.tile, ...decoIdx.map((i) => tm.tiles[i].sprite.h));
+    const th = tm.tile / 2;
+    for (let r = 0; r < tm.rows; r++)
+      for (let c = 0; c < tm.cols; c++) {
+        const gid = toGid([tm.deco[r * tm.cols + c]], decoIdx, decoFirst)[0];
+        if (!gid) continue;
+        const sp = tm.tiles[tm.deco[r * tm.cols + c]].sprite;
+        const [ox, oy] = isoPropOrigin(tm, c, r, sp);
+        // screen position of the atlas cell's bottom-left corner (cell is cw x ch, sprite centred on the bottom)
+        const sx = ox + sp.w / 2 - cw / 2 - tm.rows * (tm.tile / 2), sy = oy + sp.h;
+        const a = (sx * 2) / tm.tile, b = (sy * 2) / th;
+        out.push({ id: id++, name: tm.tiles[tm.deco[r * tm.cols + c]].name, type: "", gid, x: ((a + b) / 2) * th, y: ((b - a) / 2) * th, width: cw, height: ch, rotation: 0, visible: true });
+      }
+    return { out, nextid: id };
+  };
+  const objs = iso ? isoObjects() : null;
   const map = {
-    type: "map", version: "1.10", tiledversion: "1.10.2", orientation: "orthogonal", renderorder: "right-down", infinite: false,
-    width: tm.cols, height: tm.rows, tilewidth: tm.tile, tileheight: tm.tile, nextlayerid: 3, nextobjectid: 1,
-    layers: [layer(1, "ground", toGid(tm.ground, groundIdx, groundFirst)), layer(2, "deco", toGid(tm.deco, decoIdx, decoFirst))],
+    type: "map", version: "1.10", tiledversion: "1.10.2", orientation: iso ? "isometric" : "orthogonal", renderorder: "right-down", infinite: false,
+    width: tm.cols, height: tm.rows, tilewidth: tm.tile, tileheight: iso ? tm.tile / 2 : tm.tile, nextlayerid: 3, nextobjectid: objs ? objs.nextid : 1,
+    layers: [
+      layer(1, "ground", toGid(tm.ground, groundIdx, groundFirst)),
+      objs
+        ? { id: 2, name: "props", type: "objectgroup", x: 0, y: 0, opacity: 1, visible: true, draworder: "topdown", objects: objs.out }
+        : layer(2, "deco", toGid(tm.deco, decoIdx, decoFirst)),
+    ],
     tilesets,
   };
   const path = join(dir, `${slug}.tiled.json`);

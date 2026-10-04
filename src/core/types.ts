@@ -46,8 +46,8 @@ export interface StyleKit {
   detail?: DetailLevel;
   /** Shades per material ramp: 7 or 9 adds smoother volume shading (HD kits); absent / 5 = classic. */
   rampDepth?: 5 | 7 | 9;
-  /** Camera: "side" is the platformer view (ground line at the bottom, profile characters); absent = "topdown". */
-  camera?: "topdown" | "side";
+  /** Camera: "side" is the platformer view (ground line at the bottom, profile characters); "iso" is 2:1 dimetric (tile = diamond `tile` wide, `tile/2` tall, characters face the diagonals); absent = "topdown". */
+  camera?: "topdown" | "side" | "iso";
   /** Free-text art direction used by the AI ("cozy, chunky, SNES-era"). */
   vibe: string;
   /** House style: edits are refused; fork it (create_kit / Duplicate) to change anything. */
@@ -92,6 +92,10 @@ export interface TileMap {
   ground: number[];
   /** Decoration layer drawn on top (trees, rocks...). */
   deco: number[];
+  /** "isometric" = 2:1 diamond cells (`tile` wide, `tile / 2` tall); absent = orthogonal. */
+  orientation?: "orthogonal" | "isometric";
+  /** Isometric maps: raise of each cell's top face in pixels (parallel to `ground`); props on a raised cell stand on top of it. */
+  heights?: number[];
 }
 
 export type MaterialMap = Partial<Record<string, Material>>;
