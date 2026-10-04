@@ -42,7 +42,7 @@ describe("humanoid clips", () => {
         for (const row of a) {
           const [clip, dir] = row.name.split("-");
           const c = HUMANOID_CLIPS.find((x) => x.id === clip)!;
-          expect(row.frames.length).toBe(clipFrames(c, viewOf(dir as never)).length);
+          expect(row.frames.length).toBe(clipFrames(kit.detail === "rich" && c.rich ? { ...c, frames: c.rich } : c, viewOf(dir as never)).length);
           for (const f of row.frames) expect(f.w).toBe(kit.sizes.character);
         }
         expect(a).toEqual(b);

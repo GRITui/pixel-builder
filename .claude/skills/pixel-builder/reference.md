@@ -50,8 +50,10 @@ Style Kit fields (`create_kit` / `update_kit` `changes`):
 | `vibe` | free text art direction |
 
 Built-in kits: `kit-default` (Cozy RPG), `kit-gameboy` (Handheld Classic),
-`kit-neon` (Neon Dusk), `kit-hd` (Cozy RPG at 1.5x: 48px characters, 24px tiles, 144px buildings) and `kit-hd-rich` (the same with rich detail). Matching the kit to the game's mood first is the single
+`kit-neon` (Neon Dusk), `kit-hd` (Cozy RPG at 1.5x: 48px characters, 24px tiles, 144px buildings) and `kit-hd-rich` (the same with rich detail), and `kit-hd-deep` (rich + `rampDepth` 9). Matching the kit to the game's mood first is the single
 biggest consistency win: pick palette + outline + light, then size the sprites.
+
+Deep ramps: a kit with `rampDepth` 7 or 9 (`kit-hd-deep`) has that many shades per material. The 90 classic legend chars never change; the legend then also lists 4 extra chars per material (Latin-1 / Greek letters such as `À`, `α`, shown as `level 0.5`, `1.5` ...) for the shades between levels. Painting with only the classic chars still works.
 
 ## Generators (snapshot; call `list_generators` for the exact current specs)
 

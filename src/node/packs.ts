@@ -122,6 +122,17 @@ const SIDE_VIEW_STARTER: PackManifest = {
   ],
 };
 
-export const PACKS: PackManifest[] = [FARMING_V1, SIDE_VIEW_STARTER];
+const MONSTER_CLIPS_ALL = ["idle", "walk", "attack", "hurt", "die"];
+const mon = (rig: string): PackEntry => ({ name: rig.replace(/^monster-/, ""), rig, clips: MONSTER_CLIPS_ALL, tags: ["character", "monster"] });
+
+/** Monsters v1 (#44): top-down monsters, every variant with idle, walk, attack, hurt (hit flash) and die (puff). */
+const MONSTERS_V1: PackManifest = {
+  id: "monsters-v1",
+  name: "Monsters v1",
+  description: "Cute top-down monsters that animate in 4 directions (8 with directions:8): mushroom (red, brown, poison, king), slime (green, blue, fire, metal), snapping plant, bat, wolf and skeleton. Clips idle, walk, attack (with anticipation), hurt (white hit flash) and die (dissolves into a puff).",
+  entries: ["mushroom-red", "mushroom-brown", "mushroom-poison", "mushroom-king", "slime-green", "slime-blue", "slime-fire", "slime-metal", "plant", "bat", "wolf", "skeleton"].map((m) => mon(`monster-${m}`)),
+};
+
+export const PACKS: PackManifest[] = [FARMING_V1, SIDE_VIEW_STARTER, MONSTERS_V1];
 
 export const packById = (id: string) => PACKS.find((p) => p.id === id);

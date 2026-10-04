@@ -28,7 +28,7 @@ export function initRigSel(): RigSel {
   return { rigId: rig?.id ?? "", slots: {}, attachments: [], clips: [], name: "" };
 }
 
-const FAMILIES: RigFamily[] = ["humanoid", "quadruped", "bird"];
+const FAMILIES: RigFamily[] = ["humanoid", "quadruped", "bird", "monster", "beast", "undead"];
 
 /** One animation loop for every preview cell: frame = floor(t * fps) per clip. */
 function RigPreview({ rows, clips, pal, scale, directions }: { rows: FrameSet[]; clips: Clip[]; pal: FlatPalette; scale: number; directions: Directions }) {

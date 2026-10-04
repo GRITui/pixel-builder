@@ -90,6 +90,8 @@ export interface Clip {
   fps: number;
   /** Frames for all views, or per-view overrides (e.g. side view swings legs on x, front view lifts them on y). */
   frames: PerView<Pose[]>;
+  /** Snappier frames (anticipation, smear, follow-through) that `detail: "rich"` kits use in place of `frames`. */
+  rich?: PerView<Pose[]>;
 }
 
 /** An accessory: extra parts attached to joints of a rig (hat, hoe, basket...). */
@@ -277,7 +279,7 @@ export function renderRig(r: RigRender, clips: Clip[], opts: RenderOptions = {})
   const dirs = SIDE_ONLY_RIGS.has(r.rig.id) ? SIDE_DIRS : opts.directions === 8 ? DIRS8 : DIRS;
   for (const clip of clips)
     for (const dir of dirs) {
-      const frames = clipFrames(clip, viewOf(dir));
+      const frames = clipFrames(r.kit.detail === "rich" && clip.rich ? { ...clip, frames: clip.rich } : clip, viewOf(dir));
       rows.push({ name: `${clip.id}-${dir}`, frames: (frames.length ? frames : [{}]).map((pose) => renderRigFrame(r, dir, pose)) });
     }
   // `pattern-<kind>[:slot]` attachments (rigged recipes) pattern the garment between neck and hip,

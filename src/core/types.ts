@@ -44,6 +44,8 @@ export interface StyleKit {
   sizes: Record<Exclude<Category, "map">, number> & { tile: number };
   /** Pixel richness (see DetailLevel). Optional so existing kits stay standard. */
   detail?: DetailLevel;
+  /** Shades per material ramp: 7 or 9 adds smoother volume shading (HD kits); absent / 5 = classic. */
+  rampDepth?: 5 | 7 | 9;
   /** Camera: "side" is the platformer view (ground line at the bottom, profile characters); absent = "topdown". */
   camera?: "topdown" | "side";
   /** Free-text art direction used by the AI ("cozy, chunky, SNES-era"). */

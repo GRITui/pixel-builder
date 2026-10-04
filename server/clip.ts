@@ -7,16 +7,19 @@ import { callStructured, type StructuredCall } from "./claude";
 import { HttpError, cleanText, requirePrompt, type JsonSchema } from "./prompts";
 import { clipFrames, type Clip, type Pose, type RigDef, type View } from "../src/core/rig";
 import { BIRD_JOINTS, HUMANOID_JOINTS, QUADRUPED_JOINTS } from "../src/core/rigs/joints";
+import { MONSTER_JOINTS } from "../src/core/rigs/monsters";
 import { clipById, RIGS, rigById, type RigFamily } from "../src/core/rigs";
 
 const FISH_JOINTS = ["body", "head", "tail", "finTop", "finL", "finR"] as const;
 export const FAMILY_JOINTS: Record<RigFamily, readonly string[]> = {
   humanoid: HUMANOID_JOINTS, quadruped: QUADRUPED_JOINTS, bird: BIRD_JOINTS, fish: FISH_JOINTS,
+  monster: MONSTER_JOINTS, beast: QUADRUPED_JOINTS, undead: HUMANOID_JOINTS,
 };
 const FAMILIES = Object.keys(FAMILY_JOINTS) as RigFamily[];
 /** Joints that touch the ground; fish swim, so they have none. */
 export const GROUND_JOINTS: Record<RigFamily, readonly string[]> = {
   humanoid: ["footL", "footR"], quadruped: ["footFL", "footFR", "footBL", "footBR"], bird: ["footL", "footR"], fish: [],
+  monster: [], beast: ["footFL", "footFR", "footBL", "footBR"], undead: ["footL", "footR"],
 };
 const VIEWS: View[] = ["down", "side", "up"];
 
@@ -88,6 +91,7 @@ export function buildClipSchema(joints: string[]): JsonSchema {
 // ---------- prompt ----------
 const EXAMPLE_IDS: Record<RigFamily, string[]> = {
   humanoid: ["walk", "chop", "sit"], quadruped: ["walk", "idle"], bird: ["walk", "idle"], fish: ["swim", "idle"],
+  monster: ["walk", "attack"], beast: ["walk", "attack"], undead: ["walk", "hurt"],
 };
 
 function compactClip(c: Clip, joints: readonly string[]) {

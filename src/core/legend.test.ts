@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { MATERIALS, PALETTE_SIZE, RAMP_LEN, colorIndex } from "./palette";
-import { DEFAULT_KIT } from "./kit";
+import { FINE_START, MATERIALS, PALETTE_SIZE, PALETTE_SIZE_CLASSIC, RAMP_LEN, colorIndex } from "./palette";
+import { DEFAULT_KIT, HD_DEEP_KIT } from "./kit";
 import { buildLegend, decodeRows, encodeSprite, legendText } from "./legend";
 
 const full = buildLegend(DEFAULT_KIT);
 
 describe("legend alphabet", () => {
   it("has one unique printable char per palette index, 0 = '.'", () => {
-    expect(full.entries).toHaveLength(PALETTE_SIZE - 1);
-    expect(full.byChar.size).toBe(PALETTE_SIZE);
-    expect(full.byIndex.size).toBe(PALETTE_SIZE);
+    expect(full.entries).toHaveLength(PALETTE_SIZE_CLASSIC - 1);
+    expect(full.byChar.size).toBe(PALETTE_SIZE_CLASSIC);
+    expect(full.byIndex.size).toBe(PALETTE_SIZE_CLASSIC);
     expect(full.byChar.get(".")).toBe(0);
     expect(full.byIndex.get(0)).toBe(".");
     for (const [c] of full.byChar) {
@@ -51,13 +51,13 @@ describe("legendText", () => {
     expect(lines[0]).toBe(". = transparent");
     expect(lines[1]).toMatch(/^\S = skin level 0 \(#[0-9a-f]{6}\)$/i);
     expect(text).not.toContain("metal");
-    expect(legendText(full).split("\n")).toHaveLength(PALETTE_SIZE);
+    expect(legendText(full).split("\n")).toHaveLength(PALETTE_SIZE_CLASSIC);
   });
 });
 
 describe("encode / decode", () => {
   it("round-trips a sprite", () => {
-    const data = Array.from({ length: 12 * 9 }, (_, i) => i % PALETTE_SIZE);
+    const data = Array.from({ length: 12 * 9 }, (_, i) => i % PALETTE_SIZE_CLASSIC);
     const s = { w: 12, h: 9, data };
     expect(decodeRows(encodeSprite(s, full), 12, 9, full)).toEqual(s);
   });
@@ -101,5 +101,33 @@ describe("encode / decode", () => {
     // chars outside a filtered legend are unknown -> 0
     const subset = buildLegend(DEFAULT_KIT, ["skin"]);
     expect(decodeRows(["a"], 1, 1, subset).data).toEqual([0]);
+  });
+});
+
+describe("deep kits", () => {
+  const deep = buildLegend(HD_DEEP_KIT);
+
+  it("keeps classic chars stable and adds unique non-ASCII chars for the extra shades", () => {
+    expect(deep.entries).toHaveLength(PALETTE_SIZE - 1);
+    expect(deep.byChar.size).toBe(PALETTE_SIZE);
+    for (const e of full.entries) expect(deep.byIndex.get(e.index)).toBe(e.char);
+    const fine = deep.entries.filter((e) => e.index >= FINE_START);
+    expect(fine).toHaveLength(MATERIALS.length * 4);
+    for (const e of fine) {
+      expect(e.char).not.toMatch(/^[\x20-\x7e]$/);
+      expect(e.level % 1).toBe(0.5);
+      expect(deep.byChar.get(e.char)).toBe(e.index);
+    }
+  });
+
+  it("round-trips a sprite that uses fine shades", () => {
+    const s = { w: 13, h: 11, data: Array.from({ length: 13 * 11 }, (_, i) => i % PALETTE_SIZE) };
+    expect(decodeRows(encodeSprite(s, deep), 13, 11, deep)).toEqual(s);
+  });
+
+  it("a classic legend folds a fine shade onto a neighbouring classic char", () => {
+    const idx = FINE_START + 2 * 4 + 1; // hair, between level 1 and 2
+    const ch = encodeSprite({ w: 1, h: 1, data: [idx] }, full)[0];
+    expect([full.byIndex.get(colorIndex("hair", 1)), full.byIndex.get(colorIndex("hair", 2))]).toContain(ch);
   });
 });

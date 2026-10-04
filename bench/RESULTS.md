@@ -48,14 +48,14 @@ Palette idx = distinct palette entries used across the brief's sprites (the kit 
 | autotile-grass-dirt-blob | 1 | 1 | 0 | - | 7 | n/a | n/a |
 | autotile-sand-water | 2 | 2 | 0 | - | 15 | n/a | n/a |
 | items-potion-set | 6 | 6 | 0 | - | 35 | 100% | 0% |
-| items-tools | 8 | 40 | 2 | - | 37 | 42% | 0% |
+| items-tools | 8 | 40 | 2 | - | 43 | 100% (was 42%) | 0% |
 | items-loot | 10 | 16 | 1 | - | 35 | 100% | 60% |
 | ui-kit-basic | 6 | 10 | 7 | - | 14 | n/a | n/a |
 | ui-hud-weather | 5 | 7 | 1 | - | 28 | n/a | n/a |
 | map-meadow | 1 | 1 | 0 | - | 44 | n/a | n/a |
 | map-rice-village | 1 | 1 | 0 | - | 49 | n/a | n/a |
 | map-farm | 2 | 2 | 0 | - | 77 | n/a | n/a |
-| side-knight-attack (kit-side) | 1 | 28 | 3 | 2 (2) | 31 | 99% | 0% |
+| side-knight-attack (kit-side) | 1 | 34 | 3 | 2 (2) | 34 (was 31) | 98% | 0% |
 | side-hero-moves (kit-side) | 1 | 38 | 6 | 2 (2) | 36 | 96% | 100% |
 | side-enemies (kit-side) | 2 | 28 | 2 | 2 (2) | 19 | 100% | 0% |
 
@@ -74,7 +74,7 @@ Rated by the benchmark author after viewing contact sheets of 15+ representative
 |---|---:|---|
 | Readability at 1x | 4 | Props, items, buildings, slimes and maps read instantly; the 16px Game Boy characters and the beret-like side-view helmet are muddy. |
 | Set consistency | 5 | One palette, light and outline across every brief and every kit; this is the core design, and the village, loot and tile sets look like one game. |
-| Animation quality | 3 | Walk/idle cycles are clean and stable but stiff; attack and the side-view attack row show small, low-impact motion; no squash, anticipation or secondary motion. |
+| Animation quality | 4 (was 3) | Sprint 5 (#47): `attack-snappy`, `chop-snappy`, `mine-snappy`, `jump-snappy` add anticipation (coil / lean back), a smear frame on the fast swing, an impact hold, follow-through and a settle, with a larger swing arc (blade tip travels about 20 grid units vs 18) and the head lagging the torso by a frame. Rich kits use them automatically, standard kits stay unchanged. Still no true squash-and-stretch, cloth/hair physics or impact effects, so not a 5. |
 | Direction coverage | 4 | Real 4 and 8 direction rows for humanoids and quadrupeds, left/right for side-view; but no isometric, 8 directions only benchmarked for humanoid and quadruped rigs (not birds, fish), and diagonals are hard to verify at 1x. |
 | Time to result | 5 | 0.03-1.2 s render, deterministic, no queue; recipe-writing time is the only human cost. |
 | Editability | 5 | Rigs, attachments, params, kits, `rerender_assets`, layered SVG and Aseprite export: any element can be changed and the set re-rendered. |
@@ -87,14 +87,14 @@ Overall: strong on consistency, speed, editability and cost; moderate on art dep
 Candid list of where the output is weak, from looking at the sheets:
 
 1. **Foliage is flat and cartoon-ish.** Trees have 2-3 blobby leaf clumps and few shades (11 palette indices for a five-tree set); no painterly leaf clusters, no light-through-leaves, no seasonal variants beyond tiles.
-2. **Palette depth.** 4-5 shades per material and one hue shift in rich mode limits tonal range; skin, metal and cloth lack highlights/accents. Skin and armour in particular look chalky (the side-view knight is almost monochrome grey).
+2. **Palette depth.** 4-5 shades per material and one hue shift in rich mode limits tonal range; skin, metal and cloth lack highlights/accents. Skin and armour in particular look chalky (the side-view knight is almost monochrome grey; fixed for the knight in #47 with the `knight-trim` attachment: accent tabard, cape and gold hem).
 3. **Water depth.** Water tiles and autotile edges are a two-tone blue with a light shore line; no depth gradient, foam or reflections. The shore transition looks like a "drawn border" rather than a bank.
 4. **Monster variety.** The generator makes exactly two monsters: a slime (recolourable) and a side-view slime/beetle. No skeletons, bats, goblins, bosses, or flying/aquatic enemies; four recoloured slimes read as one monster.
 5. **UI polish.** Panels, buttons and slots are correct but plain; there is no ornate frame variety, icons-in-slots and no text/number font integration in the sheets.
 6. **Side-view weaknesses.** One body type; the attack clip has little arc; the helmet and hair read oddly in profile; parallax hills are flat grey/green shapes; levels are flat runs of ground with a few steps and floating platforms, no caves, water, or props; no side-view building variety, no animal or NPC rigs.
 7. **Character variety is parametric.** Clothing and hair come from a fixed list; a "Thai farmer with ngob hat" works because we authored that hat, and arbitrary requests (kimono, armour sets, a robot) are not possible without writing a rig or attachment.
 8. **Animation range.** Only humanoid, quadruped, bird, fish families; no flying, climbing animals, or multi-part monsters; no squash-and-stretch or effects (impact, dust, slashes).
-9. **Item outlines.** `items-tools` outline compliance is 42%; see metrics.
+9. **Item outlines.** Fixed in #47: `items-tools` outline compliance 42% -> 100%. Root cause: the 32 `use` effect frames (chips, drops, sparks) were finalized with `outline: false`, so only the 8 icon frames had an outline. Effects are now outlined like every other sprite.
 10. **Isometric and top-down 3/4 buildings in multiple facings** are not produced; buildings are front-facing only.
 11. **Small-kit legibility.** At 16px (`kit-gameboy`) humanoids lose face and hands; 8-direction diagonals are unreadable there.
 12. **The benchmark itself.** Recipes are hand-authored by us (an agent turn each), so "time to result" understates real prompt-to-asset time; PixelLab columns are empty until collected; self-ratings are one rater's view.
@@ -105,3 +105,17 @@ Candid list of where the output is weak, from looking at the sheets:
 npm run bench                         # everything; then open bench/out/report.html
 npm run bench -- --brief map- --kit kit-default
 ```
+
+## Update: polish from the bench (#47)
+
+Before/after sheet: `docs/img/polish-before-after.png` (rows: attack, attack-snappy, side knight before, side knight with trim and snappy attack, tool use frames without and with outline). Reproduce with `npx tsx scripts/polish-sheet.ts <out.png>`.
+
+| Item | Before | After |
+|---|---|---|
+| `items-tools` outline compliance (kit-default) | 42% | 100% |
+| `items-tools` palette indices | 37 | 43 |
+| `side-knight-attack` palette indices | 31 | 34 (red accent cloth + gold) |
+| Animation self-rating | 3 | 4 |
+| Humanoid attack frames (side) | 4 | 7 snappy (opt-in; 4 on standard kits) |
+
+Notes: the `side-knight-attack` recipe now uses `knight-trim` and `attack-snappy` (the side kit is not a rich kit, so the variant is selected by id). Standard output is byte-identical for every clip (the topdown snapshot test is unchanged); only tool-effect (`use`) frames changed because they now carry an outline. The 4 rich-kit runs use the snappy frames for `attack`/`chop`/`mine`/`jump` automatically.

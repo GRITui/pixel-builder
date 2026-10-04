@@ -40,7 +40,7 @@ describe("animal world scale (#24)", () => {
     expect(animalInfo("fish-catfish-baby")).toMatchObject({ species: "catfish", baby: true });
     expect(animalInfo("human-male-young-adult")).toBeUndefined();
     // every registered animal rig resolves
-    for (const r of RIGS.filter((x) => x.family !== "humanoid")) expect(animalInfo(r.rig.id), r.rig.id).toBeDefined();
+    for (const r of RIGS.filter((x) => ["quadruped", "bird", "fish"].includes(x.family))) expect(animalInfo(r.rig.id), r.rig.id).toBeDefined();
   });
 
   for (const kit of KIT_PRESETS) {

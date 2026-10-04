@@ -207,8 +207,42 @@ export function rgbToOklab([r, g, b]: RGB): [number, number, number] {
   ];
 }
 
+// ---------- deep ramps (rampDepth 7 | 9) ----------
+
+export type RampDepth = 5 | 7 | 9;
+
+/** Position inside a deep ramp of each of the five classic levels (the contract for colorIndex). */
+const BASE_POS: Record<RampDepth, number[]> = { 5: [0, 1, 2, 3, 4], 7: [0, 1, 3, 5, 6], 9: [0, 2, 4, 6, 8] };
+
+export const normalizeDepth = (d: number | undefined): RampDepth => (d === 7 || d === 9 ? d : 5);
+
+function lerpHex(a: string, b: string, t: number): string {
+  const x = hexToRgb(a), y = hexToRgb(b);
+  return rgbToHex([x[0] + (y[0] - x[0]) * t, x[1] + (y[1] - x[1]) * t, x[2] + (y[2] - x[2]) * t]);
+}
+
+/**
+ * Grow a 5-shade ramp into 7 or 9 shades. The five anchors stay exactly where they are (so every
+ * existing level keeps its colour); new shades are interpolated between neighbours and, because the
+ * anchors are hue-shifted, they continue the cool-shadow / warm-light drift. Luma stays ordered.
+ */
+export function deepenRamp(ramp: string[], depth: RampDepth): string[] {
+  if (depth === 5 || ramp.length !== 5) return ramp;
+  const out: string[] = new Array(depth);
+  const base = BASE_POS[depth];
+  base.forEach((p, i) => (out[p] = ramp[i]));
+  for (let i = 0; i < 4; i++) {
+    for (let p = base[i] + 1; p < base[i + 1]; p++) out[p] = lerpHex(ramp[i], ramp[i + 1], (p - base[i]) / (base[i + 1] - base[i]));
+  }
+  return out;
+}
+
 // ---------- flattened index table ----------
-// index 0 = transparent; ramp r level l -> 1 + r * RAMP_LEN + l
+// index 0 = transparent; ramp r level l -> 1 + r * RAMP_LEN + l   (the 5 classic levels, any kit)
+// index 91 + r * FINE_SLOTS + k = the extra shade between level k and k+1 (deep kits only)
+
+export const FINE_SLOTS = RAMP_LEN - 1;
+export const FINE_START = 1 + MATERIALS.length * RAMP_LEN;
 
 export function colorIndex(mat: Material, level: number): number {
   const r = MATERIALS.indexOf(mat);
@@ -216,20 +250,60 @@ export function colorIndex(mat: Material, level: number): number {
   return 1 + r * RAMP_LEN + l;
 }
 
-export function decodeIndex(idx: number): { mat: Material; level: number } | null {
+/** Index of the extra shade between classic level k and k+1 (k 0..3). */
+export function fineSlotIndex(mat: Material, k: number): number {
+  return FINE_START + MATERIALS.indexOf(mat) * FINE_SLOTS + Math.max(0, Math.min(FINE_SLOTS - 1, k));
+}
+
+/**
+ * Index for a position t in [0,1] along the material's ramp (0 = darkest, 1 = lightest) in a kit of
+ * the given depth. Depth 5 (or omitted) is the classic ramp; deeper depths snap t to one of
+ * `depth` shades, using the extra fine indices where the shade is not one of the five levels.
+ */
+export function colorIndexFine(mat: Material, t: number, depth: RampDepth = 9): number {
+  const p = Math.round(Math.max(0, Math.min(1, t)) * (depth - 1));
+  const base = BASE_POS[depth];
+  const bi = base.indexOf(p);
+  if (bi >= 0) return colorIndex(mat, bi);
+  let k = 0;
+  while (k < 3 && base[k + 1] < p) k++;
+  return fineSlotIndex(mat, k);
+}
+
+export function decodeIndex(idx: number): { mat: Material; level: number; fine?: number } | null {
   if (idx <= 0) return null;
+  if (idx >= FINE_START) {
+    const f = idx - FINE_START;
+    const r = Math.floor(f / FINE_SLOTS);
+    if (r >= MATERIALS.length) return null;
+    // level = the next classic level up, so a fine shade is never mistaken for outline level 0
+    return { mat: MATERIALS[r], level: (f % FINE_SLOTS) + 1, fine: f % FINE_SLOTS };
+  }
   const r = Math.floor((idx - 1) / RAMP_LEN);
   if (r >= MATERIALS.length) return null;
   return { mat: MATERIALS[r], level: (idx - 1) % RAMP_LEN };
 }
 
 export const OUTLINE_INDEX = colorIndex("ink", 0);
-export const PALETTE_SIZE = 1 + MATERIALS.length * RAMP_LEN;
+/** Classic palette size (every kit). Deep kits use up to PALETTE_SIZE. */
+export const PALETTE_SIZE_CLASSIC = 1 + MATERIALS.length * RAMP_LEN;
+export const PALETTE_SIZE = FINE_START + MATERIALS.length * FINE_SLOTS;
 
-/** Flatten ramps to a lookup table aligned with sprite indices (entry 0 = transparent). */
+/**
+ * Flatten ramps to a lookup table aligned with sprite indices (entry 0 = transparent). Ramps longer
+ * than 5 (deep kits) append the extra shades after the classic 90 entries, so classic indices never move.
+ */
 export function flattenRamps(ramps: Ramps): (string | null)[] {
+  const deep = MATERIALS.some((m) => ramps[m].length > RAMP_LEN);
   const out: (string | null)[] = [null];
-  for (const m of MATERIALS) for (let i = 0; i < RAMP_LEN; i++) out.push(ramps[m][i] ?? ramps[m][ramps[m].length - 1]);
+  const at = (m: Material, p: number) => ramps[m][p] ?? ramps[m][ramps[m].length - 1];
+  const basePos = (m: Material) => BASE_POS[ramps[m].length === 7 ? 7 : ramps[m].length === 9 ? 9 : 5];
+  for (const m of MATERIALS) for (let i = 0; i < RAMP_LEN; i++) out.push(at(m, basePos(m)[i]));
+  if (deep)
+    for (const m of MATERIALS) {
+      const b = basePos(m);
+      for (let k = 0; k < FINE_SLOTS; k++) out.push(b[k + 1] - b[k] > 1 ? at(m, b[k] + 1) : at(m, b[k]));
+    }
   return out;
 }
 
