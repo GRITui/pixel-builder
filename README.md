@@ -21,14 +21,15 @@ CLI…) drive it through MCP or the CLI.
 - **Characters**: top-down RPG humanoids and slimes, 4 directions × 4-frame walk cycles, headwear, held items, capes, seeded variety.
 - **Buildings**: cottage, shop, tower, keep, barn; gable / hip / flat / dome / spire roofs; 1–3 floors.
 - **Environment**: trees, bushes, rocks, flowers, crystals…, plus seamless grass / dirt / sand / stone-path / snow tiles and animated water.
-- **Objects**: 21 props and items (chests, barrels, potions, weapons, keys, gems…), with animated coin, torch and gem.
+- **Objects**: 29 props and items (chests, barrels, potions, weapons, keys, gems…, plus the farm tools), with animated coin, torch and gem.
 - **UI**: buttons (normal / hover / pressed), 9-slice panels, slots, bars, tabs, checkboxes, cursor, dialog arrow.
-- **Maps**: procedural tile maps in five biomes with shores, paths and props, editable in the map editor and exportable to Tiled.
+- **Maps**: procedural tile maps in seven biomes with shores, paths and props, editable in the map editor and exportable to Tiled.
 
 Plus a palette-locked **pixel editor** (shade brush walks a pixel along its
 ramp, frames, onion skin), **image import** (downscale + quantise to the kit),
 a **library** with "re-render with current kit", and export to PNG,
-spritesheet + JSON, Tiled maps, or a whole-project `pixel-builder.json`.
+spritesheet + JSON, Tiled maps, native `.aseprite`, or a whole-project
+`pixel-builder.json`.
 
 ## Quick start
 
@@ -53,7 +54,7 @@ Model defaults to `claude-opus-5-5` (override with `PIXEL_MODEL`). The key never
 
 ## Use with AI agents
 
-An MCP server (stdio or Streamable HTTP) and a CLI expose the same 16 tools
+An MCP server (stdio or Streamable HTTP) and a CLI expose the same 27 tools
 (`get_style_guide`, `generate_asset`, `generate_variations`, `paint_asset`,
 `export_asset`, …). No API key is needed: the calling agent can be the artist,
 painting with the kit's palette legend, and every result goes through the same

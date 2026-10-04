@@ -1,6 +1,6 @@
 # Use pixel-builder with AI agents
 
-pixel-builder exposes the same 16 tools two ways, so any agent can drive it:
+pixel-builder exposes the same 27 tools two ways, so any agent can drive it:
 
 - **MCP server** (stdio, or Streamable HTTP): for Claude Code, Hermes Agent,
   Claude Desktop, Cursor, Codex CLI, Gemini CLI, VS Code / GitHub Copilot,
@@ -11,6 +11,14 @@ pixel-builder exposes the same 16 tools two ways, so any agent can drive it:
 Pair either with the **skill** ([`skills/pixel-builder/SKILL.md`](../skills/pixel-builder/SKILL.md)),
 which teaches the agent the consistent-pixel-art workflow. Agents *working on
 this repo* read [`AGENTS.md`](../AGENTS.md).
+
+`edit_region` (AI region edit) has two modes: pass `prompt` to let the model
+paint the selection — needs `ANTHROPIC_API_KEY` on the server — or pass your own
+legend `rows` and it works with **no key at all**, which is the useful mode for
+a scripted agent. Give the region as `rect {x,y,w,h}` or a lasso `mask` (a 2D
+boolean grid, one row per pixel row); pixels outside it stay byte-identical.
+On a rigged asset the edit is applied through the rig, so every clip and
+direction follows it.
 
 > Verification status: every snippet below cites the doc it came from. Where I
 > could read the official page it says **verified**; where the official page was
@@ -49,7 +57,7 @@ GUI apps do not control, so in global configs use an absolute `<GAME>/pixel-asse
 - Check the server works before wiring a client:
   `npx tsx src/node/cli.ts get-style-guide --json` should print the kit and legend.
   I ran the stdio server (dev and built), the HTTP server and the CLI examples in
-  this guide against the current code: all 16 tools list over both transports.
+  this guide against the current code: all 27 tools list over both transports.
 
 ## 1. Claude Code
 
@@ -427,7 +435,7 @@ from `agents.mcp`. Passing `SKILL.md` as `instructions` is how this SDK takes a
 skill. (`env` and `cwd` are optional stdio params per the SDK reference
 excerpt.) The JavaScript/TypeScript Agents SDK was not checked.
 
-**Check:** `await server.list_tools()` inside the `async with` returns the 16 tools.
+**Check:** `await server.list_tools()` inside the `async with` returns the 27 tools.
 
 ## 12. Remote MCP clients (HTTP transport)
 
@@ -460,7 +468,7 @@ To reach the local server from the internet you need a tunnel (for example
 Claude Desktop's remote connectors and Claude.ai also need a public HTTPS URL
 (not verified here).
 
-**Check:** this lists the 16 tools (a plain `GET` in a browser gives 405, which
+**Check:** this lists the 27 tools (a plain `GET` in a browser gives 405, which
 also proves it is up):
 
 ```bash
@@ -499,7 +507,7 @@ image-reading tool, since looking at the output is part of the workflow.
 ## Tool reference (same names in MCP and CLI)
 
 `get_style_guide`, `list_generators`, `generate_asset`, `generate_variations`,
-`paint_asset`, `edit_asset`, `list_assets`, `get_asset`, `delete_asset`,
+`paint_asset`, `edit_asset`, `edit_region` (AI region edit: `rect {x,y,w,h}` or `mask` + a `prompt`, or `rows` to paint it yourself; pixels outside the region never change), `list_assets`, `get_asset`, `delete_asset`,
 `export_asset` (png, spritesheet, tiled, svg, tiled-tileset, godot, unity, atlas), `import_image`, `import_svg`, `list_kits`, `create_kit`, `update_kit`,
 `set_active_kit`, `rerender_assets`, `list_rigs`, `list_clips`, `list_attachments`,
 `generate_rigged`, `attach`, `create_rig`, `create_clip`, `create_attachment`, `generate_pack` (whole starter set in one call, e.g. `farming-v1`). `export_asset format=svg` writes a layered SVG (layer per material, per part for rigged assets, locked `guides` layer);

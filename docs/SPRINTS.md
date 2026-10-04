@@ -12,15 +12,15 @@ Rules (from `AGENTS.md`):
 - Look at every new asset in kit-default, kit-gameboy and kit-neon.
 - Tool changes update `tools.ts`, `SKILL.md` (and its copy), `docs/integrations.md` and `llms.txt` together.
 
-## Sprint 0: land what's built (in progress)
+## Sprint 0: land what's built (complete)
 | Issue | Work |
 |---|---|
 | PR #12 | Rig method and Farming Kit v1. Merging closes #3–#11 and #26–#32. |
-| #33 | Farming Kit polish, 5 lanes running: fish, tree fall, male/female cues, barn roof and weather icons, SVG tooling |
+| #33 | Farming Kit polish, 5 lanes: fish, tree fall, male/female cues, barn roof and weather icons, SVG tooling |
 
-**Exit:** #12 merged and #33 closed. This also closes epic #2.
+**Exit:** #12 merged and #33 closed. Note: epic #2 is still **open** on GitHub — it was never closed by the merge, so close it by hand once the epic's definition of done is confirmed.
 
-## Sprint 1: farm-ready maps
+## Sprint 1: farm-ready maps (complete)
 Use the kit end to end: tiles that auto-tile in engines, consistent animal scale, and farm maps.
 
 | Lane | Issue | Owns | Notes |
@@ -29,9 +29,9 @@ Use the kit end to end: tiles that auto-tile in engines, consistent animal scale
 | S | #24 Animal world-scale fitting shared by all render paths | `rigs/fit.ts` (new), `generators/animal.ts`, `ui/rig/recipe.ts`, `RiggedWorkspace.tsx`, the `renderRecipe` part of `node/tools.ts` | Starts after polish P1 merges (shares `animal.ts`). |
 | M | #34 Farm map biome (normal and SEA sets) | `generators/map.ts` | Uses #19 tiles if they're ready, otherwise `paintGround`. |
 
-**Exit:** a farm map that exports to Tiled with tiles that auto-tile in Godot, plus a regenerated `farming-v1`. This closes epic #25.
+**Exit:** a farm map that exports to Tiled with tiles that auto-tile in Godot, plus a regenerated `farming-v1`. All three issues are closed; epic #25 is still **open** on GitHub and needs closing by hand.
 
-## Sprint 2: artist workflow
+## Sprint 2: artist workflow (in progress)
 Fit into how artists already work: Aseprite, selection edits, 8 directions, and richer character pixels.
 
 | Lane | Issue | Owns | Notes |
@@ -42,6 +42,7 @@ Fit into how artists already work: Aseprite, selection edits, 8 directions, and 
 | R | #36 Rich character pixels at the same resolution (hue-shifted ramps, sel-out, micro-detail, AA) | `kit.ts` `detail`, `palette.ts`, `enforce.ts`, new `rigs/detail.ts`, a small hook in `character.ts` | Opt-in `detail: "rich"`, so standard output stays byte-identical. |
 
 **Exit:** a farmer animated in 8 directions, an `.aseprite` file that opens with the right palette and tags, and a scarf added to a sprite by prompt.
+**Docs:** the Sprint 2 tool/param documentation (`README.md`, `SKILL.md` ×2, `docs/integrations.md`, `llms.txt`) is written **after** the lanes land — the docs must describe exported tools and real param names, not the lane specs. Update all of them in the same commit as the tool change.
 
 ## Sprint 3: AI authoring
 Our answer to PixelLab's text-to-character: Claude writes rigs and clips, so results stay animatable and on-kit.

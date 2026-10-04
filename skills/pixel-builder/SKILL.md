@@ -34,8 +34,9 @@ hand-write PNGs or invent colours.
 | `generate_variations` | contact sheet of 1-12 seeds or param sets (not saved) |
 | `paint_asset` | new asset from legend rows (what generators can't do) |
 | `edit_asset` | fix pixels or replace a frame of an existing asset |
+| `edit_region` | change part of a frame from words: give `rect {x,y,w,h}` or `mask` (2D boolean grid) plus a `prompt` (needs `ANTHROPIC_API_KEY`), or `rows` to paint the region yourself with no key. Pixels outside the region stay byte-identical. `row`/`frame` pick the target; `all_frames` applies it to the whole row; on a rigged asset it goes through the rig so every clip and direction follows. |
 | `list_assets` / `get_asset` / `delete_asset` | manage the library |
-| `export_asset` | `png`, `spritesheet`, `tiled` (maps), `svg` (layered, see below) or, for `tileset` assets, `tiled-tileset` / `godot` / `unity` / `atlas` (engine autotile files, see reference) |
+| `export_asset` | `png`, `spritesheet`, `tiled` (maps), `svg` (layered, see below), `aseprite` (native binary for Aseprite: indexed pixels locked to the kit palette, one layer per rig part, one tag per animation row, frame duration from fps) or, for `tileset` assets, `tiled-tileset` / `godot` / `unity` / `atlas` (engine autotile files, see reference) |
 | `import_image` | quantise an existing PNG to the kit palette |
 | `import_svg` | read a layered SVG back (new asset, or `replace_id` to retexture an existing one): edit by layer, keep `data-material`/`data-level` or use kit colours, the `guides` layer is ignored |
 | `rerender_assets` | regenerate procedural and rigged assets after a kit change |

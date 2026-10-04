@@ -2,7 +2,7 @@
 
 > Vibe-code consistent pixel art for games: characters, buildings, trees and ground tiles, props and items, UI and tile maps, all generated from one Style Kit (palette ramps, one light direction, one outline mode) so everything matches. Drive it from any AI agent through an MCP server (stdio or Streamable HTTP) or a CLI, or use the web app. Procedural generators need no API key.
 
-Agents making pixel art: read the skill first. Agents editing this repository: read AGENTS.md. The 16 tools have the same names in MCP and in the CLI (kebab-case commands, `--json`).
+Agents making pixel art: read the skill first. Agents editing this repository: read AGENTS.md. The 27 tools have the same names in MCP and in the CLI (kebab-case commands, `--json`).
 
 ## Use it
 
@@ -24,7 +24,7 @@ Agents making pixel art: read the skill first. Agents editing this repository: r
 
 ## Tools (MCP tool names)
 
-get_style_guide, list_generators, generate_asset, generate_variations, paint_asset, edit_asset, list_assets, get_asset, delete_asset, export_asset (png/spritesheet/tiled/svg/tiled-tileset/godot/unity/atlas), import_image, import_svg, list_kits, create_kit, update_kit, set_active_kit, rerender_assets, list_rigs, list_clips, list_attachments, generate_rigged, attach, create_rig, create_clip, create_attachment, generate_pack (built-in farming-v1 starter kit or your own manifest). MCP resources: pixel-builder://project, pixel-builder://style-guide. MCP prompt: asset_pack.
+get_style_guide, list_generators, generate_asset, generate_variations, paint_asset, edit_asset, edit_region, list_assets, get_asset, delete_asset, export_asset (png/spritesheet/tiled/svg/aseprite/tiled-tileset/godot/unity/atlas), import_image, import_svg, list_kits, create_kit, update_kit, set_active_kit, rerender_assets, list_rigs, list_clips, list_attachments, generate_rigged, attach, create_rig, create_clip, create_attachment, generate_pack (built-in farming-v1 starter kit or your own manifest). MCP resources: pixel-builder://project, pixel-builder://style-guide. MCP prompt: asset_pack.
 
 Generators include rigged characters and animals, a Thai stilt house, corrugated roofs, a rice-paddy tile and a rice-village map biome.
 
