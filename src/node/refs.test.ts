@@ -101,9 +101,10 @@ describe("reference tools", () => {
   });
 
   it("fetches urls with a size limit", async () => {
+    process.env.PIXEL_BUILDER_ALLOW_PRIVATE_URLS = "1"; // test server is on loopback
     const png = encodePng(gradient(9, 9));
     const server: Server = createServer((req, res) => {
-      if (req.url === "/big.png") res.writeHead(200, { "content-length": String(20 * 1024 * 1024) }).end();
+      if (req.url === "/big.png") res.writeHead(200, { "content-type": "image/png", "content-length": String(21 * 1024 * 1024) }).end();
       else res.writeHead(200, { "content-type": "image/png" }).end(png);
     });
     await new Promise<void>((ok) => server.listen(0, "127.0.0.1", ok));
@@ -114,6 +115,7 @@ describe("reference tools", () => {
       await expect(call("add_reference", { url: `${base}/big.png` })).rejects.toThrow(/limit/);
     } finally {
       server.close();
+      delete process.env.PIXEL_BUILDER_ALLOW_PRIVATE_URLS;
     }
   });
 
@@ -161,6 +163,7 @@ describe("remote workspace", () => {
       expect(((await callToolAsync(a, "list_references", {})).data as any).count).toBe(0);
     } finally {
       server.close();
+      delete process.env.PIXEL_BUILDER_ALLOW_PRIVATE_URLS;
     }
   });
 });
