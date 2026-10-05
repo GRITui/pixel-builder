@@ -595,6 +595,14 @@ if a command fails the dialog shows the CLI's error text.
 
 `kit-hd-deep` (HD sizes, rich detail, `rampDepth` 9) shades volumes with 9 shades per material. `get_style_guide` then lists extra legend chars (non-ASCII, `level 0.5` ...) for the in-between shades; the 90 classic chars are unchanged. Aseprite export carries the full 172-entry palette (<= 256): indices 1..90 classic, 91..162 deep shades, 163..167 blossom levels, 168..171 blossom deep shades. The `blossom` material (pink; foliage sakura, flowers `accent: "blossom"`, `create_kit` `rampOverrides.blossom`) was appended after the original 18 so no existing index or legend char moved.
 
+## Crops
+
+`crop` makes top-down farm crops with growth stages (species wheat, corn, carrot, cabbage, tomato, pumpkin, strawberry, rice, sunflower; stage seed, sprout, growing, ready, withered; rows idle + sway). One-tile footprint; corn, sunflower and ripe wheat are taller and bottom-anchored. The `farming-v1` pack includes every species and stage (`crop-<species>-<stage>`). See `docs/img/crops.png`.
+
+```bash
+pixel-builder generate-asset crop --params species=pumpkin,stage=ready --seed 1 --name "pumpkin"
+```
+
 ## HD trees
 
 `foliage` makes lush leaf-cluster trees (species oak, willow, maple-autumn, birch, fruit-tree, pine-hd, sakura; size small/medium/large; season spring..winter; rows idle + sway):

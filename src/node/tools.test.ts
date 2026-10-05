@@ -72,7 +72,7 @@ describe("get_style_guide / list_generators", () => {
     const all = data("list_generators").generators;
     expect(all.map((g: { id: string }) => g.id)).toEqual(GENERATORS.map((g) => g.id));
     const env = data("list_generators", { category: "environment" }).generators;
-    expect(env.map((g: { id: string }) => g.id)).toEqual(["environment", "tileset", "sideview", "foliage", "iso-tile", "iso-prop"]);
+    expect(env.map((g: { id: string }) => g.id)).toEqual(["environment", "tileset", "sideview", "foliage", "iso-tile", "iso-prop", "crop"]);
     expect(env[0].params.find((p: { key: string }) => p.key === "kind").options).toContain("oak");
     expect(env[0].defaults.kind).toBe("oak");
   });
