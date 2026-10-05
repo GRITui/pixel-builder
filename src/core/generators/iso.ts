@@ -16,15 +16,15 @@ import { rng } from "../rng";
 import type { Sprite, StyleKit } from "../types";
 import { bool, mat, num, str, type Generator, type Params } from "./types";
 
-type Vec3 = [number, number, number];
+export type Vec3 = [number, number, number];
 
 const E = Math.PI / 6;
 /** Screen-space normal (x right, y down, z toward viewer) of a world direction (x = SE, y = SW, z = up). */
-const N = (wx: number, wy: number, wz: number): Vec3 => [(wx - wy) * Math.SQRT1_2, (wx + wy) * Math.SQRT1_2 * Math.sin(E) - wz * Math.cos(E), (wx + wy) * Math.SQRT1_2 * Math.cos(E) + wz * Math.sin(E)];
-const TOP = N(0, 0, 1);
+export const N = (wx: number, wy: number, wz: number): Vec3 => [(wx - wy) * Math.SQRT1_2, (wx + wy) * Math.SQRT1_2 * Math.sin(E) - wz * Math.cos(E), (wx + wy) * Math.SQRT1_2 * Math.cos(E) + wz * Math.sin(E)];
+export const TOP = N(0, 0, 1);
 /** Wall facing down-left (lit by a top-left light) and wall facing down-right (shaded). */
-const WALL_SW = N(0, 1, 0);
-const WALL_SE = N(1, 0, 0);
+export const WALL_SW = N(0, 1, 0);
+export const WALL_SE = N(1, 0, 0);
 
 /** Transparent rows props keep under their foot (the 1px margin); map renderers shift props down by this. */
 export const ISO_PROP_MARGIN = 1;
@@ -54,9 +54,10 @@ function isMono(kit: StyleKit): boolean {
   return r.grass[3] === r.water[3] && r.grass[3] === r.dirt[3];
 }
 
-export type IsoTileKind = "grass" | "dirt" | "sand" | "water" | "stone";
-const TILE_KINDS: IsoTileKind[] = ["grass", "dirt", "sand", "water", "stone"];
-const TOP_MAT: Record<IsoTileKind, Material> = { grass: "grass", dirt: "dirt", sand: "sand", water: "water", stone: "stone" };
+export type IsoTileKind = "grass" | "dirt" | "sand" | "water" | "stone" | "soil";
+// new kinds are appended: the kind index is part of the texture seed
+const TILE_KINDS: IsoTileKind[] = ["grass", "dirt", "sand", "water", "stone", "soil"];
+const TOP_MAT: Record<IsoTileKind, Material> = { grass: "grass", dirt: "dirt", sand: "sand", water: "water", stone: "stone", soil: "dirt" };
 
 /** One ground tile: `T` x `T/2 + height` (the diamond sits on top, the walls hang below it). */
 export function isoTile(kit: StyleKit, kind: IsoTileKind, seed: number, variant: number, height: number, side: Material = "dirt"): Sprite {
@@ -69,7 +70,7 @@ export function isoTile(kit: StyleKit, kind: IsoTileKind, seed: number, variant:
   const sideM: Material = kind === "grass" ? side : top;
   const inside = (x: number, y: number) => y >= 0 && y < TH && x >= rows[y][0] && x < rows[y][1];
   // On monochrome palettes (handheld) every material shares one ramp, so ground kinds are told apart by shade.
-  const baseTone = isMono(kit) ? { grass: 0, dirt: -1, sand: 1, water: -1, stone: 0 }[kind] : 0;
+  const baseTone = isMono(kit) ? { grass: 0, dirt: -1, sand: 1, water: -1, stone: 0, soil: -1 }[kind] : 0;
   const dot = (x: number, y: number, m: Material, tone: number, n: Vec3 = TOP) => { if (inside(x, y)) P.box(x, y, 1, 1, m, n, { tone: tone + baseTone }); };
 
   rows.forEach(([x0, x1], y) => P.box(x0, y, x1 - x0, 1, top, TOP, { tone: baseTone }));
@@ -86,6 +87,14 @@ export function isoTile(kit: StyleKit, kind: IsoTileKind, seed: number, variant:
     if (variant % 4 === 3) { const x = r.int(8, T - 9), y = r.int(3, TH - 5); if (inside(x, y)) P.px(x, y, "gold", 3); }
   } else if (kind === "dirt") {
     for (let i = 0; i < specks; i++) dot(r.int(1, T - 2), r.int(0, TH - 1), top, r.chance(0.6) ? -1 : 1);
+  } else if (kind === "soil") {
+    // tilled furrows along the SE axis (slope 1:2): a dark groove then a lit ridge, every 4 rows
+    for (let y = 0; y < TH; y++)
+      for (let x = rows[y][0]; x < rows[y][1]; x++) {
+        const q = (((Math.round((x + 0.5 - T / 2) / 2 - (y + 0.5 - TH / 2)) % 4) + 4) % 4);
+        if (q === 0) dot(x, y, top, -1);
+        else if (q === 2) dot(x, y, top, 1);
+      }
   } else if (kind === "sand") {
     for (let i = 0; i < Math.round(specks / 2); i++) dot(r.int(1, T - 2), r.int(0, TH - 1), top, -1);
     // a short ripple along the SE axis (slope 1:2)
@@ -129,6 +138,11 @@ export function isoTile(kit: StyleKit, kind: IsoTileKind, seed: number, variant:
 // ---------------------------------------------------------------- props
 
 export const ISO_PROP_KINDS = ["tree", "pine", "rock", "bush", "fence-se", "fence-sw", "post"] as const;
+/** Options of the iso-prop `kind` param: the classics plus whatever `isoprops.ts` registers on import. */
+export const ISO_PROP_OPTIONS: string[] = [...ISO_PROP_KINDS];
+export type IsoPropExtra = (kit: StyleKit, seed: number, variant: number, p: Params) => Sprite;
+const EXTRA_PROPS = new Map<string, IsoPropExtra>();
+export function registerIsoProp(kind: string, fn: IsoPropExtra) { EXTRA_PROPS.set(kind, fn); if (!ISO_PROP_OPTIONS.includes(kind)) ISO_PROP_OPTIONS.push(kind); }
 export type IsoPropKind = (typeof ISO_PROP_KINDS)[number];
 
 /** Canvas for a prop standing on one cell: width T (or `wide`), foot = the cell centre, 1px margin below. */
@@ -146,11 +160,11 @@ export function isoProp(kit: StyleKit, kind: IsoPropKind, seed: number, variant:
     const th = Math.round(pr.tree * 0.9), h = th + cell;
     const { P, foot } = propCanvas(kit, h);
     const [fx, fy] = foot;
-    const tw = Math.max(3, Math.round(T / 7)), trunkH = Math.round(th * 0.28);
+    const tw = Math.max(4, Math.round(T / 6)), trunkH = Math.round(th * 0.28);
     P.cylinder(Math.round(fx - tw / 2), fy - trunkH, tw, trunkH + 1, p.wood);
     // root flare
     P.box(Math.round(fx - tw / 2) - 1, fy - 1, tw + 2, 2, p.wood, WALL_SW, { tone: -1 });
-    const cy = fy - trunkH - (th - trunkH) * 0.4, ry = (th - trunkH) * 0.6, rx = T * 0.44;
+    const cy = fy - trunkH - (th - trunkH) * 0.36, ry = (th - trunkH) * 0.5, rx = T * 0.4;
     P.ellipse(fx - rx * 0.42, cy + ry * 0.18, rx * 0.62, ry * 0.62, p.leaf, { tone: -1 });
     P.ellipse(fx + rx * 0.42, cy + ry * 0.2, rx * 0.6, ry * 0.6, p.leaf, { tone: -1 });
     P.ellipse(fx, cy, rx * 0.8, ry * 0.9, p.leaf);
@@ -331,15 +345,19 @@ export const isoPropGenerator: Generator = {
   id: "iso-prop",
   category: "environment",
   label: "Iso prop",
-  description: "Isometric prop standing on one diamond cell (foot at the cell centre): tree, pine, rock, bush, fence segments along the two iso axes (fence-se runs down-right, fence-sw down-left) and a fence post. For the 'kit-iso' camera.",
+  description: "Isometric prop standing on one diamond cell (foot at the cell centre): tree, pine, rock, bush, fence segments along the two iso axes (fence-se runs down-right, fence-sw down-left), a fence post, plus palm, dead-tree, stump, flowers, mushroom, tall-grass, crystal, well, haystack, gate-closed/gate-open, crop (variant 0-3 = growth stage; stand it on an iso-tile 'soil') and tree-hd (a foliage species re-anchored on its trunk base). For the 'kit-iso' camera.",
   params: [
-    { key: "kind", label: "Prop", type: "select", options: [...ISO_PROP_KINDS], default: "tree" },
+    { key: "kind", label: "Prop", type: "select", options: ISO_PROP_OPTIONS, default: "tree" },
     { key: "variant", label: "Variant", type: "number", min: 0, max: 5, step: 1, default: 0 },
     { key: "leaf", label: "Foliage", type: "material", options: ["foliage", "grass", "sand", "cloth2"], default: "foliage" },
     { key: "wood", label: "Wood", type: "material", options: ["wood", "leather", "stone", "metal"], default: "wood" },
     { key: "stone", label: "Stone", type: "material", options: ["stone", "dirt", "sand", "metal"], default: "stone" },
+    { key: "species", label: "Species (tree-hd)", type: "select", options: ["oak", "willow", "maple-autumn", "birch", "fruit-tree", "pine-hd", "sakura"], default: "oak" },
+    { key: "size", label: "Size (tree-hd)", type: "select", options: ["small", "medium", "large"], default: "small" },
   ],
   generate(p: Params, kit: StyleKit, seed: number) {
+    const extra = EXTRA_PROPS.get(str(p, "kind"));
+    if (extra) return { rows: [{ name: "idle", frames: [extra(kit, seed, num(p, "variant"), p)] }], fps: 1 };
     const s = isoProp(kit, str(p, "kind") as IsoPropKind, seed, num(p, "variant"), { leaf: mat(p, "leaf"), wood: mat(p, "wood"), stone: mat(p, "stone") });
     return { rows: [{ name: "idle", frames: [s] }], fps: 1 };
   },
@@ -363,3 +381,9 @@ export const isoBuildingGenerator: Generator = {
     return { rows: [{ name: "idle", frames: [s] }], fps: 1, meta: { camera: "iso", footprint: Math.round(num(p, "size")) } };
   },
 };
+
+/** Any iso-prop kind (classic or registered by isoprops.ts) from a plain material set. */
+export function isoAnyProp(kit: StyleKit, kind: string, seed: number, variant: number, m: { leaf: Material; wood: Material; stone: Material }): Sprite {
+  const extra = EXTRA_PROPS.get(kind);
+  return extra ? extra(kit, seed, variant, { leaf: m.leaf, wood: m.wood, stone: m.stone }) : isoProp(kit, kind as IsoPropKind, seed, variant, m);
+}

@@ -4,6 +4,7 @@ import type { Material } from "../palette";
 import { proportions } from "../kit";
 import { rng, type Rng } from "../rng";
 import type { StyleKit } from "../types";
+import { isoBuildingResult } from "./isoworld";
 import { bool, mat, num, str, type GenResult, type Generator, type Params } from "./types";
 
 const WALLS: Material[] = ["wood", "stone", "sand", "dirt", "leather", "metal", "ui", "cloth2"];
@@ -638,6 +639,7 @@ export const buildingGenerator: Generator = {
     { key: "flower_box", label: "Flower boxes (farmhouse)", type: "bool", default: true },
   ],
   generate(p, kit, seed) {
+    if (kit.camera === "iso") return isoBuildingResult(p, kit, seed);
     const r = rng(seed);
     const S = kit.sizes.building;
     const k = S / 64;

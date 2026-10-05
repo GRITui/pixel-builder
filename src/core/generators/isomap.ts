@@ -7,7 +7,9 @@ import { blit, createSprite } from "../sprite";
 import { rng, valueNoise } from "../rng";
 import { emptyTileMap, ensureTile } from "../tilemap";
 import type { Sprite, StyleKit, TileMap } from "../types";
-import { isoBuilding, isoCell, isoProp, isoTile, isoTileW, ISO_PROP_MARGIN, type IsoPropKind, type IsoTileKind } from "./iso";
+import { isoAnyProp, isoCell, isoTile, isoTileW, ISO_PROP_MARGIN, type IsoPropKind, type IsoTileKind } from "./iso";
+import { isoBuildingStyled } from "./isoworld";
+import "./isoprops";
 import { bool, num, type Generator, type Params } from "./types";
 
 const NEIGHBOURS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
@@ -123,6 +125,7 @@ export const isoMapGenerator: Generator = {
     { key: "house", label: "House footprint (cells, 0 = none)", type: "number", min: 0, max: 3, step: 1, default: 2 },
     { key: "props", label: "Trees, rocks and bushes (0-1)", type: "number", min: 0, max: 1, step: 0.1, default: 0.5 },
     { key: "fence", label: "Fence around the house", type: "bool", default: true },
+    { key: "village", label: "Extra village buildings (0-4: cottages, barn, shop; plus a well, haystack and a crop field)", type: "number", min: 0, max: 4, step: 1, default: 2 },
   ],
   generate(p: Params, kit: StyleKit, seed: number) {
     const cols = num(p, "cols"), rows = num(p, "rows"), T = isoTileW(kit), TH = T / 2;
@@ -145,12 +148,12 @@ export const isoMapGenerator: Generator = {
         heights[i] = kind === "water" ? 0 : h * lvl;
       }
     const free = (c: number, r: number) => c >= 0 && r >= 0 && c < cols && r < rows && tm.deco[I(c, r)] < 0 && plan.level[I(c, r)] === 0 && plan.kind[I(c, r)] === "grass" && !plan.path[I(c, r)];
-    const prop = (kind: IsoPropKind, v: number) => ensureTile(tm, `${kind}-${v}`, isoProp(kit, kind, seed, v, { leaf: "foliage", wood: "wood", stone: "stone" }), true);
+    const prop = (kind: IsoPropKind | "well" | "haystack", v: number) => ensureTile(tm, `${kind}-${v}`, isoAnyProp(kit, kind, seed, v, { leaf: "foliage", wood: "wood", stone: "stone" }), true);
     const reserved = new Set<number>();
     const lot = plan.house;
     if (lot) {
       for (let j = -1; j <= lot.size; j++) for (let i = -1; i <= lot.size; i++) reserved.add(I(lot.c + i, lot.r + j));
-      tm.deco[I(lot.c + lot.size - 1, lot.r + lot.size - 1)] = ensureTile(tm, "house", isoBuilding(kit, lot.size, seed, "sand", "roof", "wood", true, true), true);
+      tm.deco[I(lot.c + lot.size - 1, lot.r + lot.size - 1)] = ensureTile(tm, "house", isoBuildingStyled(kit, { style: "farmhouse", size: ["small", "medium", "large"][lot.size - 1], wall: "sand", roof: "roof", trim: "wood", roof_style: "auto", floors: 1, lit_windows: true, chimney: true, flower_box: true, access: "stairs", width: "normal" }, seed), true);
       if (bool(p, "fence")) {
         // a yard along the south-east and south-west sides of the house, with a gap in front of the door
         const { c, r, size } = lot;
@@ -158,6 +161,54 @@ export const isoMapGenerator: Generator = {
         for (let j = 0; j < size; j++) if (free(c + size, r + j)) tm.deco[I(c + size, r + j)] = prop("fence-sw", 0);
         if (free(c + size, r + size)) tm.deco[I(c + size, r + size)] = prop("post", 0);
       }
+    }
+    // village: extra buildings, a well, a crop field and hay near the house lot (all on free flat grass)
+    const village = Math.round(num(p, "village"));
+    const V = rng(seed * 101 + 9);
+    const area = (c: number, r: number, w: number, h: number) => {
+      for (let j = -1; j <= h; j++) for (let i = -1; i <= w; i++) { const cc = c + i, rr = r + j; if (cc < 1 || rr < 1 || cc >= cols - 1 || rr >= rows - 1 || reserved.has(I(cc, rr))) return false; }
+      for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) if (!free(c + i, r + j)) return false;
+      return true;
+    };
+    const reserve = (c: number, r: number, w: number, h: number) => { for (let j = -1; j <= h; j++) for (let i = -1; i <= w; i++) reserved.add(I(c + i, r + j)); };
+    const find = (w: number, h: number): [number, number] | null => {
+      const cx = lot ? lot.c + lot.size / 2 : cols / 2, cy = lot ? lot.r + lot.size / 2 : rows / 2;
+      let best: [number, number] | null = null, bd = Infinity;
+      for (let r = 1; r < rows - 1; r++) for (let c = 1; c < cols - 1; c++) {
+        if (!area(c, r, w, h)) continue;
+        const d = Math.abs(c - cx) + Math.abs(r - cy) + V.next() * 3;
+        if (d < bd && d > 2) { bd = d; best = [c, r]; }
+      }
+      return best;
+    };
+    if (village > 0 && (lot || cols * rows >= 100)) {
+      const plan2: [string, string, string, string, string][] = [
+        ["cottage", "small", "sand", "roof", "wood"], ["barn", "medium", "cloth2", "wood", "sand"],
+        ["shop", "small", "wood", "cloth", "wood"], ["farmhouse", "medium", "sand", "roof", "wood"],
+      ];
+      for (let b = 0; b < village; b++) {
+        const [style, size, wall, roofM, trim] = plan2[(b + V.int(0, 1)) % plan2.length];
+        const nn = size === "small" ? 1 : 2;
+        const spot = find(nn, nn);
+        if (!spot) continue;
+        const sp = { style, size, wall, roof: roofM, trim, roof_style: "auto", floors: 1, lit_windows: true, chimney: style !== "barn", flower_box: true, access: "stairs", width: "normal" };
+        tm.deco[I(spot[0] + nn - 1, spot[1] + nn - 1)] = ensureTile(tm, `bld-${b}-${style}`, isoBuildingStyled(kit, sp, seed + b), true);
+        reserve(spot[0], spot[1], nn, nn);
+      }
+      const wellAt = find(1, 1);
+      if (wellAt) { tm.deco[I(wellAt[0], wellAt[1])] = prop("well", 0); reserve(wellAt[0], wellAt[1], 1, 1); }
+      const field = find(3, 2);
+      if (field) {
+        for (let j = 0; j < 2; j++) for (let i = 0; i < 3; i++) {
+          const c = field[0] + i, r = field[1] + j, name = `soil-${(i + j) % 2}`;
+          const idx = tm.tiles.findIndex((t) => t.name === name);
+          tm.ground[I(c, r)] = idx >= 0 ? idx : ensureTile(tm, name, padded(isoTile(kit, "soil", seed, (i + j) % 2, 0)), false);
+          tm.deco[I(c, r)] = ensureTile(tm, `crop-${(i + j) % 4}`, isoAnyProp(kit, "crop", seed, (i + j + 1) % 4, { leaf: "grass", wood: "wood", stone: "stone" }), true);
+        }
+        reserve(field[0], field[1], 3, 2);
+      }
+      const hay = find(1, 1);
+      if (hay) { tm.deco[I(hay[0], hay[1])] = prop("haystack", 0); reserve(hay[0], hay[1], 1, 1); }
     }
     const density = num(p, "props") * 0.28;
     for (let r = 0; r < rows; r++)

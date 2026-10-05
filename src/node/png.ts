@@ -1,7 +1,7 @@
 // Minimal PNG encoder/decoder on node:zlib only, plus sprite -> RGBA helpers
 // (scaling, spritesheets, contact sheets). No dependencies.
 import { deflateSync, inflateSync } from "node:zlib";
-import { flattenRamps, hexToRgb, type RGB } from "../core/palette";
+import { flattenPalette, hexToRgb, type RGB } from "../core/palette";
 import { resolveRamps } from "../core/kit";
 import type { Sprite, StyleKit } from "../core/types";
 
@@ -176,7 +176,7 @@ export function decodePng(buf: Uint8Array): RgbaImage {
 
 /** Palette index -> [r,g,b] for a kit (index 0 and unknown indices are null = transparent). */
 export function kitColors(kit: StyleKit): (RGB | null)[] {
-  return flattenRamps(resolveRamps(kit)).map((hex) => (hex ? hexToRgb(hex) : null));
+  return flattenPalette(resolveRamps(kit)).map((hex) => (hex ? hexToRgb(hex) : null));
 }
 
 export function blankImage(width: number, height: number, fill?: [number, number, number, number]): RgbaImage {
