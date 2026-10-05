@@ -9,7 +9,7 @@
 //
 // All writes are atomic (temp file + rename) so a crashed or concurrent run
 // never leaves a half-written project or PNG behind.
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { emptyProject, parseProject, serializeProject, type ProjectFile } from "../core/project";
 import type { Asset, Category, Sprite, StyleKit, TileMap } from "../core/types";
@@ -17,6 +17,7 @@ import { isoPropOrigin } from "../core/generators/isomap";
 import { spriteSheetToSvg, type RigSvgInfo } from "../core/svg";
 import { ENGINE_FORMATS, engineFiles, tilesetMetaOf, type EngineFormat } from "./engine-export";
 import { asepriteBytes } from "./aseprite";
+import { encodeGif } from "./gif";
 import { blankImage, drawSprite, encodePng, kitColors, scaleImage, sheetImage, spriteImage, type RgbaImage } from "./png";
 
 /** An error whose message is meant for the calling agent: say what is wrong and how to fix it. */
@@ -135,11 +136,11 @@ export function findAsset(project: ProjectFile, idOrName: string): Asset {
 
 // ---------- export ----------
 
-export type ExportFormat = "png" | "spritesheet" | "tiled" | "svg" | "aseprite" | EngineFormat;
+export type ExportFormat = "png" | "spritesheet" | "tiled" | "svg" | "aseprite" | "gif" | EngineFormat;
 
 export interface ExportedFile {
   path: string;
-  kind: "image" | "svg" | "aseprite" | "spritesheet" | "sheet-json" | "tiled-json" | "tileset" | "engine";
+  kind: "image" | "svg" | "aseprite" | "spritesheet" | "gif" | "sheet-json" | "tiled-json" | "tileset" | "engine";
   width?: number;
   height?: number;
 }
@@ -162,12 +163,17 @@ export function categoryDir(ws: Workspace, category: Category): string {
   return join(ws.dir, CATEGORY_DIR[category]);
 }
 
+/** `<slug>.gif` (single row) and `<slug>.<row>.gif` (one per animation row) sit beside the other side files. */
+const gifFiles = (dir: string, slug: string): string[] =>
+  existsSync(dir) ? readdirSync(dir).filter((f) => f === `${slug}.gif` || (f.startsWith(`${slug}.`) && f.endsWith(".gif") && f.split(".").length === 3)) : [];
+
 const SIDE_FILES = (slug: string) => [`${slug}.png`, `${slug}.svg`, `${slug}.aseprite`, `${slug}.json`, `${slug}.tiled.json`, `${slug}.tileset.png`, `${slug}.deco.png`, `${slug}.tsj`, `${slug}.tres`, `${slug}.rules.json`, `${slug}.atlas.json`];
 
 /** Exported files that currently exist for an asset in its default folder (absolute paths). */
 export function assetFiles(ws: Workspace, project: ProjectFile, asset: Asset): string[] {
   const dir = categoryDir(ws, asset.category);
-  return SIDE_FILES(exportSlug(project, asset))
+  const slug = exportSlug(project, asset);
+  return [...SIDE_FILES(slug), ...gifFiles(dir, slug)]
     .map((f) => join(dir, f))
     .filter((p) => existsSync(p));
 }
@@ -175,7 +181,8 @@ export function assetFiles(ws: Workspace, project: ProjectFile, asset: Asset): s
 export function removeAssetFiles(ws: Workspace, project: ProjectFile, asset: Asset): string[] {
   const dir = categoryDir(ws, asset.category);
   const removed: string[] = [];
-  for (const f of SIDE_FILES(exportSlug(project, asset))) {
+  const slug = exportSlug(project, asset);
+  for (const f of [...SIDE_FILES(slug), ...gifFiles(dir, slug)]) {
     const p = join(dir, f);
     if (existsSync(p)) {
       rmSync(p, { force: true });
@@ -327,6 +334,8 @@ export interface ExportOptions {
   outDir?: string;
   /** Part ownership + joints for rigged assets (svg and aseprite formats; computed by the tool layer). */
   rig?: RigSvgInfo;
+  /** gif: one animation row (name or index); default one GIF per animated row. */
+  row?: string | number;
 }
 
 /** True if an editable `<slug>.svg` already sits where exportAsset would put it. */
@@ -339,6 +348,28 @@ export function svgExists(ws: Workspace, project: ProjectFile, asset: Asset, out
 export function asepriteExists(ws: Workspace, project: ProjectFile, asset: Asset, outDir?: string): boolean {
   const dir = outDir ? resolve(outDir) : categoryDir(ws, asset.category);
   return existsSync(join(dir, `${exportSlug(project, asset)}.aseprite`));
+}
+
+function gifExport(asset: Asset, kit: StyleKit, dir: string, slug: string, scale: number, row?: string | number): ExportedFile[] {
+  const chosen = row !== undefined && row !== "";
+  let rows = asset.rows.map((r, i) => ({ r, i }));
+  if (chosen) {
+    const hit = rows.find(({ r, i }) => r.name === String(row) || (/^[0-9]+$/.test(String(row)) && i === Number(row)));
+    if (!hit) throw new ToolError(`Asset '${asset.name}' has no row '${row}'. Rows: ${asset.rows.map((r) => r.name).join(", ")}.`);
+    rows = [hit];
+  }
+  const animated = rows.filter(({ r }) => r.frames.length > 1);
+  if (!animated.length) throw new ToolError(`Asset '${asset.name}' has no animation to export as GIF (every ${chosen ? "chosen " : ""}row has one frame). ${asset.tilemap ? "Regenerate the map with animate: true." : "Use format 'png'."}`);
+  const colors = kitColors(kit);
+  const single = asset.rows.length === 1;
+  const files: ExportedFile[] = [];
+  for (const { r } of animated) {
+    const path = join(dir, single || chosen ? `${slug}.gif` : `${slug}.${slugify(r.name)}.gif`);
+    const sc = Math.min(scale, Math.max(1, Math.floor(65535 / Math.max(r.frames[0].w, r.frames[0].h))));
+    atomicWrite(path, encodeGif(r.frames, { colors, fps: asset.fps, scale: sc }));
+    files.push({ path, kind: "gif", width: r.frames[0].w * sc, height: r.frames[0].h * sc });
+  }
+  return files;
 }
 
 /** Write an asset's game-ready files. Returns absolute paths. */
@@ -361,6 +392,7 @@ export function exportAsset(ws: Workspace, project: ProjectFile, asset: Asset, o
     atomicWrite(path, asepriteBytes(asset, kit, opts.rig));
     return [{ path, kind: "aseprite" }];
   }
+  if (format === "gif") return gifExport(asset, kit, dir, slug, scale, opts.row);
   if (format === "tiled" && !asset.tilemap) throw new ToolError(`Asset '${asset.name}' is a ${asset.category}, not a map; 'tiled' export only works for map assets. Use format 'png' or 'spritesheet'.`);
 
   if ((ENGINE_FORMATS as readonly string[]).includes(format)) {
