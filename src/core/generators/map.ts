@@ -12,6 +12,9 @@ import { foliageGenerator } from "./foliage";
 import { MAP_FPS, MAP_FRAMES_DEFAULT, renderMapFrames } from "../mapanim";
 import { applyGroundDetail, DETAIL_LEVELS } from "./map-detail";
 import { FOREST_SEASONS, forestMmoPlan } from "./map-forest";
+import { calmDirt, farmBuildingSprite, farmMmoPlan, farmPropSprite, farmWalkable, FARM_PROP_KINDS, FARM_SOLID } from "./map-farm";
+import { cropsGenerator } from "./crops";
+import { objectGenerator } from "./object";
 import { applyTerrain, hillsLayout, type TerrainInfo, type TerrainOptions } from "./map-terrain";
 import type { Sprite } from "../types";
 import { bool, defaults, num, str, type Generator, type GenResult, type Params } from "./types";
@@ -29,7 +32,7 @@ function cachedSprite(kit: StyleKit, key: string, make: () => Sprite): Sprite {
   return { ...sp, data: sp.data.slice() };
 }
 
-export const BIOMES = ["meadow", "forest", "island", "desert", "winter", "rice-village", "farm", "forest-mmo"] as const;
+export const BIOMES = ["meadow", "forest", "island", "desert", "winter", "rice-village", "farm", "forest-mmo", "farm-mmo"] as const;
 type Biome = (typeof BIOMES)[number];
 export type Ground = "grass" | "dirt" | "sand" | "water" | "stone-path" | "snow" | "paddy" | "tilled-soil" | "watered-soil";
 
@@ -77,6 +80,8 @@ const PROPS: Record<Biome, Weights> = {
   },
   // laid out by forestMmoPlan (HD foliage trees and grouped props), not scattered
   "forest-mmo": {},
+  // laid out by farmMmoPlan (fields, pen, orchard, woodland edge), not scattered
+  "farm-mmo": {},
 };
 const FARM_SEA_PROPS: Weights = {
   grass: { palm: 4, bush: 3, flowers: 3, "tall-grass": 4, rock: 1 },
@@ -84,9 +89,9 @@ const FARM_SEA_PROPS: Weights = {
 };
 
 /** Chance (before density and clumping) that a free cell gets a prop. */
-const BASE_CHANCE: Record<Biome, number> = { meadow: 0.22, forest: 0.55, island: 0.3, desert: 0.14, winter: 0.3, "rice-village": 0.2, farm: 0.22, "forest-mmo": 0.5 };
-const BASE_GROUND: Record<Biome, Ground> = { meadow: "grass", forest: "grass", island: "grass", desert: "sand", winter: "snow", "rice-village": "grass", farm: "grass", "forest-mmo": "grass" };
-const PATH_GROUND: Record<Biome, Ground> = { meadow: "dirt", forest: "dirt", island: "dirt", desert: "dirt", winter: "stone-path", "rice-village": "dirt", farm: "dirt", "forest-mmo": "dirt" };
+const BASE_CHANCE: Record<Biome, number> = { meadow: 0.22, forest: 0.55, island: 0.3, desert: 0.14, winter: 0.3, "rice-village": 0.2, farm: 0.22, "forest-mmo": 0.5, "farm-mmo": 0.5 };
+const BASE_GROUND: Record<Biome, Ground> = { meadow: "grass", forest: "grass", island: "grass", desert: "sand", winter: "snow", "rice-village": "grass", farm: "grass", "forest-mmo": "grass", "farm-mmo": "grass" };
+const PATH_GROUND: Record<Biome, Ground> = { meadow: "dirt", forest: "dirt", island: "dirt", desert: "dirt", winter: "stone-path", "rice-village": "dirt", farm: "dirt", "forest-mmo": "dirt", "farm-mmo": "dirt" };
 const VARIANTS = 6;
 /** Which ground spreads over which at a seam (higher wins); water uses shoreTile instead. */
 const BLEND_PRIORITY: Record<Ground, number> = { water: -1, paddy: 0, "tilled-soil": 0.5, "watered-soil": 0.5, dirt: 1, "stone-path": 1, sand: 2, grass: 3, snow: 4 };
@@ -438,14 +443,14 @@ export const mapGenerator: Generator = {
   id: "map",
   category: "map",
   label: "Map",
-  description: "Procedural top-down tile map (meadow, forest, island, desert, winter, rice-village with flooded paddies, farm with fenced fields, barn, pen and pond in a normal or sea set) built from the kit's ground tiles and props.",
+  description: "Procedural top-down tile map (meadow, forest, island, desert, winter, rice-village with flooded paddies, farm with fenced fields, barn, pen and pond in a normal or sea set, forest-mmo with a river and HD groves, farm-mmo: a filled farmstead with yard, crop fields, pen, orchard, pond, stream and woodland edge) built from the kit's ground tiles and props.",
   params: [
     { key: "biome", label: "Biome", type: "select", options: [...BIOMES], default: "meadow" },
     { key: "cols", label: "Columns", type: "number", min: 12, max: 48, step: 1, default: 24 },
     { key: "rows", label: "Rows", type: "number", min: 12, max: 48, step: 1, default: 20 },
     { key: "density", label: "Prop density", type: "number", min: 0, max: 1, step: 0.05, default: 0.5 },
     { key: "path", label: "Winding path", type: "bool", default: true },
-    { key: "set", label: "Farm set (farm biome only)", type: "select", options: ["normal", "sea"], default: "normal" },
+    { key: "set", label: "Farm set (farm and farm-mmo biomes)", type: "select", options: ["normal", "sea"], default: "normal" },
     { key: "water_depth", label: "Water depth (smooth shallow-to-abyss gradient, sandy shore banks, lily pads, reeds)", type: "bool", default: false },
     { key: "river", label: "River (a winding river across meadow / forest / winter maps)", type: "bool", default: false },
     { key: "detail", label: "Ground detail (tufts, petals, pebbles, leaf litter, colour variation; any biome)", type: "select", options: [...DETAIL_LEVELS], default: "off" },
@@ -454,7 +459,7 @@ export const mapGenerator: Generator = {
     { key: "frames", label: "Animation frames (animate only)", type: "number", min: 2, max: 24, step: 1, default: 8 },
     { key: "lighting", label: "Lighting (cast shadows, dappled light, water reflections, time-of-day grade; palette-locked)", type: "select", options: ["off", "on"], default: "off" },
     { key: "time", label: "Time of day (needs lighting on)", type: "select", options: [...TIMES], default: "day" },
-    { key: "terrain", label: "Terrain (hills = raised plateaus with cliffs, ramps/stairs and, on forest-mmo, a waterfall where the river leaves the plateau; not farm / rice-village)", type: "select", options: ["flat", "hills"], default: "flat" },
+    { key: "terrain", label: "Terrain (hills = raised plateaus with cliffs, ramps/stairs and, on forest-mmo, a waterfall where the river leaves the plateau; farm-mmo: a plateau behind the farm on maps 30+ rows tall; not farm / rice-village)", type: "select", options: ["flat", "hills"], default: "flat" },
     { key: "ramp", label: "Ramp / stairs material (terrain hills)", type: "material", options: ["stone", "wood"], default: "wood" },
     { key: "cliff", label: "Cliff material (terrain hills)", type: "material", options: ["stone", "dirt"], default: "dirt" },
   ],
@@ -486,6 +491,7 @@ function generateMap(p: Params, kit: StyleKit, seed: number): GenResult {
     const detail = str(p, "detail") || "off";
     const hills = str(p, "terrain") === "hills";
     const terrainOpts: TerrainOptions = { ramp: str(p, "ramp") === "stone" ? "stone" : "wood", cliff: str(p, "cliff") === "stone" ? "stone" : "dirt" };
+    if (biome === "farm-mmo") return farmMmo(cols, rows, density, wantPath, sea, detail, kit, seed >>> 0, hills ? terrainOpts : null);
     if (biome === "forest-mmo") return forestMmo(cols, rows, density, wantPath, str(p, "season"), detail, kit, seed >>> 0, hills ? terrainOpts : null);
 
     const tm: TileMap = emptyTileMap(cols, rows, T);
@@ -1112,6 +1118,103 @@ function forestMmo(cols: number, rows: number, density: number, wantPath: boolea
     playerStart: plan.start,
     bridge: plan.bridge,
     /** deco objects in draw order (sort key y = base line); tile index into tm.tiles */
+    ysorted: true,
+    objects: objects.map((o) => ({ tile: o.tile, name: o.name, col: o.col, row: o.row, x: o.x, y: o.y, solid: o.solid, ...(o.level !== undefined ? { level: o.level } : {}) })),
+  };
+  return { rows: [{ name: "map", frames: [renderTileMap(tm)] }], fps: 1, tilemap: tm, meta };
+}
+
+// ---------- farm-mmo ----------
+
+const FARM_OBJECTS = new Set(["sign", "barrel", "crate"]);
+
+function farmMmo(cols: number, rows: number, density: number, wantPath: boolean, sea: boolean, detail: string, kit: StyleKit, seed: number, terrain: TerrainOptions | null = null) {
+  const T = kit.sizes.tile;
+  const plan = farmMmoPlan(cols, rows, seed, kit, { sea, density, wantPath, terrain: !!terrain });
+  const tm: TileMap = emptyTileMap(cols, rows, T);
+  paintGround(tm, plan.ground, kit, seed, rng(seed), { waterDepth: true, smooth: true });
+  if (plan.bridge) paintBridge(tm, plan.bridge, kit);
+  const at = (x: number, y: number) => y * cols + x;
+
+  const envDefaults = defaults(environmentGenerator);
+  const propCache = new Map<string, number>();
+  const propTile = (kind: string, v: number): number => {
+    const name = `${kind}-${v}`;
+    let idx = propCache.get(name);
+    if (idx === undefined) {
+      const sp = cachedSprite(kit, `fprop:${name}:${seed % 7}`, () => {
+        if ((FARM_PROP_KINDS as readonly string[]).includes(kind)) return farmPropSprite(kit, kind, v);
+        if (FARM_OBJECTS.has(kind)) return objectGenerator.generate({ ...defaults(objectGenerator), kind }, kit, seed).rows[0].frames[0];
+        if (kind === "flowers-blossom") return environmentIdle({ ...envDefaults, kind: "flowers", accent: "blossom", variant: v * 3 }, kit, seed);
+        return environmentIdle({ ...envDefaults, kind, variant: v * 3 + (kind.length % 3) }, kit, seed);
+      });
+      idx = ensureTile(tm, name, sp, SOLID_PROPS.has(kind) || FARM_SOLID.has(kind) || FARM_OBJECTS.has(kind));
+      propCache.set(name, idx);
+    }
+    return idx;
+  };
+  const treeTile = (t: { species: string; size: string; season: string; variant: number }): number => {
+    if (t.species === "palm") return propTile("palm", t.variant);
+    const name = `tree-${t.species}-${t.size}-${t.season}-${t.variant}`;
+    const i = tm.tiles.findIndex((x) => x.name === name);
+    if (i >= 0) return i;
+    const sp = cachedSprite(kit, name, () => foliageGenerator.generate({ ...defaults(foliageGenerator), species: t.species, size: t.size, season: t.season, variant: t.variant }, kit, 1 + t.variant).rows[0].frames[0]);
+    return ensureTile(tm, name, sp, true);
+  };
+  const cropTile = (c: { species: string; stage: string; variant: number }): number => {
+    const name = `crop-${c.species}-${c.stage}-${c.variant}`;
+    const i = tm.tiles.findIndex((x) => x.name === name);
+    if (i >= 0) return i;
+    const sp = cachedSprite(kit, name, () => cropsGenerator.generate({ ...defaults(cropsGenerator), species: c.species, stage: c.stage, variant: c.variant }, kit, seed).rows[0].frames[0]);
+    return ensureTile(tm, name, sp, false);
+  };
+
+  // density 0 = bare ground (like every biome); otherwise everything is laid in order
+  if (density > 0) {
+    // order: crops, yard props, fences, animals, buildings, trees (a later layer wins a shared cell; the plan keeps them apart)
+    for (const c of plan.crops) tm.deco[at(c.x, c.y)] = cropTile(c);
+    for (const pr of plan.props) tm.deco[at(pr.x, pr.y)] = propTile(pr.kind, pr.v);
+    const fenceSprites = new Map<string, Sprite>();
+    for (const [i, gate] of plan.fences) {
+      const x = i % cols, y = Math.floor(i / cols);
+      const piece = gate ? "gate-closed" : fencePiece((dx, dy) => plan.fences.has((y + dy) * cols + x + dx) && x + dx >= 0 && x + dx < cols);
+      let sp = fenceSprites.get(piece);
+      if (!sp) fenceSprites.set(piece, (sp = environmentIdle({ ...envDefaults, kind: "fence", piece }, kit, seed)));
+      tm.deco[i] = ensureTile(tm, `fence-${piece}`, sp, !gate);
+    }
+    for (const a of plan.animals) tm.deco[at(a.x, a.y)] = ensureTile(tm, `${a.species}${a.age === "baby" ? "-baby" : ""}-${a.dir}`, animalSprite(kit, a.species, a.age, a.dir), false);
+    plan.buildings.forEach((b, n) => { tm.deco[at(b.x, b.y)] = ensureTile(tm, `${b.style}-${n}`, farmBuildingSprite(kit, b.style, b.extra, plan.variant), true); });
+    for (const t of plan.trees) tm.deco[at(t.x, t.y)] = treeTile(t);
+  }
+  const reserved = new Set<number>([...plan.canopy, ...plan.channels]);
+  for (const s of plan.spawns) reserved.add(at(s.x, s.y));
+  if (density > 0) decorateWater(tm, plan.ground, plan.path, reserved, propTile, seed, "farm-mmo");
+  if (detail !== "off") {
+    const skip = new Set<number>();
+    tm.ground.forEach((t, i) => { if (tm.tiles[t]?.name.startsWith("bridge")) skip.add(i); });
+    const before = tm.ground.map((t) => ({ name: tm.tiles[t]?.name ?? "", data: tm.tiles[t] ? tm.tiles[t].sprite.data.slice() : [] }));
+    applyGroundDetail(tm, kit, seed, detail, { profile: "open", skip });
+    calmDirt(tm, before);
+  }
+  const terrainInfo = terrain && plan.terrain ? applyTerrain(tm, kit, plan.terrain, seed, terrain) : null;
+  const objects = mapObjects(tm);
+  const ok = farmWalkable(plan, cols, rows, tm);
+  const meta = {
+    biome: "farm-mmo",
+    set: sea ? "sea" : "normal",
+    ...(terrainInfo ? { terrain: terrainMetaOf(terrainInfo, plan.terrain!.plateaus, tm) } : {}),
+    /** villager work spots (all walkable): role is farmer | weeder | herder | gardener | fisher | walker */
+    spawns: plan.spawns,
+    playerStart: plan.start,
+    bridge: plan.bridge,
+    /** fenced fields, pen, orchard and pond (cell boxes; gx = the gate column on the top fence) */
+    lots: plan.lots,
+    buildings: plan.buildings.map((b) => ({ style: b.style, x: b.x, y: b.y, halfWidth: b.e, rowsUp: b.up })),
+    crops: plan.crops.length,
+    /** irrigation channel cells inside the fields */
+    irrigation: [...plan.channels].map((i) => ({ x: i % cols, y: Math.floor(i / cols) })),
+    /** cells a villager cannot enter (water without a bridge, fences, building bases, trunks, solid props, animals) */
+    blocked: ok.flatMap((w, i) => (w ? [] : [{ x: i % cols, y: Math.floor(i / cols) }])),
     ysorted: true,
     objects: objects.map((o) => ({ tile: o.tile, name: o.name, col: o.col, row: o.row, x: o.x, y: o.y, solid: o.solid, ...(o.level !== undefined ? { level: o.level } : {}) })),
   };

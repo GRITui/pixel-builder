@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import { CATEGORIES, type Asset, type Category, type StyleKit } from "../../core/types";
+import { CATEGORIES, type Asset, type Category, type Reference, type StyleKit } from "../../core/types";
 import type { FlatPalette } from "../render";
 import { AssetCard, canRerender } from "./AssetCard";
 
@@ -22,6 +22,8 @@ interface ListProps {
   pal: FlatPalette;
   actions: LibraryActions;
   refIds: string[];
+  /** Reference library, to resolve each asset's meta.referenceId for the compare view. */
+  references?: Reference[];
   variant: "compact" | "full";
 }
 
@@ -31,7 +33,7 @@ function matches(a: Asset, q: string): boolean {
   return a.name.toLowerCase().includes(s) || a.tags.some((t) => t.includes(s)) || a.category.includes(s);
 }
 
-function Cards({ assets, kit, kits, pal, actions, refIds, variant }: ListProps) {
+function Cards({ assets, kit, kits, pal, actions, refIds, references, variant }: ListProps) {
   return (
     <div className={`lib-grid ${variant}`}>
       {assets.map((a) => (
@@ -42,6 +44,7 @@ function Cards({ assets, kit, kits, pal, actions, refIds, variant }: ListProps) 
           kitName={kits.find((k) => k.id === a.kitId)?.name}
           pal={pal}
           variant={variant}
+          reference={references?.find((r) => r.id === a.meta?.referenceId)}
           isRef={refIds.includes(a.id)}
           refFull={refIds.length >= 2}
           onToggleRef={() => actions.toggleRef(a.id)}

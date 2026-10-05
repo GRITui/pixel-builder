@@ -210,3 +210,21 @@ Remaining:
 6. **Waterfall.** Water above the cliff does not curve into the fall and there is no mist or splash animation beyond a static foam row.
 7. **Carried over:** HUD slots without icons, monsters limited to a few poses in the scene, one hero look, humanoids have no impact effects, a dark water ramp, and the 16px kits stay a mush in dense forest.
 8. **The bench** is still self-rated by one rater and has no PixelLab columns.
+
+## Reference match (#67)
+
+`compare_to_reference` scores an asset against a reference image (style distance 0..100: palette, shades, outline, light, detail, silhouette). Three `reference` briefs record the score per kit (`npm run bench -- --brief ref-`, offline, `match` in the console and in `bench/out/report.html`):
+
+| Brief (reference) | kit-default | kit-gameboy | kit-neon | kit-hd-rich | kit-hd-deep |
+|---|---:|---:|---:|---:|---:|
+| `ref-mmo-forest-map` (crop of `docs/img/mmo-scene.png`) | 69.9 | 62.6 | 65.1 | 78.6 | 67.9 |
+| `ref-gameboy-tree` (`test/fixtures/refs/gameboy-4tone.png`) | 44.7 | 69.7 | 43.5 | - | - |
+| `ref-pixel-sprite` (`bench/refs/hero-sprite.png`, made with kit-default) | 100 | 62.9 | 70.9 | 86.4 | - |
+
+Reading: the scores order the kits the way the eye does (the HD scene reference is closest to `kit-hd-rich`; the 4-tone handheld reference to `kit-gameboy`; the sprite made in `kit-default` matches itself at 100). Limits: the score is a heuristic over colours, outline mode, light direction, edge density and silhouette, not a perceptual model; it does not see composition, and the light-direction estimate is noisy on busy scenes.
+
+## Sprint 7: farm-mmo (#71)
+
+New brief `map-farm-mmo` (42x26, detail medium, lighting on; all five kits). The `farm` brief is unchanged (the old biome is byte-identical); no existing number moves. `farm-mmo` is planned, not scattered: yard with well, mailbox, garden bed, flower beds and hay; fields in rows of mixed growth stages with an irrigation channel; a fenced pen; pond; orchard; a stream under a bridge; HD woodland around the border. Look at `docs/img/farm-scene.png`: the gap the user named ("farm detail is not as rich as the MMORPG scene") is mostly closed in the HD kits.
+
+Honest gaps: crops do not sway under `animate` (only the scene script animates them; `mapanim` knows props and trees by name); no literal `small-bridge` (the road crosses the stream on the big bridge); the 16px kits read as a dense mush in the woodland ring; villagers are scene-script actors, not map objects (the map only provides `meta.spawns` work spots); the farmer works from the gate lane, not inside the crop rows.

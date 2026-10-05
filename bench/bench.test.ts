@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { KIT_PRESETS } from "../src/core/kit";
 import { Workspace } from "../src/node/workspace";
-import { kitsFor, loadBriefs, validateBrief } from "./lib";
+import { kitsFor, loadBriefs, referencePng, validateBrief } from "./lib";
 
 const dir = mkdtempSync(join(tmpdir(), "pb-bench-test-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -28,6 +28,16 @@ describe("bench briefs", () => {
   it("only uses kits that exist", () => {
     const ids = new Set(KIT_PRESETS.map((k) => k.id));
     for (const b of briefs) for (const k of kitsFor(b)) expect(ids.has(k), `${b.id} ${k}`).toBe(true);
+  });
+
+  it("has reference briefs whose reference files load (and crops fit)", () => {
+    const refs = briefs.filter((b) => b.reference);
+    expect(refs.length).toBeGreaterThanOrEqual(3);
+    for (const b of refs) expect(referencePng(b)!.subarray(1, 4).toString(), b.id).toBe("PNG");
+    const ws = new Workspace(join(dir, "ws3"));
+    const bad = { ...refs[0], reference: { file: "docs/img/mmo-scene.png", crop: [0, 0, 99999, 10] as [number, number, number, number] } };
+    expect(validateBrief(bad, ws).join()).toMatch(/crop is outside/);
+    expect(validateBrief({ ...refs[0], reference: { file: "nope.png" } }, ws).join()).toMatch(/not found/);
   });
 
   it("rejects a bad recipe", () => {
