@@ -512,9 +512,7 @@ MMO HUD: `generate_asset` with `generator: "ui"` and `skin: "mmo-gold" | "mmo-st
 `export_asset` (png, spritesheet, tiled, svg, aseprite, gif, tiled-tileset, godot, unity, atlas), `import_image`, `import_svg`, `list_kits`, `create_kit`, `update_kit` (refuses `locked` kits; fork with `create_kit`),
 `set_active_kit`, `rerender_assets` (`stale_only`), `list_rigs`, `list_clips`, `list_attachments`,
 `generate_rigged` (`directions: 4|8`; 8 adds 3/4 diagonal rows), `attach`, `create_rig`, `create_clip`, `create_attachment`, `generate_pack` (whole starter set in one call, e.g. `farming-v1`, `monsters-v1` (mushroom/slime/plant/bat/wolf/skeleton rigs `monster-*` with idle, walk, attack, hurt, die) `side-view-starter` for the `kit-side` platformer camera or `iso-starter` for the `kit-iso` isometric camera). `kit-iso` is the isometric camera (2:1 dimetric, 32x16 diamond tiles): generators `iso-tile`, `iso-prop`, `iso-building`, `isomap` (Tiled export `orientation: isometric` with a ground tile layer and a y-sorted `props` object layer), and rigged characters get rows `<clip>-se|sw|ne|nw` (`directions: 8` adds `s|e|n|w`); pack `iso-starter`. `export_asset format=svg` writes a layered SVG (layer per material, per part for rigged assets, locked `guides` layer);
-`export_asset format=gif` writes `<slug>.gif` (or `<slug>.<row>.gif` per animation row; `row` picks one; `scale` upscales). Maps: generate with `animate: true` (+ `frames`, default 8) to store living frames. Demo: `npx tsx scripts/mmo-scene.ts --gif`.
-
-`export_asset format=aseprite` writes `<slug>.aseprite` (see section 14). `import_svg` reads it back: edit by layer, keep `data-material` attrs or use kit colours, the guides layer is ignored. MCP also exposes the resources
+`export_asset format=gif` writes `<slug>.gif` (or `<slug>.<row>.gif` per animation row; `row` picks one; `scale` upscales). Maps: generate with `animate: true` (+ `frames`, default 8) to store living frames. Demo: `npx tsx scripts/mmo-scene.ts --gif`. `export_asset format=aseprite` writes `<slug>.aseprite` (see section 14). `import_svg` reads it back: edit by layer, keep `data-material` attrs or use kit colours, the guides layer is ignored. MCP also exposes the resources
 `pixel-builder://project`, `pixel-builder://style-guide` and the prompt
 `asset_pack` (`game`, `count`) and `design_creature` (`description`, `family?`: pick a family or write a new rig, `create_rig` / `create_attachment` / `create_clip`, `generate_rigged` with idle + walk, look, fix; no API key needed). The web app's rigged-mode "Describe" box does the same with a server key via `POST /api/rig` (`{prompt, kit, base?}`). Inputs and outputs: see
 [`BUILD_PLAN.md`](BUILD_PLAN.md) ("Agent tool contract") and the skill's cheat-sheet.
@@ -562,7 +560,7 @@ bottom-left `unityRect`, per-tile `ruleNeighbors` in the order NW N NE W E SW S 
 **Export.** `pixel-builder export-asset <id> --format aseprite` (MCP: `export_asset` with
 `format: "aseprite"`; web app: Export > "Aseprite (.aseprite)") writes `<slug>.aseprite` into the
 category folder. The file is INDEXED colour mode and its palette is the kit palette
-(entry 0 transparent, entries 1..90 = material x level, the same indices sprites store), so
+(entry 0 transparent, entries 1..90 = material x level; blossom levels sit at 163..167, see below, the same indices sprites store), so
 paint with the palette and the art stays on-kit. Layers: one per rig part for rigged assets
 (`core`, then attachments, same pixel ownership as the SVG export), one per material for
 everything else; the web app always uses per-material layers. Animation rows are laid out as
@@ -579,7 +577,7 @@ and double-click it, or copy the two files into Aseprite's `extensions/pixel-bui
 |---|---|
 | Pixel Builder: Generate... | generator + params JSON (+ name, seed) -> `generate-asset`, then `export-asset --format aseprite`, then opens the file |
 | Pixel Builder: Re-render with current kit | `rerender-assets --ids <asset>` and reload the open file (asset = file name or id; asks) |
-| Pixel Builder: Pull kit palette | `get-style-guide` -> sets the sprite palette (entry 0 transparent, then the kit's 90 colours) |
+| Pixel Builder: Pull kit palette | `get-style-guide` -> sets the sprite palette (entry 0 transparent, then the kit palette colours) |
 | Pixel Builder: Send selection to edit_region | stub: reports the selection bounds; wired up when the `edit_region` tool (#18) is merged |
 
 **Transport.** Aseprite's Lua has no HTTP client (only WebSocket), so the extension shells out to
@@ -593,7 +591,7 @@ if a command fails the dialog shows the CLI's error text.
 
 ## Deep palette ramps
 
-`kit-hd-deep` (HD sizes, rich detail, `rampDepth` 9) shades volumes with 9 shades per material. `get_style_guide` then lists extra legend chars (non-ASCII, `level 0.5` ...) for the in-between shades; the 90 classic chars are unchanged. Aseprite export carries the full 163-entry palette.
+`kit-hd-deep` (HD sizes, rich detail, `rampDepth` 9) shades volumes with 9 shades per material. `get_style_guide` then lists extra legend chars (non-ASCII, `level 0.5` ...) for the in-between shades; the 90 classic chars are unchanged. Aseprite export carries the full 172-entry palette (<= 256): indices 1..90 classic, 91..162 deep shades, 163..167 blossom levels, 168..171 blossom deep shades. The `blossom` material (pink; foliage sakura, flowers `accent: "blossom"`, `create_kit` `rampOverrides.blossom`) was appended after the original 18 so no existing index or legend char moved.
 
 ## HD trees
 

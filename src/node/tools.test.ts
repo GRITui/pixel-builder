@@ -56,7 +56,7 @@ describe("get_style_guide / list_generators", () => {
     expect(d.kit).toMatchObject({ id: "kit-default", active: true, outline: "selective", shade_steps: 4 });
     expect(d.legend).toContain(". = transparent");
     expect(d.legend).toMatch(/roof level 3 \(#/);
-    expect(d.legend_entries).toHaveLength(90);
+    expect(d.legend_entries).toHaveLength(95); // 18 base materials + blossom
     expect(d.rules.join(" ")).toMatch(/levels 1, 2, 3, 4/);
     expect(r.text).toContain("## Palette legend");
   });

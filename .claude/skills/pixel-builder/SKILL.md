@@ -12,7 +12,7 @@ hand-write PNGs or invent colours.
 
 ## Mental model (this is what makes the output consistent)
 
-1. **Palette ramps, not colours.** 18 materials (`skin`, `wood`, `water`, ...)
+1. **Palette ramps, not colours.** 19 materials (`skin`, `wood`, `water`, `blossom` (pink), ...)
    x 5 shades (level 0 = darkest, 4 = lightest). A pixel is a palette index.
    Change the kit and every asset recolours together.
 2. **Generators light things for you.** Procedural generators shade volumes

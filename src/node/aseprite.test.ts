@@ -5,7 +5,7 @@ import { inflateSync } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { writeAseprite, zlibStored } from "../core/aseprite";
 import { resolveRamps } from "../core/kit";
-import { flattenRamps, hexToRgb } from "../core/palette";
+import { flattenPalette, hexToRgb } from "../core/palette";
 import { composeAseFrame, readAseprite } from "./aseprite";
 import { callTool } from "./tools";
 import { Workspace, findAsset, getKit } from "./workspace";
@@ -36,7 +36,7 @@ function check(id: string, minLayers: number) {
   expect(ase.height).toBe(Math.max(...all.map((s) => s.h)));
   expect(ase.layers.length).toBeGreaterThanOrEqual(minLayers);
   // palette locked to the kit
-  const flat = flattenRamps(resolveRamps(kit));
+  const flat = flattenPalette(resolveRamps(kit));
   expect(ase.palette).toHaveLength(flat.length);
   flat.forEach((hex, i) => expect(ase.palette[i]).toEqual(hex ? [...hexToRgb(hex), 255] : [0, 0, 0, 0]));
   // pixels

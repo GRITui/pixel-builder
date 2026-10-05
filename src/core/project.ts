@@ -2,7 +2,7 @@
 // CLI and the MCP server. One JSON file holds kits + assets; sprites store
 // palette indices, so a project re-colours itself when a kit changes.
 import { ALL_KIT_PRESETS, DEFAULT_KIT } from "./kit";
-import { PALETTE_SIZE } from "./palette";
+import { PALETTE_SIZE_ALL } from "./palette";
 import type { Attachment, Clip, RigDef } from "./rig";
 import type { Asset, Category, Sprite, StyleKit } from "./types";
 import { CATEGORIES } from "./types";
@@ -49,7 +49,7 @@ function isSprite(s: unknown): s is Sprite {
     !!o &&
     Number.isInteger(o.w) && Number.isInteger(o.h) && o.w > 0 && o.h > 0 && o.w <= 1024 && o.h <= 1024 &&
     Array.isArray(o.data) && o.data.length === o.w * o.h &&
-    o.data.every((v) => Number.isInteger(v) && v >= 0 && v < PALETTE_SIZE)
+    o.data.every((v) => Number.isInteger(v) && v >= 0 && v < PALETTE_SIZE_ALL)
   );
 }
 

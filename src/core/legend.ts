@@ -6,7 +6,7 @@
 // materials filter, so art written against one legend decodes with any other
 // (only the hex colours shown in the table come from the kit).
 // No quotes or backslash (they would need JSON escaping) and no space.
-import { FINE_SLOTS, FINE_START, MATERIALS, PALETTE_SIZE_CLASSIC, PALETTE_SIZE, RAMP_LEN, decodeIndex, flattenRamps, type Material } from "./palette";
+import { FINE_SLOTS, MATERIALS, PALETTE_SIZE_ALL, RAMP_LEN, colorIndex, decodeIndex, fineSlotIndex, flattenPalette, type Material } from "./palette";
 import { resolveRamps } from "./kit";
 import type { Sprite, StyleKit } from "./types";
 
@@ -42,9 +42,11 @@ const FINE_ALPHABET = (() => {
   return out;
 })();
 
-const CHARS: string[] = [TRANSPARENT, ...ALPHABET, ...FINE_ALPHABET.slice(0, PALETTE_SIZE - PALETTE_SIZE_CLASSIC)];
-if (CHARS.length !== PALETTE_SIZE || new Set(CHARS).size !== PALETTE_SIZE) {
-  throw new Error(`legend alphabet must have exactly ${PALETTE_SIZE} unique chars`);
+// Char i is the char of palette index i. Indices 91..162 (deep fine shades) and 163..171 (blossom: 5
+// classic levels, then 4 fine shades) continue through FINE_ALPHABET, so older chars never change.
+const CHARS: string[] = [TRANSPARENT, ...ALPHABET, ...FINE_ALPHABET.slice(0, PALETTE_SIZE_ALL - 1 - ALPHABET.length)];
+if (CHARS.length !== PALETTE_SIZE_ALL || new Set(CHARS).size !== PALETTE_SIZE_ALL) {
+  throw new Error(`legend alphabet must have exactly ${PALETTE_SIZE_ALL} unique chars`);
 }
 
 /**
@@ -52,16 +54,16 @@ if (CHARS.length !== PALETTE_SIZE || new Set(CHARS).size !== PALETTE_SIZE) {
  * (omit for all); '.' is always included. A material's chars never change.
  */
 export function buildLegend(kit: StyleKit, materials?: Material[]): Legend {
-  const flat = flattenRamps(resolveRamps(kit));
-  const deep = flat.length > PALETTE_SIZE_CLASSIC;
+  const ramps = resolveRamps(kit);
+  const flat = flattenPalette(ramps);
+  const deep = MATERIALS.some((m) => ramps[m].length > RAMP_LEN);
   const listed = materials ? MATERIALS.filter((m) => materials.includes(m)) : MATERIALS;
   const entries: LegendEntry[] = [];
   const byChar = new Map<string, number>([[TRANSPARENT, 0]]);
   const byIndex = new Map<number, string>([[0, TRANSPARENT]]);
   for (const material of listed) {
-    const r = MATERIALS.indexOf(material);
     for (let level = 0; level < RAMP_LEN; level++) {
-      const index = 1 + r * RAMP_LEN + level;
+      const index = colorIndex(material, level);
       const char = CHARS[index];
       entries.push({ char, index, material, level, hex: flat[index] ?? "#000000" });
       byChar.set(char, index);
@@ -69,7 +71,7 @@ export function buildLegend(kit: StyleKit, materials?: Material[]): Legend {
     }
     if (deep)
       for (let k = 0; k < FINE_SLOTS; k++) {
-        const index = FINE_START + r * FINE_SLOTS + k;
+        const index = fineSlotIndex(material, k);
         const char = CHARS[index];
         entries.push({ char, index, material, level: k + 0.5, hex: flat[index] ?? "#000000" });
         byChar.set(char, index);

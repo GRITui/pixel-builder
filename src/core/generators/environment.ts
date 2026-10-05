@@ -21,7 +21,7 @@ export const SOIL_TILE_KINDS = ["tilled-soil-tile", "watered-soil-tile", "dried-
 const FOLIAGE: Material[] = ["foliage", "grass", "accent", "cloth", "cloth2", "sand", "gold", "water"];
 const TRUNKS: Material[] = ["wood", "leather", "stone", "dirt", "metal", "hair"];
 const STONES: Material[] = ["stone", "metal", "dirt", "sand", "wood", "accent"];
-const ACCENTS: Material[] = ["cloth2", "accent", "gold", "cloth", "skin", "sand", "foliage", "water"];
+const ACCENTS: Material[] = ["cloth2", "accent", "gold", "cloth", "skin", "sand", "foliage", "water", "blossom"];
 
 const WATER_FRAMES = 4;
 

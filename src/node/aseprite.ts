@@ -6,12 +6,12 @@
 import { deflateSync, inflateSync } from "node:zlib";
 import { materialLayers, writeAseprite } from "../core/aseprite";
 import { resolveRamps } from "../core/kit";
-import { flattenRamps } from "../core/palette";
+import { flattenPalette } from "../core/palette";
 import type { RigSvgInfo } from "../core/svg";
 import type { Asset, StyleKit } from "../core/types";
 
 export function asepriteBytes(asset: Pick<Asset, "rows" | "fps">, kit: StyleKit, rig?: RigSvgInfo): Uint8Array {
-  const palette = flattenRamps(resolveRamps(kit));
+  const palette = flattenPalette(resolveRamps(kit));
   const deflate = (d: Uint8Array) => deflateSync(d);
   const rows = asset.rows;
   if (rig) {

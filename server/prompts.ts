@@ -318,7 +318,7 @@ export function buildKitPrompt(a: { prompt: string; kit: StyleKit }) {
     "Respond only with the JSON object described by the schema.";
   const palettes = PALETTES.map((p) => `- ${p.id}: ${p.name}; sample ramps cloth ${p.ramps.cloth.join(" ")}, foliage ${p.ramps.foliage.join(" ")}`).join("\n");
   const user = [
-    "Base palettes (each has the same 18 materials: " + MATERIALS.join(", ") + "):",
+    "Base palettes (each has the same " + MATERIALS.length + " materials: " + MATERIALS.join(", ") + "):",
     palettes,
     "",
     "Outline modes: none, black (ink), colored (darkest shade of the touching material), selective (dark on shadow side, tinted toward the light).",

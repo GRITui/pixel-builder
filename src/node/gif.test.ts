@@ -83,6 +83,14 @@ describe("gif encoder", () => {
     expect(g.frames[0]).toEqual(frames[0].data);
   });
 
+  it("blossom indices (163..171) keep their colours", () => {
+    expect(colors.length).toBe(172);
+    const f = sp(9, 1, (x) => 163 + x);
+    const g = decodeGif(encodeGif([f, f], { colors, fps: 8 }));
+    expect(g.frames[0]).toEqual(f.data);
+    for (let i = 163; i <= 171; i++) expect(g.palette[i]).toEqual([...colors[i]!]);
+  });
+
   it("scales and handles big noisy frames (code table resets)", () => {
     const f = sp(120, 90, (x, y) => 1 + ((x * 31 + y * 17 + ((x * y) % 13)) % 90));
     const g = decodeGif(encodeGif([f, f], { colors, fps: 8, scale: 2 }));
