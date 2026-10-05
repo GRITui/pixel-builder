@@ -3,9 +3,12 @@
 // (mcp.ts) and the CLI (cli.ts) are thin adapters over TOOLS, so tool names and
 // input fields are identical in both.
 import { fitRigToWorld } from "../core/rigs/fit";
-import { existsSync, readFileSync } from "node:fs";
-import { basename, extname, resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { basename, extname, join, resolve } from "node:path";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { z } from "zod";
+import { coerceInput, normKey, simplifySchema } from "./coerce";
+import { exampleLine } from "./examples";
 import { createAsset } from "../core/asset";
 import { downscaleRGBA, finalize, materialsUsed, quantizeRGBA } from "../core/enforce";
 import { GENERATORS, generatorById } from "../core/generators";
@@ -30,7 +33,7 @@ import {
   ToolError, Workspace, assetFiles, exportAsset as exportAssetRaw, findAsset, getKit, isAnimated, kitOf, removeAssetFiles,
   type ExportedFile, type ExportOptions,
 } from "./workspace";
-import { asepriteExists, svgExists } from "./workspace";
+import { asepriteExists, atomicWrite, slugify, svgExists } from "./workspace";
 
 export { ToolError };
 
@@ -87,24 +90,80 @@ const paramsField = z
   .optional()
   .describe("Generator params by key (see list_generators). Missing keys use defaults.");
 
-/** Validate raw input against a tool's schema with an agent-readable error. */
-export function parseInput(tool: ToolDef, raw: unknown): any {
-  const r = z.object(tool.shape).strict().safeParse(raw ?? {});
+const warnStore = new AsyncLocalStorage<string[]>();
+/** Record a non-fatal note for the running tool call (returned to the agent as `warnings`). */
+export function warn(message: string): void {
+  warnStore.getStore()?.push(message);
+}
+
+function valueAt(root: unknown, path: PropertyKey[]): unknown {
+  let cur: any = root;
+  for (const k of path) cur = cur?.[k as any];
+  return cur;
+}
+
+function schemaAt(root: any, path: PropertyKey[]): any {
+  let cur = root;
+  for (const k of path) {
+    if (!cur) return undefined;
+    cur = typeof k === "number" ? cur.items : cur.properties?.[k as string] ?? cur.additionalProperties;
+    if (cur?.anyOf) cur = cur.anyOf.find((b: any) => b.type !== "null") ?? cur;
+  }
+  return cur;
+}
+
+/**
+ * Validate raw input against a tool's schema. The input is first coerced against the JSON schema
+ * (numeric strings, "true", JSON-in-strings, enum case, flat frames, camelCase keys; see coerce.ts);
+ * what is still wrong produces an error naming the field, the valid values and an example call.
+ * Non-fatal repairs and ignored unknown inputs go to `warnings`.
+ */
+export function parseInput(tool: ToolDef, raw: unknown, warnings: string[] = []): any {
+  const jsonSchema = inputJsonSchema(tool);
+  const input = coerceInput(jsonSchema, raw, warnings);
+  const r = z.object(tool.shape).strict().safeParse(input);
   if (r.success) return r.data;
   const lines = r.error.issues.map((i) => {
-    const where = i.path.length ? i.path.join(".") : "(input)";
+    const where = i.path.length ? i.path.map(String).join(".") : "(input)";
+    const got = valueAt(input, i.path);
+    const sch = schemaAt(jsonSchema, i.path);
+    const hint = sch?.description && i.path.length === 1 ? ` (${sch.description})` : "";
     if (i.code === "unrecognized_keys") {
       const keys = (i as { keys: string[] }).keys.map((k) => `'${k}'`).join(", ");
       return i.path.length ? `${where}: unknown key ${keys}` : `unknown input ${keys}; valid inputs: ${Object.keys(tool.shape).join(", ")}`;
     }
+    if (i.code === "invalid_value") {
+      const values = ((i as { values?: unknown[] }).values ?? []).map(String);
+      const near = typeof got === "string" ? nearest(got, values, 1) : [];
+      return `${where}: must be one of ${values.join(", ")}; got ${JSON.stringify(got)}.${near.length ? ` Did you mean '${near[0]}'?` : ""}`;
+    }
+    if (i.code === "invalid_type") {
+      const expected = String((i as { expected?: string }).expected ?? "value");
+      if (got === undefined) return `${where}: required (${expected})${hint}`;
+      const shown = JSON.stringify(got);
+      return `${where}: expected ${expected}, got ${shown && shown.length > 60 ? shown.slice(0, 57) + "..." : shown}${hint}`;
+    }
     return `${where}: ${i.message}`;
   });
-  throw new ToolError(`Invalid input for ${tool.name}: ${lines.join("; ")}`);
+  throw new ToolError(`Invalid input for ${tool.name}: ${lines.join("; ")}. Example: ${exampleLine(tool.name)}`);
 }
 
 /** JSON Schema of a tool's input (used for CLI help and flag coercion). */
 export function inputJsonSchema(tool: ToolDef): { properties?: Record<string, any>; required?: string[] } {
   return z.toJSONSchema(z.object(tool.shape), { io: "input", unrepresentable: "any" }) as any;
+}
+
+/** Input JSON schema as exposed over MCP: draft-7, input side, simplified to the subset function-calling layers accept. */
+export function mcpInputSchema(tool: ToolDef): { type: "object"; properties?: Record<string, any>; required?: string[]; [k: string]: unknown } {
+  return simplifySchema(z.toJSONSchema(z.object(tool.shape), { io: "input", unrepresentable: "any", target: "draft-7" }));
+}
+
+function attachWarnings(result: ToolResult, warnings: string[]): ToolResult {
+  const list = [...new Set(warnings)];
+  if (!list.length) return result;
+  if (result.data && typeof result.data === "object" && !Array.isArray(result.data)) (result.data as Record<string, unknown>).warnings = list;
+  if (result.text !== undefined) result.text += `\n\nwarnings:\n${list.map((w) => `- ${w}`).join("\n")}`;
+  return result;
 }
 
 function withWarnings(ws: Workspace, result: ToolResult): ToolResult {
@@ -122,16 +181,20 @@ function findTool(name: string): ToolDef {
 export function callTool(ws: Workspace, name: string, raw: unknown): ToolResult {
   const tool = findTool(name);
   if (tool.async) throw new ToolError(`${name} may call the AI model and is async; use callToolAsync.`);
-  return withWarnings(ws, tool.run(ws, parseInput(tool, raw)) as ToolResult);
+  const warnings: string[] = [];
+  const input = parseInput(tool, raw, warnings);
+  const result = warnStore.run(warnings, () => tool.run(ws, input)) as ToolResult;
+  return attachWarnings(withWarnings(ws, result), warnings);
 }
 
 /** Like callTool, but also runs tools that call the model (edit_region with `prompt`). */
 export async function callToolAsync(ws: Workspace, name: string, raw: unknown): Promise<ToolResult> {
   const tool = findTool(name);
-  const input = parseInput(tool, raw);
+  const warnings: string[] = [];
+  const input = parseInput(tool, raw, warnings);
   return ws.exclusive(async () => {
     await ws.pull();
-    const result = withWarnings(ws, await tool.run(ws, input));
+    const result = attachWarnings(withWarnings(ws, await warnStore.run(warnings, () => tool.run(ws, input))), warnings);
     await ws.push();
     return result;
   });
@@ -161,11 +224,18 @@ export function nearest(input: string, candidates: readonly string[], max = 3): 
 }
 
 function resolveGenerator(id: string): Generator {
-  const g = generatorById(id) ?? GENERATORS.find((x) => x.id === id.toLowerCase());
+  const q = normKey(id);
+  const g = generatorById(id) ?? GENERATORS.find((x) => x.id === id.toLowerCase() || normKey(x.id) === q || normKey(x.label) === q);
   if (g) return g;
   const hints: string[] = nearest(id, GENERATORS.map((x) => x.id), 2).map((n) => `'${n}'`);
+  const kinds = GENERATORS.flatMap((x) =>
+    x.params.flatMap((p) => {
+      const opt = p.type === "select" ? p.options.find((o) => normKey(o) === q) : undefined;
+      return opt ? [`'${x.id}' with params {"${p.key}":"${opt}"}`] : [];
+    }),
+  );
   throw new ToolError(
-    `Unknown generator '${id}'.` + (hints.length ? ` Did you mean ${hints.join(" or ")}?` : "") + ` Generators: ${GENERATORS.map((x) => x.id).join(", ")} (see list_generators).`,
+    `Unknown generator '${id}'.` + (hints.length ? ` Did you mean ${[...new Set(hints)].join(" or ")}?` : "") + ` Generators: ${GENERATORS.map((x) => x.id).join(", ")} (see list_generators).` + (kinds.length ? ` Did you mean ${kinds.slice(0, 2).join(" or ")}?` : ""),
   );
 }
 
@@ -185,13 +255,26 @@ function validateParams(g: Generator, input: Record<string, unknown>): { params:
   const notes: string[] = [];
   const specs = new Map(g.params.map((s) => [s.key, s]));
   const clean: Record<string, unknown> = {};
-  for (const [key, raw] of Object.entries(input)) {
+  for (const [rawKey, raw] of Object.entries(input)) {
+    let key = rawKey;
+    if (!specs.has(key)) {
+      const alias = [...specs.keys()].find((k) => normKey(k) === normKey(rawKey) && !(k in input));
+      if (alias) {
+        key = alias;
+        warn(`param '${rawKey}' of '${g.id}' read as '${alias}'`);
+      }
+    }
     const s = specs.get(key);
     if (!s) {
       const near = nearest(key, [...specs.keys()], 1);
-      throw new ToolError(`Generator '${g.id}' has no param '${key}'.` + (near.length ? ` Did you mean '${near[0]}'?` : "") + ` Params: ${[...specs.keys()].join(", ") || "(none)"}.`);
+      warn(`Generator '${g.id}' has no param '${key}'; ignored.` + (near.length ? ` Did you mean '${near[0]}'?` : "") + ` Params: ${[...specs.keys()].join(", ") || "(none)"}.`);
+      continue;
     }
     let v = raw;
+    if ((s.type === "select" || s.type === "material") && typeof v === "string") {
+      const opts: readonly string[] = s.type === "select" ? s.options : (s.options ?? MATERIALS);
+      v = opts.find((o) => o === v) ?? opts.find((o) => normKey(o) === normKey(v as string)) ?? v;
+    }
     if (s.type === "number" && typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v))) v = Number(v);
     if (s.type === "bool" && (v === "true" || v === "false")) v = v === "true";
     const ok =
@@ -620,7 +703,7 @@ const editRegion = defineTool({
     const legend = buildLegend(kit);
     if (asset.tilemap) throw new ToolError(`'${asset.name}' is a map (a tile grid); edit_region only edits sprites.`);
     if (!!i.rect === !!i.cells) throw new ToolError("Give exactly one selection: `rect` {x,y,w,h} or `cells` [[x,y],...].");
-    if (!!i.rows === !!i.prompt) throw new ToolError("Give exactly one of `rows` (you paint the region; no API key needed) or `prompt` (server model; needs ANTHROPIC_API_KEY).");
+    if (!!i.rows === !!i.prompt) throw new ToolError("Give exactly one of `rows` (you paint the region; no API key needed) or `prompt` (server model; needs an AI key: ANTHROPIC_API_KEY or AI_PROVIDER=openai).");
     let ri = 0;
     if (typeof i.row === "string") {
       const byName = asset.rows.findIndex((r) => r.name === i.row);
@@ -644,7 +727,7 @@ const editRegion = defineTool({
       rowsFor = () => i.rows!;
     } else {
       const { hasKey } = await import("../../server/claude");
-      if (!hasKey()) throw new ToolError("`prompt` needs the AI model, but ANTHROPIC_API_KEY is not set. Either set it, or supply `rows` yourself: legend rows for the selection's bounding box " + `(x=${bbox.x}, y=${bbox.y}, ${bbox.w} cols x ${bbox.h} rows; read the pixels with get_asset include_pixels).`);
+      if (!hasKey()) throw new ToolError("`prompt` needs the AI model, but no AI key is configured (set ANTHROPIC_API_KEY, or AI_PROVIDER=openai with OPENAI_API_KEY / OPENAI_BASE_URL). Either set one, or supply `rows` yourself: legend rows for the selection's bounding box " + `(x=${bbox.x}, y=${bbox.y}, ${bbox.w} cols x ${bbox.h} rows; read the pixels with get_asset include_pixels).`);
       const { inpaint } = await import("../../server/inpaint");
       const cells: [number, number][] = [];
       for (let k = 0; k < mask.length; k++) if (mask[k]) cells.push([k % w, Math.floor(k / w)]);
@@ -1798,10 +1881,54 @@ const compareToReference = defineTool({
   },
 });
 
-export const TOOLS: ToolDef[] = [
+const RAW_TOOLS: ToolDef[] = [
   getStyleGuide, listGenerators, generateAsset, generateVariations, paintAsset, editAsset, editRegion, listAssets, getAsset,
   deleteAsset, exportAssetTool, importImage, listKits, createKit, updateKit, setActiveKit, rerenderAssets,
   listRigs, listClips, listAttachments, generateRigged, attach, createRig, createClip, createAttachment,
   generatePack, importSvg,
   addReference, listReferences, getReference, deleteReference, kitFromReference, compareToReference,
 ];
+
+/** Every description ends with a one-line example call so a model sees the shape of a valid input. */
+export const TOOLS: ToolDef[] = RAW_TOOLS.map((t) => ({ ...t, description: `${t.description}\nExample: ${exampleLine(t.name)}` }));
+
+// ---------- tool profiles ----------
+
+export const TOOL_PROFILES = ["core", "all"] as const;
+export type ToolProfile = (typeof TOOL_PROFILES)[number];
+
+/** The small set a weaker model needs for the whole generate / paint / edit / export loop. */
+export const CORE_TOOLS = [
+  "get_style_guide", "list_kits", "set_active_kit", "list_generators", "generate_asset", "generate_variations",
+  "paint_asset", "edit_asset", "list_assets", "get_asset", "export_asset", "import_image",
+];
+
+/** `--tools` flag value, else env PIXEL_BUILDER_TOOLS, else "all". */
+export function resolveProfile(flag?: string): ToolProfile {
+  const raw = (flag ?? process.env.PIXEL_BUILDER_TOOLS ?? "all").trim().toLowerCase();
+  if (raw === "") return "all";
+  if ((TOOL_PROFILES as readonly string[]).includes(raw)) return raw as ToolProfile;
+  throw new ToolError(`Unknown tool profile '${raw}'. Use --tools core (${CORE_TOOLS.length} tools) or --tools all (default; env PIXEL_BUILDER_TOOLS).`);
+}
+
+export function toolsForProfile(profile: ToolProfile = "all"): ToolDef[] {
+  return profile === "core" ? TOOLS.filter((t) => CORE_TOOLS.includes(t.name)) : TOOLS;
+}
+
+// ---------- previews ----------
+
+/** Save result images to <workspace>/.previews/ and return their paths (for clients that drop image blocks). */
+export function savePreviews(ws: Workspace, r: ToolResult): string[] {
+  if (!r.images?.length) return [];
+  try {
+    const dir = join(ws.dir, ".previews");
+    mkdirSync(dir, { recursive: true });
+    return r.images.map((img) => {
+      const path = join(dir, `${slugify(img.label)}.png`);
+      atomicWrite(path, img.png);
+      return path;
+    });
+  } catch {
+    return [];
+  }
+}

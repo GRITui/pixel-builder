@@ -5,9 +5,9 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError, type CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { TOOLS, ToolError, callTool, callToolAsync, type ToolDef, type ToolResult } from "./tools";
+import { ToolError, callTool, callToolAsync, mcpInputSchema, savePreviews, toolsForProfile, type ToolDef, type ToolProfile, type ToolResult } from "./tools";
 import { type Workspace, serializeProjectCompact } from "./workspace";
 
 export const VERSION = "0.1.0";
@@ -19,8 +19,14 @@ const INSTRUCTIONS = [
   "After changing a kit, call rerender_assets so procedural assets stay consistent. Hand-painting uses the palette legend from get_style_guide.",
 ].join("\n");
 
-export function toCallToolResult(r: ToolResult): CallToolResult {
-  const text = r.text ?? JSON.stringify(r.data, null, 2);
+export function toCallToolResult(r: ToolResult, previews: string[] = []): CallToolResult {
+  // Paths of the saved previews ride along in the text so clients that drop image blocks can still open them.
+  let text = r.text;
+  if (previews.length) {
+    if (text === undefined && r.data && typeof r.data === "object" && !Array.isArray(r.data)) text = JSON.stringify({ ...(r.data as object), previews }, null, 2);
+    else text = `${text ?? JSON.stringify(r.data, null, 2)}\n\npreview: ${previews.join(", ")}`;
+  }
+  text ??= JSON.stringify(r.data, null, 2);
   return {
     content: [
       { type: "text", text },
@@ -34,28 +40,33 @@ function errorResult(e: unknown, tool: string): CallToolResult {
   return { isError: true, content: [{ type: "text", text: e instanceof Error ? e.message : String(e) }] };
 }
 
-function register(server: McpServer, ws: Workspace, tool: ToolDef): void {
-  server.registerTool(
-    tool.name,
-    {
-      title: tool.title,
-      description: tool.description,
-      inputSchema: tool.shape,
-      annotations: {
-        title: tool.title,
-        readOnlyHint: !!tool.readOnly,
-        destructiveHint: !!tool.destructive,
-        openWorldHint: false,
-      },
-    },
-    async (args: unknown): Promise<CallToolResult> => {
-      try {
-        return toCallToolResult(await callToolAsync(ws, tool.name, args));
-      } catch (e) {
-        return errorResult(e, tool.name);
-      }
-    },
-  );
+/**
+ * tools/list + tools/call are served here rather than through McpServer.registerTool: the SDK would
+ * validate arguments with the strict zod shape before our handler runs, which would reject the slips
+ * we repair (numeric strings, "true", JSON in strings, flat frames, ...). parseInput coerces first.
+ */
+function registerTools(server: McpServer, ws: Workspace, tools: ToolDef[]): void {
+  const byName = new Map(tools.map((t) => [t.name, t]));
+  server.server.registerCapabilities({ tools: { listChanged: false } });
+  server.server.setRequestHandler(ListToolsRequestSchema, () => ({
+    tools: tools.map((t) => ({
+      name: t.name,
+      title: t.title,
+      description: t.description,
+      inputSchema: mcpInputSchema(t) as { type: "object"; properties?: Record<string, object>; required?: string[] },
+      annotations: { title: t.title, readOnlyHint: !!t.readOnly, destructiveHint: !!t.destructive, openWorldHint: false },
+    })),
+  }));
+  server.server.setRequestHandler(CallToolRequestSchema, async (req): Promise<CallToolResult> => {
+    const name = req.params.name;
+    if (!byName.has(name)) throw new McpError(ErrorCode.InvalidParams, `Tool ${name} not found. Tools: ${[...byName.keys()].join(", ")}`);
+    try {
+      const result = await callToolAsync(ws, name, req.params.arguments);
+      return toCallToolResult(result, savePreviews(ws, result));
+    } catch (e) {
+      return errorResult(e, name);
+    }
+  });
 }
 
 export function assetPackPrompt(game: string, count: number): string {
@@ -104,9 +115,9 @@ export function designCreaturePrompt(description: string, family?: string): stri
 }
 
 /** Build an MCP server bound to a workspace (no transport attached). */
-export function createMcpServer(ws: Workspace): McpServer {
+export function createMcpServer(ws: Workspace, opts: { tools?: ToolProfile } = {}): McpServer {
   const server = new McpServer({ name: "pixel-builder", version: VERSION }, { instructions: INSTRUCTIONS });
-  for (const tool of TOOLS) register(server, ws, tool);
+  registerTools(server, ws, toolsForProfile(opts.tools));
 
   server.registerResource(
     "project",
@@ -170,8 +181,8 @@ export function createMcpServer(ws: Workspace): McpServer {
   return server;
 }
 
-export async function startStdio(ws: Workspace): Promise<void> {
-  const server = createMcpServer(ws);
+export async function startStdio(ws: Workspace, opts: { tools?: ToolProfile } = {}): Promise<void> {
+  const server = createMcpServer(ws, opts);
   await server.connect(new StdioServerTransport());
   process.stderr.write(`[pixel-builder] MCP server on stdio (workspace ${ws.dir})\n`);
 }
@@ -254,6 +265,8 @@ export interface HttpOptions {
   allowedHosts?: string[];
   /** When set, every request must carry `Authorization: Bearer <token>`. */
   token?: string;
+  /** Tool profile to expose (default "all"). */
+  tools?: ToolProfile;
 }
 
 /**
@@ -289,7 +302,7 @@ export async function startHttp(ws: Workspace, opts: HttpOptions = {}): Promise<
       } catch (e) {
         return jsonError(res, 400, `Bad request: ${(e as Error).message}`, -32700);
       }
-      const server = createMcpServer(ws);
+      const server = createMcpServer(ws, { tools: opts.tools });
       const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
       res.on("close", () => {
         void transport.close();

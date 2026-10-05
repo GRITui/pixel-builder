@@ -33,7 +33,7 @@ describe("tool contract", () => {
   it("validates input with actionable errors", () => {
     expect(() => call("nope")).toThrow(/Unknown tool 'nope'/);
     expect(() => call("generate_asset", {})).toThrow(/generator/);
-    expect(() => call("generate_asset", { generator: "environment", bogus: 1 })).toThrow(/unknown input 'bogus'/);
+    expect(data("generate_asset", { generator: "environment", bogus: 1, save: false }).warnings.join()).toMatch(/unknown input 'bogus'/);
     expect(() => call("generate_variations", { generator: "environment", count: 13 })).toThrow(/count/);
     expect(() => call("paint_asset", { name: "x", category: "object", width: 0, height: 4, frames: [["."]] })).toThrow(/width/);
   });
@@ -118,7 +118,7 @@ describe("generate_asset / generate_variations", () => {
     expect(() => call("generate_asset", { generator: "nope" })).toThrow(/^(?!.*with params)/);
     expect(() => call("generate_asset", { generator: "enviroment" })).toThrow(/Did you mean 'environment'\?/);
     expect(() => call("generate_asset", { generator: "environment", params: { kind: "tre" } })).toThrow(/Param 'kind'.*Did you mean 'dead-tree'/);
-    expect(() => call("generate_asset", { generator: "environment", params: { knd: "oak" } })).toThrow(/no param 'knd'.*Did you mean 'kind'/);
+    expect(data("generate_asset", { generator: "environment", params: { knd: "oak" }, save: false }).warnings.join()).toMatch(/no param 'knd'.*Did you mean 'kind'/);
     expect(() => call("generate_asset", { generator: "environment", params: { foliage: "stone-ish" } })).toThrow(/must be a material/);
   });
 

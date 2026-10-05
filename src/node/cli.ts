@@ -2,12 +2,11 @@
 // (`generate-asset`, `paint-asset`, ...), flags are the input names in kebab-case.
 //   pixel-builder <command> [<arg>] [--flag value ...] [--json] [--workspace dir]
 //   pixel-builder mcp [--http] [--port 8788]
-import { mkdirSync, readFileSync, realpathSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { DEFAULT_HTTP_PORT, VERSION, parseHostList, startHttp, startStdio } from "./mcp";
-import { TOOLS, ToolError, callToolAsync, inputJsonSchema, nearest, type ToolDef, type ToolResult } from "./tools";
-import { DEFAULT_WORKSPACE, atomicWrite, slugify, type Workspace } from "./workspace";
+import { CORE_TOOLS, TOOLS, ToolError, callToolAsync, inputJsonSchema, nearest, resolveProfile, savePreviews, toolsForProfile, type ToolDef, type ToolProfile, type ToolResult } from "./tools";
+import { DEFAULT_WORKSPACE } from "./workspace";
 import { openWorkspace } from "./remote-workspace";
 
 class UsageError extends Error {}
@@ -230,21 +229,23 @@ const EXAMPLES = [
   "pixel-builder mcp --http          # MCP over Streamable HTTP on 127.0.0.1:8788",
 ];
 
-function mainHelp(): string {
-  const w = Math.max(...TOOLS.map((t) => kebab(t.name).length)) + 2;
+function mainHelp(profile: ToolProfile = "all"): string {
+  const listed = toolsForProfile(profile);
+  const w = Math.max(...listed.map((t) => kebab(t.name).length)) + 2;
   return [
     `pixel-builder ${VERSION} - consistent pixel-art assets for games, drivable by AI agents and scripts`,
     "",
     "Usage: pixel-builder [--workspace <dir>] [--json] <command> [args] [options]",
     "",
-    "Commands (same names as the MCP tools, kebab-case):",
-    ...TOOLS.map((t) => `  ${kebab(t.name).padEnd(w)}${firstSentence(t.description)}`),
-    `  ${"mcp".padEnd(w)}Run the MCP server (stdio; --http [--port ${DEFAULT_HTTP_PORT}] [--allowed-host h] [--token t] for Streamable HTTP).`,
+    `Commands (same names as the MCP tools, kebab-case)${profile === "core" ? `; profile core, ${listed.length} of ${TOOLS.length} (all commands still run, \`--tools all\` lists them` + ")" : ""}:`,
+    ...listed.map((t) => `  ${kebab(t.name).padEnd(w)}${firstSentence(t.description)}`),
+    `  ${"mcp".padEnd(w)}Run the MCP server (stdio; --http [--port ${DEFAULT_HTTP_PORT}] [--allowed-host h] [--token t] for Streamable HTTP; --tools core|all).`,
     "",
     "Global options:",
     "  --workspace, -w <dir>  Workspace folder (default: $PIXEL_BUILDER_WORKSPACE, else ./" + DEFAULT_WORKSPACE + ").",
     "                         It holds pixel-builder.json (the project) and exports in <category>s/ folders (characters/, buildings/, environments/, objects/, maps/; UI assets go in ui/).",
     "  --json                 Machine-readable output ({ok, ...result, previews}); errors as {ok:false,error}.",
+    `  --tools core|all       Tool profile for \`mcp\` and this help (env PIXEL_BUILDER_TOOLS, default all). core = ${CORE_TOOLS.length} tools: ${CORE_TOOLS.join(", ")}.`,
     "  --help, -h             Help; `pixel-builder <command> --help` lists a command's options.",
     "  --version              Print the version.",
     "",
@@ -256,17 +257,6 @@ function mainHelp(): string {
 }
 
 // ---------- output ----------
-
-function savePreviews(ws: Workspace, r: ToolResult): string[] {
-  if (!r.images?.length) return [];
-  const dir = join(ws.dir, ".previews");
-  mkdirSync(dir, { recursive: true });
-  return r.images.map((img) => {
-    const path = join(dir, `${slugify(img.label)}.png`);
-    atomicWrite(path, img.png);
-    return path;
-  });
-}
 
 function assetLine(a: any): string {
   const frames = (a.rows as { frames: number }[]).reduce((n, r) => n + r.frames, 0);
@@ -305,6 +295,7 @@ function human(tool: ToolDef, r: ToolResult, previews: string[]): string {
     lines.push(`Kit ${d.kit.name} [${d.kit.id}]`, ...(d.note ? [d.note] : []));
   } else lines.push(JSON.stringify(r.data, null, 2));
   if (Array.isArray(d?.notes)) lines.push("notes:", ...d.notes.map((n: string) => `  - ${n}`));
+  if (Array.isArray(d?.warnings) && !r.text) lines.push("warnings:", ...d.warnings.map((n: string) => `  - ${n}`));
   if (previews.length) lines.push("preview:", ...previews.map((p) => `  ${p}`));
   return lines.join("\n");
 }
@@ -318,7 +309,7 @@ export interface CliIO {
 
 const stdio: CliIO = { out: (t) => process.stdout.write(t + "\n"), err: (t) => process.stderr.write(t + "\n") };
 
-const MCP_USAGE = `Usage: pixel-builder mcp [--http] [--port ${DEFAULT_HTTP_PORT}] [--host 127.0.0.1] [--allowed-host <name>]... [--token <secret>] [--workspace <dir>]
+const MCP_USAGE = `Usage: pixel-builder mcp [--http] [--port ${DEFAULT_HTTP_PORT}] [--host 127.0.0.1] [--allowed-host <name>]... [--token <secret>] [--tools core|all] [--workspace <dir>]
 
 Runs the MCP server. Default: stdio (Claude Code, Cursor, Codex, Gemini CLI, Hermes, ...); stdout carries only protocol messages.
 --http serves Streamable HTTP at http://127.0.0.1:${DEFAULT_HTTP_PORT}/mcp, loopback only: requests whose Host/Origin is not localhost/127.0.0.1/::1 get 403.
@@ -326,9 +317,10 @@ Runs the MCP server. Default: stdio (Claude Code, Cursor, Codex, Gemini CLI, Her
                          Needed behind a tunnel (cloudflared, ngrok): --allowed-host my-tunnel.trycloudflare.com
   --token <secret>       Require "Authorization: Bearer <secret>" (env PIXEL_BUILDER_TOKEN, preferred: argv is visible in process lists).
 Use --token whenever you expose the server beyond localhost; a warning is printed on stderr if you do not.
+--tools core|all      Expose the 12-tool core profile (style guide, kits, generators, paint/edit, list/get/export, import_image) or all tools (default; env PIXEL_BUILDER_TOOLS). Use core for small models.
 Tool output (exports) goes to <workspace>/<category>s/ (UI assets: ui/).`;
 
-async function runMcp(tokens: string[], workspace: string | undefined, io: CliIO, outDir?: string): Promise<number> {
+async function runMcp(tokens: string[], workspace: string | undefined, io: CliIO, outDir?: string, toolsFlag?: string): Promise<number> {
   let http = false;
   let port = DEFAULT_HTTP_PORT;
   let host = "127.0.0.1";
@@ -348,17 +340,19 @@ async function runMcp(tokens: string[], workspace: string | undefined, io: CliIO
     else if (name === "--token") token = value() || undefined;
     else if (name === "--workspace" || name === "-w") workspace = value();
     else if (name === "--out-dir") outDir = value();
+    else if (name === "--tools") toolsFlag = value();
     else throw new UsageError(`Unknown option ${t} for mcp.\n${MCP_USAGE}`);
   }
   if (!http && (token || allowed.some((a) => a.trim()) || host !== "127.0.0.1")) io.err("[pixel-builder] note: --host/--allowed-host/--token only apply with --http; running on stdio.");
+  const profile = resolveProfile(toolsFlag);
   const ws = openWorkspace(workspace, outDir);
   if (http) {
-    const handle = await startHttp(ws, { port, host, allowedHosts: parseHostList(...allowed), token });
+    const handle = await startHttp(ws, { port, host, allowedHosts: parseHostList(...allowed), token, tools: profile });
     const stop = () => void handle.close().then(() => process.exit(0));
     process.once("SIGINT", stop);
     process.once("SIGTERM", stop);
   } else {
-    await startStdio(ws);
+    await startStdio(ws, { tools: profile });
     process.once("SIGINT", () => process.exit(0));
     process.once("SIGTERM", () => process.exit(0));
   }
@@ -372,6 +366,8 @@ export async function main(argv: string[], io: CliIO = stdio): Promise<number> {
     // find the command: first token that is not a flag (or a global flag's value)
     let workspace: string | undefined;
     let outDir: string | undefined;
+    const ti = argv.findIndex((x) => x === "--tools" || x.startsWith("--tools="));
+    let toolsFlag: string | undefined = ti < 0 ? undefined : argv[ti].includes("=") ? argv[ti].slice(8) : argv[ti + 1];
     let command: string | undefined;
     const rest: string[] = [];
     for (let i = 0; i < argv.length; i++) {
@@ -381,9 +377,11 @@ export async function main(argv: string[], io: CliIO = stdio): Promise<number> {
         if (t.startsWith("--workspace=")) { workspace = t.slice("--workspace=".length); continue; }
         if (t === "--out-dir") { outDir = argv[++i]; continue; }
         if (t.startsWith("--out-dir=")) { outDir = t.slice("--out-dir=".length); continue; }
+        if (t === "--tools") { toolsFlag = argv[++i]; continue; }
+        if (t.startsWith("--tools=")) { toolsFlag = t.slice("--tools=".length); continue; }
         if (t === "--json") continue;
         if (t === "--version" || t === "-v") { io.out(VERSION); return 0; }
-        if (t === "--help" || t === "-h") { io.out(mainHelp()); return 0; }
+        if (t === "--help" || t === "-h") { io.out(mainHelp(resolveProfile(toolsFlag))); return 0; }
         if (t.startsWith("-")) throw new UsageError(`Unknown option ${t}. Run \`pixel-builder --help\`.`);
         command = t;
         continue;
@@ -393,7 +391,7 @@ export async function main(argv: string[], io: CliIO = stdio): Promise<number> {
     if (!command || command === "help") {
       const topic = command === "help" ? rest[0] : undefined;
       const tool = topic ? TOOLS.find((t) => kebab(t.name) === topic || t.name === topic) : undefined;
-      io.out(tool ? toolHelp(tool) : mainHelp());
+      io.out(tool ? toolHelp(tool) : mainHelp(resolveProfile(toolsFlag)));
       return 0;
     }
     if (command === "mcp") {
@@ -401,7 +399,7 @@ export async function main(argv: string[], io: CliIO = stdio): Promise<number> {
         io.out(MCP_USAGE);
         return 0;
       }
-      return await runMcp(rest.filter((t) => t !== "--json"), workspace, io, outDir);
+      return await runMcp(rest.filter((t) => t !== "--json"), workspace, io, outDir, toolsFlag);
     }
     const tool = TOOLS.find((t) => kebab(t.name) === command || t.name === command);
     if (!tool) {
