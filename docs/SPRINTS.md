@@ -112,3 +112,15 @@ Also closes the farm quality gap: the `farm` biome predates the Sprint 5 MMO wor
 | 2 | #67 Compare to reference | `styleDistance` score, the `compare_to_reference` tool with a side-by-side view, reference bench briefs. | `refstyle.ts` (append), bench |
 
 **Exit:** the half-brick house photo gives a matching building in one call; the MMO screenshot gives a close kit; a pixel-art sprite imports at its true size; results show a match score; the farm scene looks as rich as the MMO scene.
+
+## Sprint 8: Buildings v2 (epic #74)
+Buildings move from flat front elevations to 3/4 top-down with a real tile scale and rich detail. The new look is opt-in (`look: rich`); classic output stays byte-identical, and isometric buildings are unchanged.
+
+| Wave | Issue | Work | Owns |
+|---|---|---|---|
+| 1 | #75 3/4 renderer | Roof plane seen from above (shingles, thatch, tin, tiles), eaves shadow, side-wall depth, wall materials, framed windows and doors, foundation, chimney, ground shadow | new `generators/building-rich.ts`, `look` param |
+| 1 | #76 Footprint and scale | `buildingFootprint` (tiles, storeys, door, entry, collision), person-relative scale, `meta.footprint`, `placeBuilding` helper | new `core/footprint.ts` |
+| 2 | #77 Details and styles | Porch, balcony, awning, sign, lanterns, flower boxes, ivy, wear, smoke, night windows; inn, blacksmith, temple, windmill, greenhouse, stall, well-house; tiers 1–3 | `building-rich.ts` modules |
+| 3 | #78 Maps and scenes | `buildings: rich` in maps, footprint placement, `village` biome, farm, MMO and village scenes, bench | map files, scripts |
+
+**Exit:** a rich contact sheet at correct scale, and farm, MMO and village scenes with rich buildings.
