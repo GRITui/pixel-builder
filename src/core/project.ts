@@ -4,7 +4,7 @@
 import { ALL_KIT_PRESETS, DEFAULT_KIT } from "./kit";
 import { PALETTE_SIZE_ALL } from "./palette";
 import type { Attachment, Clip, RigDef } from "./rig";
-import type { Asset, Category, Sprite, StyleKit } from "./types";
+import type { Asset, Category, Reference, Sprite, StyleKit } from "./types";
 import { CATEGORIES } from "./types";
 
 export const PROJECT_FORMAT = "pixel-builder/project";
@@ -20,6 +20,8 @@ export interface ProjectFile {
   rigs?: RigDef[];
   clips?: Clip[];
   attachments?: Attachment[];
+  /** Reference images (mood board). Optional: old files lack them. */
+  references?: Reference[];
 }
 
 export function emptyProject(): ProjectFile {
@@ -38,7 +40,8 @@ export function serializeProject(p: ProjectFile): string {
     .filter((k) => p[k]?.length)
     .map((k) => `,\n  "${k}": [\n${p[k]!.map((x) => `    ${JSON.stringify(x)}`).join(",\n")}\n  ]`)
     .join("");
-  return `{\n  "format": ${JSON.stringify(p.format)},\n  "version": ${p.version},\n  "activeKitId": ${JSON.stringify(p.activeKitId)},\n  "kits": ${kits},\n  "assets": [${assets ? `\n${assets}\n  ` : ""}]${extra}\n}\n`;
+  const refs = p.references?.length ? `,\n  "references": [\n${p.references.map((x) => `    ${JSON.stringify(x)}`).join(",\n")}\n  ]` : "";
+  return `{\n  "format": ${JSON.stringify(p.format)},\n  "version": ${p.version},\n  "activeKitId": ${JSON.stringify(p.activeKitId)},\n  "kits": ${kits},\n  "assets": [${assets ? `\n${assets}\n  ` : ""}]${extra}${refs}\n}\n`;
 }
 
 const CATEGORY_IDS = new Set<Category>(CATEGORIES.map((c) => c.id));
@@ -59,6 +62,14 @@ function isAsset(a: unknown): a is Asset {
     !!o && typeof o.id === "string" && typeof o.name === "string" && CATEGORY_IDS.has(o.category) &&
     Array.isArray(o.rows) && o.rows.length > 0 &&
     o.rows.every((r) => r && typeof r.name === "string" && Array.isArray(r.frames) && r.frames.length > 0 && r.frames.every(isSprite))
+  );
+}
+
+export function isReference(r: unknown): r is Reference {
+  const o = r as Reference;
+  return (
+    !!o && typeof o.id === "string" && typeof o.name === "string" && typeof o.preview === "string" &&
+    Number.isInteger(o.width) && Number.isInteger(o.height) && o.width > 0 && o.height > 0 && o.width <= 16384 && o.height <= 16384
   );
 }
 
@@ -111,8 +122,18 @@ export function parseProject(json: string): { project: ProjectFile; warnings: st
   const clips = lib<Clip>("clips", (x) => x.frames && typeof x.frames === "object");
   const attachments = lib<Attachment>("attachments", (x) => Array.isArray(x.parts));
 
+  let references: Reference[] | undefined;
+  if (Array.isArray(raw.references)) {
+    references = [];
+    for (const r of raw.references) {
+      if (isReference(r)) references.push({ ...r, tags: Array.isArray(r.tags) ? r.tags.filter((t) => typeof t === "string") : [], source: r.source ?? { kind: "paste", value: "" }, createdAt: r.createdAt || 0 });
+      else warnings.push(`Dropped invalid reference ${(r as Reference)?.name ?? (r as Reference)?.id ?? "?"}`);
+    }
+    if (!references.length) references = undefined;
+  }
+
   const activeKitId = kits.some((k) => k.id === raw.activeKitId) ? raw.activeKitId! : kits[0].id;
-  return { project: { format: PROJECT_FORMAT, version: PROJECT_VERSION, activeKitId, kits, assets, ...(rigs ? { rigs } : {}), ...(clips ? { clips } : {}), ...(attachments ? { attachments } : {}) }, warnings };
+  return { project: { format: PROJECT_FORMAT, version: PROJECT_VERSION, activeKitId, kits, assets, ...(rigs ? { rigs } : {}), ...(clips ? { clips } : {}), ...(attachments ? { attachments } : {}), ...(references ? { references } : {}) }, warnings };
 }
 
 /** Merge `incoming` into `base`: kits/assets with the same id are replaced, new ones appended. */
@@ -123,7 +144,7 @@ export function mergeProjects(base: ProjectFile, incoming: ProjectFile): Project
     return [...m.values()];
   };
   const out: ProjectFile = { ...base, kits: byId(base.kits, incoming.kits), assets: byId(base.assets, incoming.assets) };
-  for (const k of ["rigs", "clips", "attachments"] as const)
+  for (const k of ["rigs", "clips", "attachments", "references"] as const)
     if (base[k]?.length || incoming[k]?.length) (out as any)[k] = byId<{ id: string }>(base[k] ?? [], incoming[k] ?? []);
   return out;
 }

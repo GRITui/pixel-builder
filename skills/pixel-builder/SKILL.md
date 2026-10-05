@@ -39,6 +39,7 @@ hand-write PNGs or invent colours.
 | `export_asset` | `png`, `spritesheet`, `tiled` (maps), `svg` (layered, see below), `aseprite` (see below), `gif` (animated GIF89a, kit palette; one per animated row or `row`; maps need generate_asset params `animate: true` for living water, swaying trees, reeds) or, for `tileset` assets, `tiled-tileset` / `godot` / `unity` / `atlas` (engine autotile files, see reference) |
 | `import_image` | quantise an existing PNG to the kit palette |
 | `import_svg` | read a layered SVG back (new asset, or `replace_id` to retexture an existing one): edit by layer, keep `data-material`/`data-level` or use kit colours, the `guides` layer is ignored |
+| `add_reference` / `list_references` / `get_reference` / `delete_reference` | reference library (mood board): add a PNG/JPEG by `path`, `url` or `base64` (max 10 MB, 4096px) with `name`/`tags`; `get_reference` returns a preview you can look at. Also browsable in the web app (References panel), synced like assets |
 | `rerender_assets` | regenerate procedural and rigged assets after a kit change (`stale_only` = only assets made with an older kit version) |
 | `list_rigs` / `list_clips` / `list_attachments` | rigs, animation clips and accessories (with family); ids for `generate_rigged` |
 | `generate_rigged` | animated character: rig + `slots` + `attachments` + `clips` -> walk/idle rows in 4 directions (`directions: 8` adds the 3/4 diagonals down-right, up-right, up-left, down-left), exported as a spritesheet |

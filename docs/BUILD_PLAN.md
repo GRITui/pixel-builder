@@ -276,6 +276,10 @@ optional unless marked *; `kit_id` defaults to the active kit.
 | `export_asset` | id*, row (gif), format (png \| spritesheet \| tiled \| svg \| aseprite \| gif \| tiled-tileset \| godot \| unity \| atlas), scale (1), out_dir | file paths (svg: layered, guides layer; aseprite: indexed, kit palette, layers, tags) |
 | `import_image` | path* (PNG), width*, height*, category*, name, remove_background, crop, outline | asset summary, preview |
 | `import_svg` | path*, name, category, replace_id, kit_id | asset summary, preview (layered SVG back into the kit) |
+| `add_reference` | path \| url \| base64 (exactly one), name, tags | reference summary, preview. PNG/JPEG, ≤10 MB, ≤4096px; full PNG in `references/<id>.png`, ≤512px preview inline in the project |
+| `list_references` | tag | references (id, name, tags, size, source) |
+| `get_reference` | id* | metadata, preview image |
+| `delete_reference` | id* | ok |
 | `list_kits` | — | kits (id, name, active) |
 | `create_kit` | name*, base_kit_id, changes (partial StyleKit) | kit |
 | `update_kit` | kit_id*, changes* | kit (refused when the kit is `locked`; version bumped) |

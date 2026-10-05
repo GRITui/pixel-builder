@@ -16,13 +16,14 @@ import { ImportDialog } from "./ui/ImportDialog";
 import { MapEditor } from "./ui/MapEditor";
 import { PixelEditor } from "./ui/PixelEditor";
 import { SyncBadge } from "./ui/components/SyncBadge";
+import { ReferencesPanel } from "./ui/components/ReferencesPanel";
 import { useRemoteSync } from "./ui/remote";
 import { STORAGE_ERROR_EVENT, usePref, useProject } from "./ui/store";
 
 const VIEWS = new Set<string>([...CATEGORIES.map((c) => c.id), "library"]);
 
 export default function App() {
-  const { project, kits, library, mergeProject, clips, customRigs, customAttachments, addClip, addAuthored, replaceProject } = useProject();
+  const { project, kits, library, mergeProject, clips, customRigs, customAttachments, addClip, addAuthored, replaceProject, references, addReference, updateReference, removeReference } = useProject();
   const sync = useRemoteSync(project, replaceProject);
   const kit = kits.active;
   const pal = usePalette(kit);
@@ -141,6 +142,7 @@ export default function App() {
   return (
     <div className="app">
       <SyncBadge state={sync.state} message={sync.message} reload={sync.reload} />
+      <ReferencesPanel references={references} onAdd={addReference} onUpdate={updateReference} onRemove={removeReference} onError={error} />
       <TopBar kits={kits.kits} kit={kit} onKit={kits.setActive} onEditKit={() => setKitOpen(true)} status={status} onRefreshAi={refresh} />
       <div className={`body ${view === "library" ? "no-strip" : ""}`}>
         <CategoryNav view={view} onView={setViewPref} assets={library.assets} />
