@@ -74,7 +74,10 @@ look at it before moving on.
    one doesn't fit), `create_kit` (name, optional `base_kit_id`, `changes` such as
    `paletteId`, `outline`, `lightDir`, `shadeSteps`, `dither`, `sizes`, `vibe`),
    then `set_active_kit`. Do this before generating anything. Changing the kit
-   later means `rerender_assets`.
+   later means `rerender_assets`. Have a reference image (screenshot, concept art, pixel art)?
+   `kit_from_reference` (`path` PNG, optional `apply`, `strength`, `palette_size`) derives
+   the kit offline: palette ramps, outline, light, shade steps and dither; look at its
+   preview sheet and fine-tune with `update_kit`.
 2. **Pick a generator.** `list_generators` (optionally with `category`). Read the
    param specs; use real option values, materials come from the 18 names.
 3. **Generate.** `generate_asset` with `generator`, `params`, `seed`, `name`.

@@ -278,6 +278,7 @@ optional unless marked *; `kit_id` defaults to the active kit.
 | `import_svg` | path*, name, category, replace_id, kit_id | asset summary, preview (layered SVG back into the kit) |
 | `list_kits` | — | kits (id, name, active) |
 | `create_kit` | name*, base_kit_id, changes (partial StyleKit) | kit |
+| `kit_from_reference` | path* (PNG) or reference_id*, name, base_kit_id, apply (`palette` \| `all`, default all), strength (0..1, 1), palette_size (8..32, 16) | new kit (not activated), preview sheet (character, tree, house, grass tile) + reference/palette strip, analysis (palette, matched materials, outline, light, shade steps, dither, pixel scale, suggested detail/rampDepth). Offline: ramps for materials the reference shows, others keep the base palette |
 | `update_kit` | kit_id*, changes* | kit (refused when the kit is `locked`; version bumped) |
 | `set_active_kit` | kit_id* | kit |
 | `rerender_assets` | ids, kit_id, stale_only | re-generated procedural and rigged assets (consistency after a kit change) |

@@ -4,23 +4,24 @@
 // input fields are identical in both.
 import { fitRigToWorld } from "../core/rigs/fit";
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { basename, extname, resolve } from "node:path";
 import { z } from "zod";
 import { createAsset } from "../core/asset";
 import { downscaleRGBA, finalize, materialsUsed, quantizeRGBA } from "../core/enforce";
 import { GENERATORS, generatorById } from "../core/generators";
 import { coerceParams, defaults, randomParams, type Generator, type ParamSpec, type Params } from "../core/generators/types";
-import { newId } from "../core/kit";
+import { newId, resolveRamps } from "../core/kit";
+import { analyzeReference, kitChangesFromAnalysis, type RefAnalysis } from "../core/refstyle";
 import { applyRegionEdit, cellsMask, checkRegionRows, maskBounds, rectMask, regionContext } from "../core/inpaint";
 import { buildLegend, decodeRows, encodeSprite, legendText, type Legend } from "../core/legend";
-import { MATERIALS, PALETTES, RAMP_LEN, type Material } from "../core/palette";
+import { MATERIALS, PALETTES, RAMP_LEN, hexToRgb, type Material } from "../core/palette";
 import type { ProjectFile } from "../core/project";
 import { rigSvgInfo, svgToSprites } from "../core/svg";
 import { renderRig, renderRigFrame, validateRig, type Attachment, type Clip, type RigDef, type RigRecipe } from "../core/rig";
 import { ATTACHMENTS, CLIPS, RIGS, withHumanoidDefaults } from "../core/rigs";
 import { randomSeed, rng } from "../core/rng";
 import { CATEGORIES, type Asset, type Category, type Sprite, type StyleKit } from "../core/types";
-import { decodePng, contactSheet, encodePng, previewScale, sheetImage, spriteImage, type RgbaImage } from "./png";
+import { blankImage, decodePng, contactSheet, encodePng, previewScale, sheetImage, spriteImage, type RgbaImage } from "./png";
 import { isRigged, packById, PACKS, type PackEntry } from "./packs";
 import {
   ToolError, Workspace, assetFiles, exportAsset as exportAssetRaw, findAsset, getKit, isAnimated, kitOf, removeAssetFiles,
@@ -1454,9 +1455,111 @@ const generatePack = defineTool({
   },
 });
 
+// ---------- kit from reference (#63) ----------
+
+/** Loads a stored reference image by id. TODO(integrator, #62): call `setReferenceLoader((ws, id) => loadReferenceImage(ws, id))` once node/refs.ts exists. */
+export type ReferenceLoader = (ws: Workspace, id: string) => RgbaImage;
+let referenceLoader: ReferenceLoader | undefined;
+export function setReferenceLoader(fn: ReferenceLoader | undefined): void {
+  referenceLoader = fn;
+}
+
+const REF_SHEET: [string, Record<string, unknown>][] = [["character", {}], ["environment", { kind: "oak" }], ["building", {}], ["environment", { kind: "grass-tile" }]];
+
+function refSummary(a: RefAnalysis, matched: string[]) {
+  return {
+    image: `${a.size.w}x${a.size.h}`,
+    pixel_scale: a.pixelScale,
+    palette: a.palette.map((p) => `${p.hex} ${(p.weight * 100).toFixed(1)}%`),
+    limited_palette: a.limited,
+    matched_materials: matched,
+    outline: a.outline.mode,
+    light: a.light.dir,
+    shade_steps: a.shadeSteps,
+    dither: a.dither.enabled,
+    suggested: { detail: a.suggest.detail, rampDepth: a.suggest.rampDepth, note: "Not applied (both hue-shift the ramps again); set them with update_kit if the reference looks that rich." },
+  };
+}
+
+/** Palette strip (dominant colours) under a thumbnail of the reference, so the sheet shows source and result together. */
+function referenceStrip(img: RgbaImage, a: RefAnalysis): RgbaImage {
+  const k = Math.min(1, 140 / img.height);
+  const tw = Math.max(1, Math.round(img.width * k)), th = Math.max(1, Math.round(img.height * k));
+  const thumb = k === 1 ? img.rgba : Uint8Array.from(downscaleRGBA(new Uint8ClampedArray(img.rgba.buffer, img.rgba.byteOffset, img.rgba.length), img.width, img.height, tw, th));
+  const sw = 14, cols = Math.min(a.palette.length, 16);
+  const out = blankImage(Math.max(tw, cols * sw), th + sw + 2, [40, 38, 52, 255]);
+  for (let y = 0; y < th; y++) out.rgba.set(thumb.subarray(y * tw * 4, (y + 1) * tw * 4), y * out.width * 4);
+  a.palette.slice(0, cols).forEach((p, i) => {
+    const [r, g, b] = hexToRgb(p.hex);
+    for (let y = th + 2; y < th + 2 + sw; y++) for (let x = i * sw; x < (i + 1) * sw; x++) out.rgba.set([r, g, b, 255], (y * out.width + x) * 4);
+  });
+  return out;
+}
+
+const kitFromReference = defineTool({
+  name: "kit_from_reference",
+  title: "Kit from reference",
+  description:
+    "Derive a style kit from a reference image, offline (no API key): dominant colours become per-material ramp overrides (materials whose colour family is absent keep the base palette), plus outline, light direction, shade steps and dither guesses. Pixel art that was upscaled is detected. Creates the kit (not activated) and returns a preview sheet (character, tree, house, grass tile) and a reference/palette strip so you can compare, with an analysis summary. Fine-tune with update_kit.",
+  shape: {
+    path: z.string().optional().describe("Path to a PNG reference (relative to the current directory)."),
+    reference_id: z.string().optional().describe("Id of a stored reference (see list_references) instead of `path`."),
+    name: z.string().min(1).max(60).optional().describe("Kit name. Default: from the file / reference name."),
+    base_kit_id: z.string().optional().describe("Kit to copy sizes, camera and fallback palette from. Default: the active kit."),
+    apply: z.enum(["palette", "all"]).default("all").describe("palette = only colours (ramp overrides); all = also outline, light, shade steps, dither and a vibe note."),
+    strength: z.number().min(0).max(1).default(1).describe("0..1: how far the ramps move from the base palette toward the reference."),
+    palette_size: z.number().int().min(8).max(32).default(16).describe("Dominant colours to extract."),
+  },
+  positional: "path",
+  run(ws, i) {
+    if (!i.path === !i.reference_id) throw new ToolError("Pass exactly one of `path` (a PNG file) or `reference_id`.");
+    let img: RgbaImage, label: string;
+    if (i.path) {
+      const file = resolve(i.path);
+      try {
+        img = decodePng(readFileSync(file));
+      } catch (e) {
+        throw new ToolError(`Cannot read PNG '${file}': ${(e as Error).message}`);
+      }
+      label = basename(file, extname(file));
+    } else {
+      if (!referenceLoader) throw new ToolError("reference_id needs the reference library, which is not available here; pass `path` instead.");
+      img = referenceLoader(ws, i.reference_id!);
+      label = i.reference_id!;
+    }
+    const project = ws.load();
+    const base = getKit(project, i.base_kit_id);
+    const baseRamps = resolveRamps({ ...base, rampDepth: 5, detail: "standard" });
+    const a = analyzeReference({ w: img.width, h: img.height, data: img.rgba }, { paletteSize: i.palette_size, baseRamps });
+    if (a.solidPixels === 0) throw new ToolError("The reference has no opaque pixels to analyse.");
+
+    const { locked: _l, version: _v, ...baseRest } = base;
+    const changes = kitChangesFromAnalysis(a, baseRamps, { apply: i.apply, strength: i.strength, label });
+    const kit: StyleKit = {
+      ...(baseRest as StyleKit),
+      ...changes,
+      id: newId("kit"),
+      name: i.name ?? `${label} (from reference)`,
+      rampOverrides: { ...base.rampOverrides, ...changes.rampOverrides },
+    };
+    project.kits.push(kit);
+    ws.save(project);
+
+    const sprites = REF_SHEET.map(([id, p], n) => {
+      const g = generatorById(id)!;
+      return g.generate(coerceParams(g, p), kit, 3 + n).rows[0].frames[0];
+    });
+    const matched = MATERIALS.filter((m) => a.rampOverrides[m]);
+    return {
+      data: { kit, analysis: refSummary(a, matched), note: `Created '${kit.id}' from ${i.path ?? i.reference_id} (not activated: set_active_kit, then generate). Unmatched materials ${i.apply === "all" ? "were harmonised toward the reference saturation" : "keep the base palette"}.` },
+      images: [png(contactSheet(sprites, kit, { columns: 4, numbers: false }), "kit-from-reference"), png(referenceStrip(img, a), "reference-palette")],
+    };
+  },
+});
+
 export const TOOLS: ToolDef[] = [
   getStyleGuide, listGenerators, generateAsset, generateVariations, paintAsset, editAsset, editRegion, listAssets, getAsset,
   deleteAsset, exportAssetTool, importImage, listKits, createKit, updateKit, setActiveKit, rerenderAssets,
   listRigs, listClips, listAttachments, generateRigged, attach, createRig, createClip, createAttachment,
-  generatePack, importSvg,
+  generatePack, importSvg, kitFromReference,
 ];
