@@ -11,3 +11,4 @@ scripts/qa[0-9]-*
 .claude/worktrees/
 pixel-data/
 bench/out/
+bench/agents/runs/

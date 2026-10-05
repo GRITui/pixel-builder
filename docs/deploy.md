@@ -30,6 +30,44 @@ Settings holds the token and the project id (default `team`).
 | `PIXEL_BUILDER_OUT_DIR` | `./pixel-assets` | Agent side with a URL workspace: where PNG exports go (`--out-dir`). |
 | `BIND`, `PIXEL_BUILDER_PROJECT`, `MCP_ALLOWED_HOSTS` | `127.0.0.1`, `team`, `localhost,127.0.0.1` | compose only: published interface, project id the MCP service uses, host names accepted by the MCP service. |
 
+## AI provider
+
+`AI_PROVIDER=anthropic` (default, uses `ANTHROPIC_API_KEY` / `PIXEL_MODEL`) or
+`openai`: any OpenAI-compatible Chat Completions endpoint.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `AI_PROVIDER` | `anthropic` | `anthropic` or `openai`. |
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Endpoint root (`/chat/completions` is appended). |
+| `OPENAI_API_KEY` | - | Sent as a Bearer token. Optional for local servers when `OPENAI_BASE_URL` is set. |
+| `AI_MODEL` | `gpt-4o` | Model for text requests. |
+| `AI_VISION_MODEL` | `AI_MODEL` | Model used when reference images are attached. |
+
+Structured output tries `response_format: json_schema`, falls back to
+`json_object` (schema in the prompt), then extracts JSON from text; replies are
+validated against the schema with one repair retry, and `<think>` blocks are
+stripped. `GET /api/health` returns `{enabled, provider, model, vision_model}`
+and never the key.
+
+Qwen via DashScope:
+
+```
+AI_PROVIDER=openai
+OPENAI_BASE_URL=https://dashscope-intl.aliyuncs.com/compatible-mode/v1
+OPENAI_API_KEY=sk-...
+AI_MODEL=qwen-max
+AI_VISION_MODEL=qwen-vl-max
+```
+
+Ollama (local, no key):
+
+```
+AI_PROVIDER=openai
+OPENAI_BASE_URL=http://localhost:11434/v1
+AI_MODEL=qwen3:32b
+AI_VISION_MODEL=qwen2.5vl:7b
+```
+
 Compose publishes on `127.0.0.1` by default. To expose it to the network set
 `BIND=0.0.0.0` and `MCP_ALLOWED_HOSTS=pixel.internal` (your DNS name).
 

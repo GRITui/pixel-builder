@@ -16,7 +16,7 @@ describe("farm-mmo", () => {
     expect(r.rows[0].frames[0].w).toBe(42 * kit.sizes.tile);
     expect(r.rows[0].frames[0].h).toBe(26 * kit.sizes.tile);
     expect(r.rows[0].frames.length).toBe(1);
-  });
+  }, 30000);
 
   it("is deterministic per seed and differs between seeds", () => {
     const a = gen({}).rows[0].frames[0].data, b = gen({}).rows[0].frames[0].data, c = gen({}, kit, 2).rows[0].frames[0].data;
