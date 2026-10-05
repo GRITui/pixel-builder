@@ -3,10 +3,13 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { HttpError, type JsonSchema } from "./prompts";
 import { checkImageCaps, type ImageInput } from "./images";
+import { activeModel, aiEnabled, providerName } from "./llm";
+import { callOpenAI } from "./providers/openai";
 
 export const DEFAULT_MODEL = "claude-opus-5-5";
-export const getModel = () => process.env.PIXEL_MODEL || DEFAULT_MODEL;
-export const hasKey = () => !!process.env.ANTHROPIC_API_KEY;
+// Provider-aware (AI_PROVIDER=anthropic|openai); see server/llm.ts.
+export const getModel = () => activeModel();
+export const hasKey = () => aiEnabled();
 
 let client: Anthropic | null = null;
 const getClient = () => (client ??= new Anthropic());
@@ -52,7 +55,17 @@ export function buildUserContent(user: string, images?: ImageInput[]) {
 
 /** Run one structured-output request and return the parsed JSON (untrusted). */
 export async function callStructured(c: StructuredCall): Promise<unknown> {
-  if (!hasKey()) throw new HttpError(503, "AI is disabled: ANTHROPIC_API_KEY is not set on the server.");
+  if (!hasKey()) {
+    const k = providerName() === "openai" ? "OPENAI_API_KEY" : "ANTHROPIC_API_KEY";
+    throw new HttpError(503, `AI is disabled: ${k} is not set on the server.`);
+  }
+  if (providerName() === "openai") {
+    try {
+      return await callOpenAI(c);
+    } catch (e) {
+      throw e instanceof HttpError ? e : new HttpError(500, "Unexpected server error.");
+    }
+  }
   const params = {
     model: getModel(),
     max_tokens: c.maxTokens ?? 16000,
