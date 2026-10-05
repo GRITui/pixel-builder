@@ -577,7 +577,7 @@ and double-click it, or copy the two files into Aseprite's `extensions/pixel-bui
 |---|---|
 | Pixel Builder: Generate... | generator + params JSON (+ name, seed) -> `generate-asset`, then `export-asset --format aseprite`, then opens the file |
 | Pixel Builder: Re-render with current kit | `rerender-assets --ids <asset>` and reload the open file (asset = file name or id; asks) |
-| Pixel Builder: Pull kit palette | `get-style-guide` -> sets the sprite palette (entry 0 transparent, then the kit's 90 colours) |
+| Pixel Builder: Pull kit palette | `get-style-guide` -> sets the sprite palette (entry 0 transparent, then the kit palette colours) |
 | Pixel Builder: Send selection to edit_region | stub: reports the selection bounds; wired up when the `edit_region` tool (#18) is merged |
 
 **Transport.** Aseprite's Lua has no HTTP client (only WebSocket), so the extension shells out to
