@@ -84,7 +84,7 @@ export function ReferenceGenerate({ references, initialId, kit, status, onKeep, 
 
   return (
     <div className="id-overlay" role="dialog" aria-modal="true" aria-label="Generate from reference" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="id-dialog" style={{ maxWidth: 720 }}>
+      <div className="id-dialog" style={{ maxWidth: 720, padding: 16, overflow: "auto" }}>
         <h3>Generate from reference</h3>
         {!references.length ? (
           <p>Add an image in the References panel first.</p>
@@ -104,9 +104,9 @@ export function ReferenceGenerate({ references, initialId, kit, status, onKeep, 
               <button onClick={() => setNonce((n) => n + 1)} disabled={busy}>More</button>
               {status?.enabled && <button onClick={() => void askClaude()} disabled={busy} title="Claude proposes params from the image, scored and refined once">Ask Claude</button>}
             </div>
-            <div className="var-grid">
+            <div className="var-grid" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(104px, 1fr))" }}>
               {cands.map((c, i) => (
-                <button key={`${nonce}-${i}-${c.seed}`} className="var" title={`Score ${c.score}/100, seed ${c.seed}. Click to keep.`} onClick={() => keep(c)}>
+                <button key={`${nonce}-${i}-${c.seed}`} className="var" style={{ minWidth: 0, overflow: "hidden" }} title={`Score ${c.score}/100, seed ${c.seed}. Click to keep.`} onClick={() => keep(c)}>
                   <SpriteCanvas sprite={c.sprite} pal={pal} scale={fitScale(c.sprite.w, c.sprite.h, 96)} />
                   <span className="dim">{c.ai ? "Claude " : ""}{c.score}/100{c.params.style ? ` ${c.params.style}` : ""}</span>
                 </button>

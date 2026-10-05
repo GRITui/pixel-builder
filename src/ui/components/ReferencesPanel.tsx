@@ -92,18 +92,18 @@ export function ReferencesPanel({ references, onAdd, onUpdate, onRemove, onGener
             {!references.length && <div style={{ fontSize: 12, opacity: 0.7 }}>No references yet. Add a mood board for agents and generators.</div>}
             <div style={{ display: "grid", gap: 8 }}>
               {references.map((r) => (
-                <div key={r.id} style={{ display: "grid", gridTemplateColumns: "72px 1fr", gap: 8, alignItems: "start" }}>
+                <div key={r.id} style={{ display: "grid", gridTemplateColumns: "72px minmax(0, 1fr)", gap: 8, alignItems: "start" }}>
                   <img src={refDataUrl(r)} alt={r.name} style={{ width: 72, height: 72, objectFit: "contain", background: "#0002", borderRadius: 4 }} />
                   <div style={{ display: "grid", gap: 4, fontSize: 12 }}>
-                    <input value={r.name} aria-label="Reference name" onChange={(e) => onUpdate(r.id, { name: e.target.value })} />
+                    <input style={{ minWidth: 0 }} value={r.name} aria-label="Reference name" onChange={(e) => onUpdate(r.id, { name: e.target.value })} />
                     <input
                       defaultValue={r.tags.join(", ")}
                       key={r.tags.join(",")}
                       aria-label="Tags (comma separated)"
-                      placeholder="tags, comma separated"
+                      placeholder="tags, comma separated" style={{ minWidth: 0 }}
                       onBlur={(e) => onUpdate(r.id, { tags: e.target.value.split(",").map((t) => t.trim()).filter(Boolean) })}
                     />
-                    <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                    <div style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
                       <span style={{ opacity: 0.7 }}>{r.width}x{r.height}</span>
                       <button onClick={() => setPinned(pinned === r.id ? "" : r.id)}>{pinned === r.id ? "Unpin" : "Pin"}</button>
                       {onGenerate && <button onClick={() => onGenerate(r.id)} title="Generate assets that match this reference">Generate</button>}
