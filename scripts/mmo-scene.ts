@@ -22,7 +22,7 @@ import type { Sprite, StyleKit, TileMap } from "../src/core/types";
 import { castLight, grade, mapLitObjects, type TimeOfDay } from "../src/core/lighting";
 import { savePng } from "./sheet";
 
-const COLS = 21, ROWS = 14;
+const COLS = 21, ROWS = 16;
 const SCALE = Number(process.env.SCALE ?? 2);
 
 const trim = (s: Sprite): Sprite => {
@@ -51,7 +51,7 @@ export function renderSceneFrames(kit: StyleKit, seed: number, n: number, time?:
   const ui = (kind: string, p: object = {}) => gen("ui", { kind, skin: "mmo-gold", ...p }).rows[0].frames[0];
   const T = kit.sizes.tile;
 
-  const map = gen("map", { biome: "forest-mmo", cols: COLS, rows: ROWS, detail: "high", density: 0.55 }, seed);
+  const map = gen("map", { biome: "forest-mmo", cols: COLS, rows: ROWS, detail: "high", density: 0.55, terrain: "hills" }, seed);
   const tm = map.tilemap as TileMap;
   const meta = map.meta as { spawns: { x: number; y: number }[]; playerStart: { x: number; y: number } };
   // ground only; deco and characters go through one y-sorted list
@@ -112,7 +112,7 @@ export function renderSceneFrames(kit: StyleKit, seed: number, n: number, time?:
   const used = [heroAt];
   const walkable = (c: { x: number; y: number }) => {
     const i = c.y * tm.cols + c.x, g = tm.tiles[tm.ground[i]]?.name ?? "";
-    return tm.deco[i] < 0 && (g.startsWith("grass") || g.startsWith("dirt") || g.startsWith("sand"));
+    return tm.deco[i] < 0 && !tm.tiles[tm.ground[i]]?.solid && (g.startsWith("grass") || g.startsWith("dirt") || g.startsWith("sand"));
   };
   const spots = [...meta.spawns, ...Array.from({ length: tm.cols * tm.rows }, (_, i) => ({ x: i % tm.cols, y: Math.floor(i / tm.cols) })).filter(walkable)];
   const heroPos = feet(heroAt);
@@ -224,6 +224,9 @@ function fillMinimap(mm: Sprite, r: { x: number; y: number; w: number; h: number
       let c: number;
       if (g.startsWith("water")) c = colorIndex("water", g.startsWith("water-d0") ? 3 : g.startsWith("water-d1") ? 2 : 1);
       else if (g.startsWith("bridge")) c = colorIndex("wood", 3);
+      else if (g.startsWith("waterfall")) c = colorIndex("water", 3);
+      else if (g.startsWith("cliff")) c = colorIndex("dirt", 1);
+      else if (g.startsWith("ramp")) c = colorIndex("wood", 3);
       else if (o.startsWith("tree-maple")) c = colorIndex("cloth2", 3);
       else if (o.startsWith("tree-")) c = colorIndex("foliage", 0);
       else if (g.startsWith("dirt")) c = colorIndex("dirt", 3);
@@ -236,21 +239,21 @@ function fillMinimap(mm: Sprite, r: { x: number; y: number; w: number; h: number
 if (process.argv[1]?.endsWith("mmo-scene.ts")) {
   const args = process.argv.slice(2), gif = args.includes("--gif");
   const [out, kitId, seedArg] = args.filter((x) => x !== "--gif");
-  const time = (process.env.TIME ?? "") as TimeOfDay | "";
+  const time = (process.env.TIME || "day") as TimeOfDay;
   if (gif) {
     // living loop: docs/img/mmo-scene.gif (kit-hd-rich, 16 frames @ 8 fps, 2x pixels, ~1 MB)
     const kit = KIT_PRESETS.find((k) => k.id === (kitId ?? "kit-hd-rich"))!;
     const file = out ?? "docs/img/mmo-scene.gif";
-    const frames = renderSceneFrames(kit, Number(seedArg ?? process.env.SEED ?? 7), Number(process.env.FRAMES ?? 16), time || undefined);
+    const frames = renderSceneFrames(kit, Number(seedArg ?? process.env.SEED ?? 7), Number(process.env.FRAMES ?? 16), time);
     const bytes = encodeGif(frames, { colors: kitColors(kit), fps: Number(process.env.FPS ?? 8), scale: Number(process.env.GIF_SCALE ?? 2) });
     writeFileSync(file, bytes);
     console.log(`wrote ${file} (${frames.length} frames, ${(bytes.length / 1024).toFixed(0)} KB)`);
   } else {
-    const jobs = out ? [[out, kitId ?? "kit-hd-rich"]] : [["docs/img/mmo-scene.png", "kit-hd-rich"], ["docs/img/mmo-scene-deep.png", "kit-hd-deep"]];
-    for (const [file, id] of jobs) {
+    const jobs = out ? [[out, kitId ?? "kit-hd-rich", time]] : [["docs/img/mmo-scene.png", "kit-hd-rich", "day"], ["docs/img/mmo-scene-deep.png", "kit-hd-deep", "day"], ["docs/img/mmo-scene-dusk.png", "kit-hd-rich", "dusk"]];
+    for (const [file, id, tod] of jobs) {
       const kit = KIT_PRESETS.find((k) => k.id === id);
       if (!kit) throw new Error(`unknown kit ${id}`);
-      savePng(file, [[renderScene(kit, Number(seedArg ?? process.env.SEED ?? 7), time || undefined)]], kit, SCALE);
+      savePng(file, [[renderScene(kit, Number(seedArg ?? process.env.SEED ?? 7), tod as TimeOfDay)]], kit, SCALE);
       console.log(`wrote ${file}`);
     }
   }

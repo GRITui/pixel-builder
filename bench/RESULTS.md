@@ -171,3 +171,42 @@ Baseline gaps 1 (foliage), 2 (palette depth), 3 (water depth), 4 (monster variet
 7. **16px kits.** `kit-gameboy` has too few tones for a dense forest (the detail pass skips colour patches there on purpose); the map is legible but not pretty.
 8. **Water is dark.** The depth ramp goes from bright sand to navy; a polished MMO river is usually a lighter teal with brighter highlights. Fixing it means retuning the shared water depth ramp (`water.ts`), which this lane did not touch.
 9. **Existing test blind spot.** `map.test.ts` "never places deco on water" compares tile names to exactly `water`, so it does not see the depth-band water tiles (`water-d1`, `water-s3-4`); `forest-mmo` has its own checks in `map-forest.test.ts`.
+
+## Sprint 6: light, life and height (#54-#59)
+
+- Command: `npm run bench` (offline): 44 briefs, 161 runs, 0 failures. New brief `map-forest-mmo-hills` (forest-mmo, 24x16, `terrain: hills`, `lighting: on`) on all five kits: palette indices 55 (default, neon, same as the flat forest), 53 (gameboy); 0.5-0.8 s in the 16px kits, 1.2-1.5 s in the HD kits (same cost as the flat forest-mmo; the terrain pass adds well under 0.1 s).
+- Exit images: `docs/img/mmo-scene.png` (kit-hd-rich, day), `mmo-scene-deep.png` (kit-hd-deep), `mmo-scene-dusk.png` and `mmo-scene.gif` (16 frames, 1.2 MB: water, waterfall and trees move, the hero walks), from `npx tsx scripts/mmo-scene.ts [--gif]` (`TIME=dusk` for another hour). The map is `forest-mmo` with `terrain: hills` and lighting on: a plateau along the north with a dirt cliff, wooden stairs and a waterfall, a monster standing on top.
+- A fix found by the run: `monsters-set` failed on every kit at the Sprint 6 wave-1 head (shared monster clips pose joints a given monster rig does not have, which `renderRecipe` treated as an error). Built-in monster rigs now ignore the extra keys; the brief renders again (palette 56, outline 98%).
+
+### Nothing down
+
+Every baseline brief reproduces its Sprint 5 numbers (assets, frames, clips, outline, margin); the only palette-index changes are `monsters-set` 55 to 56 and `trees-hd` 32 to 33 (more colours from the wave-1 creatures and blossom work), none lower.
+
+### Self-ratings, re-scored
+
+| Criterion | Baseline | Sprint 5 | Sprint 6 | Why |
+|---|---:|---:|---:|---|
+| Readability at 1x | 4 | 5 (HD) | 5 (HD) | Plateau, cliff, stairs and waterfall read at 1x in the HD kits. In `kit-neon` the plateau is hard to see (a thin lip and a low-contrast olive cliff on green) and in `kit-gameboy` the cliff is only a dark band, so those two stay at 3-4. |
+| Set consistency | 5 | 5 | 5 | Cliffs, stairs and the waterfall come from the same Painter light and palette ramps; lighting only re-picks palette indices. |
+| Animation quality | 4 | 4 | 4 | The map now moves (water, waterfall, tree sway, a walking hero in the GIF), but the hero is the only animated character in the scene, there are still no humanoid impact effects, and the waterfall is a simple 4-frame streak scroll. Not a 5. |
+| Direction coverage | 4 | 4 | 4 | Unchanged. |
+| Time to result | 5 | 5 | 5 | Terrain adds under 0.1 s. |
+| Editability | 5 | 5 | 5 | `terrain`, `ramp`, `cliff` are params; metadata and Tiled carry heights, ramps and waterfalls. |
+| Cost | 5 | 5 | 5 | Free, offline. |
+
+Honest reading: no score moves up this sprint on the rubric as written; the gaps the Sprint 5 notes named (no light, flat terrain, static scene) are closed for the HD kits, which the rubric's criteria do not measure directly.
+
+### Known gaps, revisited
+
+Closed: Sprint 5 gap 1 (light and atmosphere: shadows, dapple, reflections, dusk/night grade), 2 (terrain is flat: cliffs, stairs, waterfall, two levels) and 4 (static scene: living map and GIF).
+
+Remaining:
+
+1. **Terrain is simple.** One band plateau on `forest-mmo` (full width, north edge), rectangular plateaus elsewhere; cliffs are one tile high and only the south edge shows a face (west, east and north edges are a rim). No diagonal slopes, no multi-tile cliffs, no caves, no lakes at height, no cliff-hugging paths. A level-2 summit exists only on maps of about 900 cells or more (not on `forest-mmo`).
+2. **Neon and Game Boy legibility.** The cliff has low contrast against grass in `kit-neon`; in `kit-gameboy` it is a dark band. Needs per-kit contrast tuning (a darker cliff ramp or a stronger rim).
+3. **Plateau is crowded and partly under the HUD** in the exit scene: the trees on top hide most of the plateau and the HUD covers its corners. The generator does not yet leave a clearing on the plateau.
+4. **Shadows do not follow height.** Cast shadows treat the cliff face like flat ground (a tree shadow lands on the face as on grass); only the cliff's own foot shadow and rim are height-aware.
+5. **Y-sorting is by base line only.** Objects carry `level` for engines, but a character on lower ground north of a plateau is not occluded by the plateau top.
+6. **Waterfall.** Water above the cliff does not curve into the fall and there is no mist or splash animation beyond a static foam row.
+7. **Carried over:** HUD slots without icons, monsters limited to a few poses in the scene, one hero look, humanoids have no impact effects, a dark water ramp, and the 16px kits stay a mush in dense forest.
+8. **The bench** is still self-rated by one rater and has no PixelLab columns.

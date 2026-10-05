@@ -8,6 +8,7 @@ import { blit, createSprite } from "./sprite";
 import { environmentGenerator } from "./generators/environment";
 import { foliageGenerator } from "./generators/foliage";
 import { defaults } from "./generators/types";
+import { waterfallFrame } from "./generators/map-terrain";
 import type { Sprite, StyleKit, TileMap } from "./types";
 
 export const MAP_FRAMES_DEFAULT = 8;
@@ -78,6 +79,7 @@ export function mapAnimator(tm: TileMap, kit: StyleKit, seed = 0): MapAnimator {
   const decoLoops = new Map<number, Sprite[] | null>();
   return {
     ground(i, f) {
+      if (tm.tiles[i].name.startsWith("waterfall-")) return waterfallFrame(tm.tiles[i].sprite, tm.tiles[i].name, f);
       if (!groundLoops.has(i)) groundLoops.set(i, waterLoop(tm.tiles[i].sprite, ref));
       const lp = groundLoops.get(i);
       return lp ? lp[f % lp.length] : tm.tiles[i].sprite;

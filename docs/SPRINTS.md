@@ -81,3 +81,17 @@ Reach the look of a polished top-down 2D MMO: lush trees, deep water, cute monst
 | 3 | B | #45 `forest-mmo` biome, ground detail, y-sorting, `docs/img/mmo-scene.png` | `generators/map.ts` (opt-in), `scripts/mmo-scene.ts` | Builds on #42, #43, #44 and #46. |
 
 **Exit:** `docs/img/mmo-scene.png` in `kit-hd-rich` and `kit-hd-deep` (river, trees, path, hero, 3 monsters, HUD), and `bench/RESULTS.md` re-scored with readability and animation up and nothing down.
+
+## Sprint 6: light, life and height (#54-#59)
+Lift the Sprint 5 scene from "clean" to "alive": lighting, blossom trees, more creatures, isometric variants, animated maps and multi-height terrain.
+
+| Wave | Lane | Issue | Outcome |
+|---|---|---|---|
+| 1 | L | #54 Lighting and atmosphere | Shipped: cast shadows, dappled light, water reflections and a palette-locked time-of-day grade (`map` params `lighting`, `time`). |
+| 1 | B | #55 Blossom trees and palette material | Shipped: `blossom` ramp (appended, so older sprites keep their indices) and blossom foliage. |
+| 1 | C | #56 More creatures | Shipped: monster and beast families, rigs and clips. |
+| 1 | I | #57 Iso variants | Shipped: iso variants for buildings, environment props and objects, richer iso villages. |
+| 1 | A | #58 Animated maps and GIF export | Shipped: `animate` / `frames` on `map`, `export_asset format=gif`, living `mmo-scene.gif`. |
+| 2 | T | #59 Multi-height terrain | Shipped: `terrain: hills` (plateaus, cliffs, stairs/ramps, waterfall, solid cliffs and walkable ramps, level-aware metadata and Tiled `height` layer); exit scene regenerated (day, deep, dusk, GIF). |
+
+**Exit:** `docs/img/mmo-scene.png`, `mmo-scene-deep.png`, `mmo-scene-dusk.png` and the living `mmo-scene.gif`: a plateau with cliffs and stairs, a waterfall into the river, lit and animated; `bench/RESULTS.md` has a Sprint 6 section.
