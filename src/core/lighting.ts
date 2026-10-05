@@ -189,11 +189,11 @@ const GRADES: Record<TimeOfDay, Grade> = {
   day: { shift: 0, hi: 0, tint: null, tintAmt: 0, warm: 0 },
   dawn: { shift: -0.5, hi: 0, tint: "water", tintAmt: 0.14, warm: 0.2 },
   dusk: { shift: -1, hi: 0, tint: "water", tintAmt: 0.06, warm: 0.3 },
-  night: { shift: -1.5, hi: -0.5, tint: "water", tintAmt: 0.3, warm: 0 },
+  night: { shift: -1.5, hi: -0.5, tint: "water", tintAmt: 0.22, warm: 0 },
 };
 
 /** Time-of-day colour grade over the whole image; at night the lights glow. */
-export function grade(img: Sprite, kit: StyleKit, time: TimeOfDay, lights: Light[] = [], seed = 0): Sprite {
+export function grade(img: Sprite, kit: StyleKit, time: TimeOfDay, lights: Light[] = [], seed = 0, keepHue?: Uint8Array): Sprite {
   if (time === "day") return img;
   const g = GRADES[time];
   const depth = normalizeDepth(kit.rampDepth);
@@ -211,12 +211,13 @@ export function grade(img: Sprite, kit: StyleKit, time: TimeOfDay, lights: Light
       glow = glow > 0 ? Math.max(0, glow * (time === "night" ? 1 : 0.5)) : 0;
       const bayer = (BAYER[(y & 3) * 4 + (x & 3)] + 0.5) / 16;
       const lit = glow > 0 && glow > bayer * 0.9;
+      const keep = !!keepHue?.[i];
       const ink = d.mat === "ink" || d.mat === "ui";
-      let shift = ink ? g.shift * 0.5 : g.shift + (d.level >= 3 ? g.hi : 0);
+      let shift = ink || keep ? g.shift * (keep ? 0.7 : 0.5) : g.shift + (d.level >= 3 ? g.hi : 0);
       let mat: Material | undefined;
-      if (!ink && !lit) {
+      if (!ink && !lit && !keep) {
         const r = hash(x, y, seed + 17);
-        if (g.tint && d.mat !== "water" && TINTED.has(d.mat) && d.mat !== g.tint && bayer < g.tintAmt * (0.5 + d.level / 6) && r < 0.85) mat = g.tint;
+        if (g.tint && d.mat !== "water" && TINTED.has(d.mat) && d.mat !== g.tint && bayer < g.tintAmt * Math.max(0, 1.3 - d.level / 3) && r < 0.85) mat = g.tint;
         else if (g.warm && d.level >= 3 && (d.mat === "grass" || d.mat === "foliage") && bayer < g.warm) mat = d.mat === "grass" ? "sand" : "grass";
       }
       if (lit) shift = Math.min(2, shift + 4.5 * glow + 1);
