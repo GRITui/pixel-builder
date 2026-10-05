@@ -10,6 +10,7 @@
     "build": "tsc && vite build",
     "start": "NODE_ENV=production tsx server/index.ts",
     "test": "vitest run",
+    "e2e": "playwright test",
     "typecheck": "tsc",
     "cli": "tsx src/node/cli.ts",
     "bench": "tsx scripts/bench.ts",
@@ -34,6 +35,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@playwright/test": "^1.56.1",
     "@types/node": "^26.6.4",
     "@types/react": "^18.3.31",
     "@types/react-dom": "^18.3.7",
