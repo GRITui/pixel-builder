@@ -9,7 +9,7 @@ import { callStructured, getModel, hasKey } from "./claude";
 import { buildLegend, decodeRows } from "../src/core/legend";
 import { inpaint } from "./inpaint";
 import { clipRoute } from "./clip";
-import { collectImages, withReferenceRule } from "./images";
+import { collectImages, setReferenceResolver, withReferenceRule } from "./images";
 import { rigRoute } from "./rig";
 import * as P from "./prompts";
 import { createAuth, isOpenPath } from "./auth";
@@ -150,6 +150,17 @@ async function serveStatic(pathname: string, res: ServerResponse) {
 
 const auth = createAuth();
 const store = new FsStore();
+// reference_ids on the AI endpoints resolve against the shared project's reference library (stored previews)
+setReferenceResolver(async (ids, projectId) => {
+  const got = await store.get(projectId || "team");
+  if (!got) throw new P.HttpError(404, `Project '${projectId || "team"}' not found for reference_ids.`);
+  const refs = got.project.references ?? [];
+  return ids.map((id) => {
+    const r = refs.find((x) => x.id === id || x.name === id);
+    if (!r) throw new P.HttpError(404, `Reference '${id}' not found in project '${projectId || "team"}'.`);
+    return { media_type: "image/png" as const, data: r.preview.replace(/^data:[^,]*,/, "") };
+  });
+});
 
 const production = process.env.NODE_ENV === "production";
 

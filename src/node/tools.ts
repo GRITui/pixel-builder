@@ -12,6 +12,7 @@ import { GENERATORS, generatorById } from "../core/generators";
 import { coerceParams, defaults, randomParams, type Generator, type ParamSpec, type Params } from "../core/generators/types";
 import { newId, resolveRamps } from "../core/kit";
 import { analyzeReference, kitChangesFromAnalysis, type RefAnalysis } from "../core/refstyle";
+import { cropToContentImage, detectGrid, downscaleGrid, hasOutline, imageToSprite, makeRampMapper, padToCommon, removeBackgroundFlood, splitSheet, type GridInfo } from "../core/pixelgrid";
 import { applyRegionEdit, cellsMask, checkRegionRows, maskBounds, rectMask, regionContext } from "../core/inpaint";
 import { buildLegend, decodeRows, encodeSprite, legendText, type Legend } from "../core/legend";
 import { MATERIALS, PALETTES, RAMP_LEN, hexToRgb, type Material } from "../core/palette";
@@ -799,69 +800,121 @@ function cropToContent(img: RgbaImage): RgbaImage {
   return { width: w, height: h, rgba: out };
 }
 
+/** A stored reference (full-size file when present, else its preview) as a decoded image for import_image. */
+function importReference(ws: Workspace, id: string): { image: RgbaImage; name: string } {
+  const ref = findReference(ws.load(), id);
+  const im = loadReferenceImage(ws, id);
+  return { image: { width: im.w, height: im.h, rgba: new Uint8Array(im.data.buffer, im.data.byteOffset, im.data.length) }, name: ref.name };
+}
+
 const importImage = defineTool({
   name: "import_image",
   title: "Import image",
   description:
-    "Import a PNG (e.g. AI-generated art or a mock-up) as an asset: optionally remove its background and crop to content, fit it into width x height, then snap every pixel to the kit palette so it matches the rest. Saves and exports it.",
+    "Import a PNG (e.g. AI-generated art or a mock-up) as an asset: optionally remove its background and crop to content, fit it into width x height, then snap every pixel to the kit palette so it matches the rest. Saves and exports it. " +
+    "mode 'pixel-art' is for pixel art that was upscaled (screenshots, scaled sprites, even JPEG-noisy): it detects the grid, recovers the true 1:1 pixels by per-cell vote (width/height then optional: omitted = true size) and reports scale/offset/confidence. " +
+    "mode 'auto' uses pixel-art when a grid is found (scale >= 2, confidence >= 0.6), else resample. Default 'resample' (photos, concept art). " +
+    "palette_mapping 'ramps' keeps shading by giving each source hue one material ramp. split cuts a sheet into frames (one row of an asset).",
   shape: {
-    path: z.string().describe("Path to a PNG file (relative to the current directory)."),
-    width: z.number().int().min(1).max(256).describe("Target width in pixels."),
-    height: z.number().int().min(1).max(256).describe("Target height in pixels."),
+    path: z.string().optional().describe("Path to a PNG file (relative to the current directory). Required unless reference_id is given."),
+    reference_id: z.string().optional().describe("Use a stored reference image instead of path (needs the reference library)."),
+    width: z.number().int().min(1).max(256).optional().describe("Target width in pixels. Required for mode resample; in pixel-art mode omit to keep the true size."),
+    height: z.number().int().min(1).max(256).optional().describe("Target height in pixels. Required for mode resample; in pixel-art mode omit to keep the true size."),
     category: categoryEnum,
     name: z.string().min(1).max(80).optional().describe("Default: the file name."),
+    mode: z.enum(["resample", "pixel-art", "auto"]).default("resample").describe("resample = fit and snap (default); pixel-art = detect the grid and recover the 1:1 image; auto = pixel-art if a grid is found."),
+    palette_mapping: z.enum(["nearest", "ramps"]).default("nearest").describe("nearest = closest kit colour (OKLab); ramps = keep shading by mapping each source hue onto one material ramp."),
+    split: z.boolean().default(false).describe("Treat the image as a sheet: split into frames (equal lattice cells or content islands) and import them as one animation row. Needs a transparent background or remove_background."),
     remove_background: z.boolean().default(false).describe("Make the background (flood-filled from the image border, colour of the top-left pixel) transparent."),
     crop: z.boolean().default(false).describe("Crop to the non-transparent content before fitting."),
-    outline: z.boolean().default(true).describe("Add the kit's outline (set false if the image already has one). Reserves a 1px margin."),
+    outline: z.boolean().optional().describe("Add the kit's outline (default true; in pixel-art mode default is auto: off when the art already has a dark outline). Reserves a 1px margin."),
     kit_id: kitIdField,
   },
   positional: "path",
   run(ws, i) {
-    const file = resolve(i.path);
-    let buf: Buffer;
-    try {
-      buf = readFileSync(file);
-    } catch (e) {
-      throw new ToolError(`Cannot read '${file}': ${(e as Error).message}`);
-    }
     let img: RgbaImage;
-    try {
-      img = decodePng(buf);
-    } catch (e) {
-      throw new ToolError(`'${file}': ${(e as Error).message}`);
+    let stem: string;
+    if (i.reference_id) {
+      const ref = importReference(ws, i.reference_id);
+      img = ref.image;
+      stem = ref.name;
+    } else {
+      if (!i.path) throw new ToolError("Pass path (a PNG file) or reference_id.");
+      const file = resolve(i.path);
+      let buf: Buffer;
+      try {
+        buf = readFileSync(file);
+      } catch (e) {
+        throw new ToolError(`Cannot read '${file}': ${(e as Error).message}`);
+      }
+      try {
+        img = decodePng(buf);
+      } catch (e) {
+        throw new ToolError(`'${file}': ${(e as Error).message}`);
+      }
+      stem = file.split(/[\\/]/).pop()!.replace(/\.png$/i, "");
     }
     const notes: string[] = [];
-    if (i.remove_background) img = removeBackground(img);
-    else if (!img.rgba.some((_, k) => k % 4 === 3 && img.rgba[k] < 128)) notes.push("image is fully opaque; pass remove_background=true to cut out a flat background");
-    if (i.crop) img = cropToContent(img);
+
+    // pixel-art: find the grid on the raw image, then work 1:1
+    let mode: "resample" | "pixel-art" = i.mode === "pixel-art" ? "pixel-art" : "resample";
+    let grid: GridInfo | undefined;
+    if (i.mode !== "resample") {
+      grid = detectGrid(img);
+      if (i.mode === "auto") mode = grid.scale >= 2 && grid.confidence >= 0.6 ? "pixel-art" : "resample";
+      else if (grid.scale < 2 || grid.confidence < 0.5) notes.push(`no pixel grid found (scale ${grid.scale}, confidence ${grid.confidence.toFixed(2)}); the image was imported at its own pixel size`);
+    }
+    if (mode === "pixel-art") img = downscaleGrid(img, grid!) as RgbaImage;
+    if (mode === "resample" && (i.width === undefined || i.height === undefined)) throw new ToolError("width and height are required (only pixel-art mode can keep the true size).");
+
+    const hasAlpha = img.rgba.some((_, k) => k % 4 === 3 && img.rgba[k] < 128);
+    if (i.remove_background) img = mode === "pixel-art" ? removeBackgroundFlood(img) as RgbaImage : removeBackground(img);
+    else if (!hasAlpha) notes.push("image is fully opaque; pass remove_background=true to cut out a flat background");
+    if (i.crop && !i.split) img = cropToContent(img);
+
+    let parts: RgbaImage[] = [img];
+    if (i.split) {
+      const sp = splitSheet(img);
+      if (sp.frames.length) {
+        parts = padToCommon(sp.frames.map((f) => cropToContentImage(f.image) as RgbaImage), "bottom") as RgbaImage[];
+        notes.push(`split into ${parts.length} frame(s) (${sp.layout}${sp.cols ? `, ${sp.cols}x${sp.rows}` : ""})`);
+      } else notes.push("split found no content; importing the image as one frame");
+    }
 
     const project = ws.load();
     const kit = getKit(project, i.kit_id);
-    const m = i.outline ? 1 : 0;
-    const bw = Math.max(1, i.width - 2 * m), bh = Math.max(1, i.height - 2 * m);
-    const k = Math.min(bw / img.width, bh / img.height);
-    const iw = Math.max(1, Math.round(img.width * k)), ih = Math.max(1, Math.round(img.height * k));
-    const fitted = iw === img.width && ih === img.height ? img.rgba : downscaleRGBA(new Uint8ClampedArray(img.rgba.buffer, img.rgba.byteOffset, img.rgba.length), img.width, img.height, iw, ih);
-    const canvas = new Uint8ClampedArray(i.width * i.height * 4);
-    const ox = Math.floor((i.width - iw) / 2);
-    const oy = i.category === "ui" ? Math.floor((i.height - ih) / 2) : i.height - ih - m;
-    for (let y = 0; y < ih; y++) canvas.set(fitted.subarray(y * iw * 4, (y + 1) * iw * 4), ((oy + y) * i.width + ox) * 4);
-    const sprite = finalize(quantizeRGBA(canvas, i.width, i.height, kit), kit, { outline: i.outline, cleanup: true });
-    if (!sprite.data.some((v) => v > 0)) throw new ToolError("The imported image ended up empty (fully transparent). Check remove_background / the source image.");
-    const stem = file.split(/[\\/]/).pop()!.replace(/\.png$/i, "");
+    const outline = i.outline ?? (mode === "pixel-art" ? !hasOutline(img) : true);
+    const m = outline ? 1 : 0;
+    const W = i.width ?? parts[0].width + 2 * m, H = i.height ?? parts[0].height + 2 * m;
+    const mapper = i.palette_mapping === "ramps" ? makeRampMapper(parts, resolveRamps(kit)) : undefined;
+    const frames = parts.map((part) => {
+      const bw = Math.max(1, W - 2 * m), bh = Math.max(1, H - 2 * m);
+      // pixel-art keeps 1:1 unless it does not fit; resample may scale either way as before
+      const k = mode === "pixel-art" ? Math.min(1, bw / part.width, bh / part.height) : Math.min(bw / part.width, bh / part.height);
+      const iw = Math.max(1, Math.round(part.width * k)), ih = Math.max(1, Math.round(part.height * k));
+      const fitted = iw === part.width && ih === part.height ? part.rgba : downscaleRGBA(new Uint8ClampedArray(part.rgba.buffer, part.rgba.byteOffset, part.rgba.length), part.width, part.height, iw, ih);
+      const canvas = new Uint8ClampedArray(W * H * 4);
+      const ox = Math.floor((W - iw) / 2);
+      const oy = i.category === "ui" ? Math.floor((H - ih) / 2) : H - ih - m;
+      for (let y = 0; y < ih; y++) canvas.set(fitted.subarray(y * iw * 4, (y + 1) * iw * 4), ((oy + y) * W + ox) * 4);
+      const raw = mapper ? imageToSprite({ width: W, height: H, rgba: canvas }, mapper) : quantizeRGBA(canvas, W, H, kit);
+      return finalize(raw, kit, { outline, cleanup: true });
+    });
+    if (!frames.some((f) => f.data.some((v) => v > 0))) throw new ToolError("The imported image ended up empty (fully transparent). Check remove_background / the source image.");
     const asset = createAsset({
       name: i.name ?? stem,
       category: i.category,
       kit,
-      rows: [{ name: "idle", frames: [sprite] }],
-      fps: 1,
+      rows: [{ name: "idle", frames }],
+      fps: frames.length > 1 ? 8 : 1,
       source: { kind: "import" },
-      meta: i.outline ? undefined : { outline: false },
+      meta: outline ? undefined : { outline: false },
     });
     project.assets.push(asset);
     ws.save(project);
     const files = absPaths(exportAsset(ws, project, asset));
-    return { data: { asset: { ...summarize(ws, project, asset), files }, ...(notes.length ? { notes } : {}) }, images: [previewOf(asset, kit)] };
+    const detected = grid ? { scale: grid.scale, offset_x: grid.offsetX, offset_y: grid.offsetY, confidence: Math.round(grid.confidence * 100) / 100 } : undefined;
+    return { data: { asset: { ...summarize(ws, project, asset), files }, ...(i.mode !== "resample" ? { mode, grid: detected } : {}), ...(notes.length ? { notes } : {}) }, images: [previewOf(asset, kit)] };
   },
 });
 
