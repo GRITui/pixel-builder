@@ -45,8 +45,8 @@ function tint(species: Species, season: Season, leaf: Material): Tint {
   if (species === "sakura") {
     if (winter) return { main: "ui", alt: "stone", deep: "wood", sparse: true, snow: true };
     if (season === "fall") return { main: "cloth2", alt: "gold", deep: "roof", sparse: false, snow: false };
-    if (season === "spring") return { main: "accent", alt: "accent", deep: "accent", sparse: false, snow: false, specks: { mat: "ui", chance: 0.3 } };
-    return { main: "accent", alt: "accent", deep: "accent", sparse: false, snow: false, specks: { mat: "ui", chance: 0.25 } };
+    if (season === "spring") return { main: "blossom", alt: "blossom", deep: "blossom", sparse: false, snow: false, specks: { mat: "ui", chance: 0.3 } };
+    return { main: "blossom", alt: "blossom", deep: "blossom", sparse: false, snow: false, specks: { mat: "ui", chance: 0.25 } };
   }
   if (species === "maple-autumn") {
     if (winter) return { main: "ui", alt: "stone", deep: "wood", sparse: true, snow: true };

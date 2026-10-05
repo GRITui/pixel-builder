@@ -122,3 +122,5 @@ exit code 1; usage errors exit 2). Common causes:
 - Output looks flat or noisy: adjust `shadeSteps` / `dither` / `ambient` in the
   kit rather than editing assets one by one.
 - Unknown asset: ids and exact names both work; `list_assets` shows them.
+
+Blossom (pink ramp, 19th material): appended after everything else so no earlier index or char moved. Its 5 levels are indices 163..167 with non-ASCII legend chars (listed in every kit, e.g. `level 0` .. `level 4`); deep kits add 4 more (168..171, `level 0.5` ...). Existing chars are unchanged. Use it for cherry blossom, petals, pink flowers; `foliage` sakura and `environment` flowers (`accent: "blossom"`) use it, and `create_kit` `rampOverrides` accepts `blossom`.

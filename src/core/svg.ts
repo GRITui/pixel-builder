@@ -7,7 +7,7 @@
 // <rect> that keep data-material / data-level, so the palette index survives a round trip.
 // Pure: no node/DOM APIs, no dependencies.
 import { resolveRamps } from "./kit";
-import { MATERIALS, RAMP_LEN, colorIndex, decodeIndex, flattenRamps, hexToRgb, makeQuantizer, type Material } from "./palette";
+import { MATERIALS, RAMP_LEN, colorIndex, decodeIndex, flattenPalette, hexToRgb, makeQuantizer, type Material } from "./palette";
 import { renderRigFrame, solvePose, withAttachmentJoints, clipFrames, DIRS, viewOf, type Attachment, type Clip, type Dir, type RigDef } from "./rig";
 import type { Category, FrameSet, Sprite, StyleKit, TileMap } from "./types";
 
@@ -137,7 +137,7 @@ function boxes(s: Sprite, pick: (p: number) => boolean, x0 = 0, y0 = 0, cw = s.w
 export function spriteSheetToSvg(input: SvgAssetInput & { kit: StyleKit }): string {
   const { kit, rows } = input;
   if (!rows.length || !rows[0].frames.length) throw new Error("Asset has no frames to export.");
-  const flat = flattenRamps(resolveRamps(kit));
+  const flat = flattenPalette(resolveRamps(kit));
   const L = layoutOf(rows);
   const rig = input.rig;
   const tile = input.tilemap?.tile ?? kit.sizes.tile;
@@ -413,7 +413,7 @@ export function svgToSprites(svg: string, kit: StyleKit): ParsedSvg {
     .replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, "")
     .replace(/<(desc|metadata|title|defs|pattern|style|script|clipPath|mask)\b[\s\S]*?<\/\1\s*>/gi, "");
   if (!/<svg\b/i.test(body)) throw new Error("Not an SVG file (no <svg> element).");
-  const flat = flattenRamps(resolveRamps(kit));
+  const flat = flattenPalette(resolveRamps(kit));
   const quant = makeQuantizer(resolveRamps(kit));
   const byHex = new Map<string, number>();
   flat.forEach((h, i) => { if (h && !byHex.has(h.toLowerCase())) byHex.set(h.toLowerCase(), i); });

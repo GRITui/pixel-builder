@@ -1,19 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { FINE_START, MATERIALS, PALETTE_SIZE, PALETTE_SIZE_CLASSIC, RAMP_LEN, colorIndex } from "./palette";
+import { EXTRA_START, FINE_START, MATERIALS, PALETTE_SIZE_ALL, PALETTE_SIZE_CLASSIC, RAMP_LEN, colorIndex } from "./palette";
 import { DEFAULT_KIT, HD_DEEP_KIT } from "./kit";
 import { buildLegend, decodeRows, encodeSprite, legendText } from "./legend";
 
 const full = buildLegend(DEFAULT_KIT);
+const CLASSIC_ALL = PALETTE_SIZE_CLASSIC + 5; // + blossom levels
 
 describe("legend alphabet", () => {
   it("has one unique printable char per palette index, 0 = '.'", () => {
-    expect(full.entries).toHaveLength(PALETTE_SIZE_CLASSIC - 1);
-    expect(full.byChar.size).toBe(PALETTE_SIZE_CLASSIC);
-    expect(full.byIndex.size).toBe(PALETTE_SIZE_CLASSIC);
+    expect(full.entries).toHaveLength(CLASSIC_ALL - 1);
+    expect(full.byChar.size).toBe(CLASSIC_ALL);
+    expect(full.byIndex.size).toBe(CLASSIC_ALL);
     expect(full.byChar.get(".")).toBe(0);
     expect(full.byIndex.get(0)).toBe(".");
-    for (const [c] of full.byChar) {
-      expect(c).toMatch(/^[\x21-\x7e]$/);
+    for (const [c, i] of full.byChar) {
+      if (i < PALETTE_SIZE_CLASSIC) expect(c).toMatch(/^[\x21-\x7e]$/); // blossom (163+) is non-ASCII
       expect(['"', "'", "\\"]).not.toContain(c);
     }
   });
@@ -51,13 +52,13 @@ describe("legendText", () => {
     expect(lines[0]).toBe(". = transparent");
     expect(lines[1]).toMatch(/^\S = skin level 0 \(#[0-9a-f]{6}\)$/i);
     expect(text).not.toContain("metal");
-    expect(legendText(full).split("\n")).toHaveLength(PALETTE_SIZE_CLASSIC);
+    expect(legendText(full).split("\n")).toHaveLength(CLASSIC_ALL);
   });
 });
 
 describe("encode / decode", () => {
   it("round-trips a sprite", () => {
-    const data = Array.from({ length: 12 * 9 }, (_, i) => i % PALETTE_SIZE_CLASSIC);
+    const data = Array.from({ length: 12 * 9 }, (_, i) => { const k = i % CLASSIC_ALL; return k < PALETTE_SIZE_CLASSIC ? k : EXTRA_START + k - PALETTE_SIZE_CLASSIC; });
     const s = { w: 12, h: 9, data };
     expect(decodeRows(encodeSprite(s, full), 12, 9, full)).toEqual(s);
   });
@@ -108,10 +109,10 @@ describe("deep kits", () => {
   const deep = buildLegend(HD_DEEP_KIT);
 
   it("keeps classic chars stable and adds unique non-ASCII chars for the extra shades", () => {
-    expect(deep.entries).toHaveLength(PALETTE_SIZE - 1);
-    expect(deep.byChar.size).toBe(PALETTE_SIZE);
+    expect(deep.entries).toHaveLength(PALETTE_SIZE_ALL - 1);
+    expect(deep.byChar.size).toBe(PALETTE_SIZE_ALL);
     for (const e of full.entries) expect(deep.byIndex.get(e.index)).toBe(e.char);
-    const fine = deep.entries.filter((e) => e.index >= FINE_START);
+    const fine = deep.entries.filter((e) => e.level % 1 !== 0);
     expect(fine).toHaveLength(MATERIALS.length * 4);
     for (const e of fine) {
       expect(e.char).not.toMatch(/^[\x20-\x7e]$/);
@@ -121,7 +122,7 @@ describe("deep kits", () => {
   });
 
   it("round-trips a sprite that uses fine shades", () => {
-    const s = { w: 13, h: 11, data: Array.from({ length: 13 * 11 }, (_, i) => i % PALETTE_SIZE) };
+    const s = { w: 13, h: 11, data: Array.from({ length: 13 * 11 }, (_, i) => i % PALETTE_SIZE_ALL) };
     expect(decodeRows(encodeSprite(s, deep), 13, 11, deep)).toEqual(s);
   });
 

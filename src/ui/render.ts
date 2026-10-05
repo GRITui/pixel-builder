@@ -1,12 +1,12 @@
 // Shared browser rendering helpers (owned by the integrator; lanes import, don't edit).
-import { flattenRamps } from "../core/palette";
+import { flattenPalette } from "../core/palette";
 import { resolveRamps } from "../core/kit";
 import type { Asset, FrameSet, Sprite, StyleKit } from "../core/types";
 
 export type FlatPalette = (string | null)[];
 
 export function paletteFor(kit: StyleKit): FlatPalette {
-  return flattenRamps(resolveRamps(kit));
+  return flattenPalette(resolveRamps(kit));
 }
 
 /** Draw a sprite at (x, y) on a 2D context, `scale` screen pixels per art pixel. */
