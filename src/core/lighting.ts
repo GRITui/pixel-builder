@@ -14,6 +14,8 @@ export interface LitObject {
   x: number;
   y: number;
   name: string;
+  /** Emitters inside the sprite (sprite px, e.g. a building's lit windows from `meta.lights`); used instead of the name rule. */
+  lights?: Light[];
 }
 
 export interface Light {
@@ -167,6 +169,10 @@ export function castLight(img: Sprite, objects: LitObject[], kit: StyleKit, opts
 export function findLights(objects: LitObject[], extra: Light[] = []): Light[] {
   const out = [...extra];
   for (const o of objects) {
+    if (o.lights) {
+      for (const l of o.lights) out.push({ x: o.x + l.x, y: o.y + l.y, r: l.r });
+      continue;
+    }
     if (!EMITTER.test(o.name)) continue;
     out.push({ x: o.x + o.sprite.w / 2, y: o.y + o.sprite.h * 0.55, r: Math.max(14, o.sprite.w * 1.6) });
   }
