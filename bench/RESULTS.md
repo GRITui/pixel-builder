@@ -210,3 +210,9 @@ Remaining:
 6. **Waterfall.** Water above the cliff does not curve into the fall and there is no mist or splash animation beyond a static foam row.
 7. **Carried over:** HUD slots without icons, monsters limited to a few poses in the scene, one hero look, humanoids have no impact effects, a dark water ramp, and the 16px kits stay a mush in dense forest.
 8. **The bench** is still self-rated by one rater and has no PixelLab columns.
+
+## Sprint 7: farm-mmo (#71)
+
+New brief `map-farm-mmo` (42x26, detail medium, lighting on; all five kits). The `farm` brief is unchanged (the old biome is byte-identical); no existing number moves. `farm-mmo` is planned, not scattered: yard with well, mailbox, garden bed, flower beds and hay; fields in rows of mixed growth stages with an irrigation channel; a fenced pen; pond; orchard; a stream under a bridge; HD woodland around the border. Look at `docs/img/farm-scene.png`: the gap the user named ("farm detail is not as rich as the MMORPG scene") is mostly closed in the HD kits.
+
+Honest gaps: crops do not sway under `animate` (only the scene script animates them; `mapanim` knows props and trees by name); no literal `small-bridge` (the road crosses the stream on the big bridge); the 16px kits read as a dense mush in the woodland ring; villagers are scene-script actors, not map objects (the map only provides `meta.spawns` work spots); the farmer works from the gate lane, not inside the crop rows.
