@@ -146,6 +146,14 @@ const ISO_STARTER: PackManifest = {
     ...(["tree", "pine", "rock", "bush", "fence-se", "fence-sw", "post"] as const).map((kind) => g(`iso-${kind}`, "iso-prop", { kind }, ["environment", "prop"])),
     g("iso-house", "iso-building", { size: 2 }, ["building", "house"]),
     g("iso-map", "isomap", { cols: 14, rows: 14 }, ["map"], 2),
+    // world dressing (kit-iso): buildings, environment props, objects, crops
+    ...(["cottage", "shop", "barn", "tower", "keep", "stilt-house", "half-brick", "farmhouse", "coop"] as const).map((style) => g(`iso-building-${style}`, "building", { style }, ["building"])),
+    g("iso-building-dome", "building", { style: "cottage", roof_style: "dome", roof: "gold" }, ["building"]),
+    ...(["palm", "dead-tree", "boulder", "flowers", "mushroom", "tall-grass", "stump", "crystal"] as const).map((kind) => g(`iso-env-${kind}`, "environment", { kind }, ["environment", "prop"])),
+    ...(["well", "haystack", "gate-closed", "crop", "tree-hd"] as const).map((kind) => g(`iso-${kind}`, "iso-prop", { kind }, ["environment", "prop"])),
+    g("iso-tile-soil", "iso-tile", { kind: "soil" }, ["environment", "tile"]),
+    ...(["chest", "chest-open", "barrel", "crate", "torch", "sign", "pot"] as const).map((kind) => g(`iso-obj-${kind}`, "object", { kind }, ["object", "prop"])),
+    g("iso-village", "isomap", { cols: 18, rows: 16, water: 0.12, hills: false, village: 4 }, ["map"], 4),
   ],
 };
 

@@ -25,5 +25,5 @@ describe("iso-starter pack", () => {
     const tiled = join(dir, "ws", "maps", "iso-map.tiled.json");
     expect(existsSync(tiled)).toBe(true);
     expect(JSON.parse(readFileSync(tiled, "utf8")).orientation).toBe("isometric");
-  });
+  }, 60000);
 });

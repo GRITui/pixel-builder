@@ -7,6 +7,7 @@ import { bounds, createSprite, setPx } from "../sprite";
 import type { FrameSet, Sprite, StyleKit } from "../types";
 import { FENCE_PIECES, fenceRows, type FencePiece } from "./fence";
 import { SHORE_OPTIONS, WATER_PROP_KINDS, waterDepthTile, waterPropRows } from "./water";
+import { isoEnvironment } from "./isoprops";
 import { bool, mat, num, str, type GenResult, type Generator, type Params } from "./types";
 
 /** Seamless ground tiles (no outline, exactly kit.sizes.tile square, must tile/wrap). */
@@ -988,6 +989,7 @@ export function environmentIdle(p: Params, kit: StyleKit, seed: number): Sprite 
 }
 
 function generateEnvironment(p: Params, kit: StyleKit, seed: number, idleOnly: boolean): GenResult {
+  if (kit.camera === "iso") { const iso = isoEnvironment(p, kit, seed); if (iso) return iso; }
   {
     const kind = str(p, "kind");
     const variant = Math.max(0, Math.min(9, Math.round(num(p, "variant") || 0)));
