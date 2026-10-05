@@ -2,6 +2,7 @@ import { rng, valueNoise } from "../rng";
 import type { StyleKit } from "../types";
 import { FOLIAGE_PX } from "./foliage";
 import type { Ground } from "./map";
+import { bandLayout, bandRampColumns, type TerrainLayout } from "./map-terrain";
 
 /**
  * Layout of the `forest-mmo` biome: a wide river with a bridge where a worn dirt path crosses it,
@@ -30,6 +31,8 @@ export interface ForestPlan {
   start: { x: number; y: number };
   /** Cells covered by a tree crown (excluding the trunk cell): nothing else should be placed there. */
   canopy: Set<number>;
+  /** Height field, ramp and plateau box when the plan was made with terrain (hills); otherwise absent. */
+  terrain?: TerrainLayout;
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
@@ -47,7 +50,7 @@ export function crownOf(x: number, y: number, w: number, T: number) {
   return { cx: x * T + T / 2, cy: baseY - w * 0.62, rx: w * 0.42, ry: w * 0.3 };
 }
 
-export function forestMmoPlan(cols: number, rows: number, seed: number, kit: StyleKit, season: string, density: number, wantPath: boolean): ForestPlan {
+export function forestMmoPlan(cols: number, rows: number, seed: number, kit: StyleKit, season: string, density: number, wantPath: boolean, terrain = false): ForestPlan {
   const T = kit.sizes.tile;
   const r = rng((seed ^ 0xf0e57) >>> 0);
   const n = valueNoise((seed ^ 0x71e5) >>> 0, 16), wn = valueNoise((seed ^ 0x3c1) >>> 0, 16), tn = valueNoise((seed ^ 0x6a21) >>> 0, 16), sn = valueNoise((seed ^ 0x2d5) >>> 0, 16);
@@ -63,10 +66,15 @@ export function forestMmoPlan(cols: number, rows: number, seed: number, kit: Sty
   const halfAt = (y: number) => (minW + (maxW - minW) * wn(y / 4, 1.5)) / 2;
   for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) if (Math.abs(x + 0.5 - cxAt(y)) < halfAt(y)) ground[at(x, y)] = "water";
 
+  // --- terrain (opt-in): a raised band along the north edge the river falls off; the path, camp and glade stay below it ---
+  const band0 = terrain ? bandLayout(cols, rows, seed, (x, y) => isWater(x, y)) : null;
+  const lo = band0 ? Math.max(...band0.edge) + 3 : 2;
+  const band = band0 && lo <= rows - 6 ? band0 : null;
+
   // --- path: crosses the river on a straight stretch so the bridge is a clean rectangle ---
   const path = new Set<number>();
   let bridge: ForestPlan["bridge"] = null;
-  const yc = clamp(Math.round(rows * (0.46 + 0.12 * r.next())), 3, rows - 6);
+  const yc = clamp(Math.round(rows * (0.46 + 0.12 * r.next())), band ? lo : 3, rows - 6);
   let xa = cols, xb = -1;
   for (let x = 0; x < cols; x++) if (isWater(x, yc) || isWater(x, yc + 1)) { xa = Math.min(xa, x); xb = Math.max(xb, x); }
   if (wantPath && xb >= 0) {
@@ -75,7 +83,7 @@ export function forestMmoPlan(cols: number, rows: number, seed: number, kit: Sty
       let y = yc, vy = 0;
       for (let x = from; x >= 0 && x < cols; x += step) {
         vy = clamp(vy * 0.8 + (r.next() - 0.5) * 0.9, -0.8, 0.8);
-        y = clamp(y + vy, 2, rows - 4);
+        y = clamp(y + vy, band ? lo : 2, rows - 4);
         if (isWater(x, Math.round(y)) || isWater(x, Math.round(y) + 1) || isWater(x, Math.round(y) + 2)) { y = yc; vy = 0; }
         c[x] = Math.round(y);
       }
@@ -102,13 +110,38 @@ export function forestMmoPlan(cols: number, rows: number, seed: number, kit: Sty
     }
   for (const i of path) if (ground[i] !== "water") ground[i] = "dirt";
 
+  // the ramp up the plateau, west of the river when there is room, and a dirt spur joining it to the path
+  let layout: TerrainLayout | undefined;
+  const cliffKeep = new Set<number>();
+  if (band) {
+    const span = (x: number) => x >= xa - 3 && x <= xb + 3;
+    const cands = bandRampColumns(band.edge, span).filter((x) => x >= 2 && x <= cols - 3);
+    const west = cands.filter((x) => x < xa), pool = west.length ? west : cands;
+    if (pool.length) {
+      const rx = pool[r.int(0, pool.length - 1)], hy = band.edge[rx];
+      for (let y = hy + 1; y < rows; y++) {
+        const i = at(rx, y);
+        if (ground[i] === "water") break;
+        ground[i] = "dirt";
+        cliffKeep.add(i);
+        if (path.has(i) || y > hy + 7) break;
+      }
+      layout = { heights: band.heights, ramps: [{ x: rx, y: hy, from: 0, to: 1, material: "stone" }], plateaus: [{ x0: 0, y0: 0, x1: cols - 1, y1: Math.max(...band.edge) - 1, level: 1 }] };
+      // a clear landing on top of the ramp
+      for (let y = Math.max(0, hy - 3); y < hy; y++) for (let x = rx - 1; x <= rx + 1; x++) cliffKeep.add(at(x, y));
+      // nothing grows or spawns on a cliff face, in the two rows in front of it, or on the ramp
+      for (let x = 0; x < cols; x++) for (let y = band.edge[x]; y <= band.edge[x] + 2 && y < rows; y++) cliffKeep.add(at(x, y));
+    }
+  }
+
   // --- clearings: a dirt camp on one bank, a flower glade on the other ---
   const clearings: Clearing[] = [];
   const clear = new Set<number>();
   const sides: [number, number][] = [[2, Math.max(2, xa - 5)], [Math.min(cols - 3, xb + 5), cols - 3]];
   sides.forEach(([lo, hi], k) => {
     if (hi < lo || xb < 0) return;
-    const above = (k === 0) !== (r.next() < 0.5);
+    const above = layout ? false : (k === 0) !== (r.next() < 0.5);
+    if (layout) r.next();
     const rx = 2.2 + r.next() * 0.8, ry = 1.7 + r.next() * 0.5;
     const cx = Math.round(lo + (hi - lo) * r.next()), cy = clamp(above ? yc - 3 - Math.round(ry) : yc + 4 + Math.round(ry), 2, rows - 3);
     const camp = k === 0;
@@ -128,7 +161,7 @@ export function forestMmoPlan(cols: number, rows: number, seed: number, kit: Sty
   });
 
   // --- trees ---
-  const keep = new Set<number>([...path, ...clear]);
+  const keep = new Set<number>([...path, ...clear, ...cliffKeep]);
   if (bridge) for (let y = bridge.y0 - 1; y <= bridge.y1 + 1; y++) for (let x = bridge.x0; x <= bridge.x1; x++) keep.add(at(x, y));
   const dWater = new Int8Array(cols * rows).fill(9);
   for (let y = 0; y < rows; y++)
@@ -193,7 +226,7 @@ export function forestMmoPlan(cols: number, rows: number, seed: number, kit: Sty
   trees.sort((a, b) => a.y - b.y || a.x - b.x);
 
   // --- spawn points: open grass, preferably in the clearings ---
-  const taken = new Set<number>([...trunks]);
+  const taken = new Set<number>([...trunks, ...cliffKeep]);
   const open = (x: number, y: number) => {
     const i = at(x, y);
     return inb(x, y) && (ground[i] === "grass" || ground[i] === "dirt") && !path.has(i) && !canopy.has(i) && !taken.has(i) && dWater[i] >= 2 && x >= 1 && x < cols - 1 && y >= 1 && y < rows - 1;
@@ -262,5 +295,5 @@ export function forestMmoPlan(cols: number, rows: number, seed: number, kit: Sty
     }
 
   const start = bridge ? { x: Math.max(1, bridge.x0 - 3), y: yc } : { x: Math.floor(cols / 2), y: Math.floor(rows / 2) };
-  return { ground, path, bridge, clearings, trees, props, spawns, start, canopy };
+  return { ground, path, bridge, clearings, trees, props, spawns, start, canopy, ...(layout ? { terrain: layout } : {}) };
 }

@@ -1119,12 +1119,13 @@ function renderRecipe(project: ProjectFile, kit: StyleKit, recipe: RigRecipe) {
   const errs = validateRig(lib.rig, atts);
   const joints = new Set(lib.rig.joints.map((j) => j.id));
   // Clips may pose optional attachment joints (a tool tip, a carrying pole); without that attachment
-  // the pose key is simply ignored, so only joints nothing could ever provide are errors.
+  // the pose key is simply ignored, so only joints nothing could ever provide are errors. Built-in monster
+  // clips are shared by every monster rig (slime s_*, bat b_*, mushroom m_* joints), so extra keys are ignored too.
   const optional = new Set([...allAttachments(project), ...atts.map((attachment) => ({ attachment }))].flatMap((x) => (x.attachment.joints ?? []).map((j) => j.id)));
   for (const c of clips) {
     const frames = Array.isArray(c.frames) ? [c.frames] : Object.values(c.frames);
     for (const pose of frames.flat() as Record<string, unknown>[])
-      for (const j of Object.keys(pose)) if (!joints.has(j) && !optional.has(j)) errs.push(`clip '${c.id}' moves unknown joint '${j}' (rig '${lib.rig.id}' joints: ${[...joints].join(", ")})`);
+      for (const j of Object.keys(pose)) if (!joints.has(j) && !optional.has(j) && !(lib.builtin && lib.family === "monster")) errs.push(`clip '${c.id}' moves unknown joint '${j}' (rig '${lib.rig.id}' joints: ${[...joints].join(", ")})`);
   }
   if (errs.length) throw new ToolError(`Cannot render rig '${lib.rig.id}': ${[...new Set(errs)].slice(0, 6).join("; ")}.`);
   // built-in animals share one world scale with the `animal` generator (issue #24)

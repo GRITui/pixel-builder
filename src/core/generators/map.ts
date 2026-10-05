@@ -12,6 +12,7 @@ import { foliageGenerator } from "./foliage";
 import { MAP_FPS, MAP_FRAMES_DEFAULT, renderMapFrames } from "../mapanim";
 import { applyGroundDetail, DETAIL_LEVELS } from "./map-detail";
 import { FOREST_SEASONS, forestMmoPlan } from "./map-forest";
+import { applyTerrain, hillsLayout, type TerrainInfo, type TerrainOptions } from "./map-terrain";
 import type { Sprite } from "../types";
 import { bool, defaults, num, str, type Generator, type GenResult, type Params } from "./types";
 import { lightMap, TIMES } from "../lighting";
@@ -453,6 +454,9 @@ export const mapGenerator: Generator = {
     { key: "frames", label: "Animation frames (animate only)", type: "number", min: 2, max: 24, step: 1, default: 8 },
     { key: "lighting", label: "Lighting (cast shadows, dappled light, water reflections, time-of-day grade; palette-locked)", type: "select", options: ["off", "on"], default: "off" },
     { key: "time", label: "Time of day (needs lighting on)", type: "select", options: [...TIMES], default: "day" },
+    { key: "terrain", label: "Terrain (hills = raised plateaus with cliffs, ramps/stairs and, on forest-mmo, a waterfall where the river leaves the plateau; not farm / rice-village)", type: "select", options: ["flat", "hills"], default: "flat" },
+    { key: "ramp", label: "Ramp / stairs material (terrain hills)", type: "material", options: ["stone", "wood"], default: "wood" },
+    { key: "cliff", label: "Cliff material (terrain hills)", type: "material", options: ["stone", "dirt"], default: "dirt" },
   ],
   generate(p, kit: StyleKit, seed) {
     let res = generateMap(p, kit, seed);
@@ -480,7 +484,9 @@ function generateMap(p: Params, kit: StyleKit, seed: number): GenResult {
     const r = rng(seed >>> 0);
     const envDefaults = defaults(environmentGenerator);
     const detail = str(p, "detail") || "off";
-    if (biome === "forest-mmo") return forestMmo(cols, rows, density, wantPath, str(p, "season"), detail, kit, seed >>> 0);
+    const hills = str(p, "terrain") === "hills";
+    const terrainOpts: TerrainOptions = { ramp: str(p, "ramp") === "stone" ? "stone" : "wood", cliff: str(p, "cliff") === "stone" ? "stone" : "dirt" };
+    if (biome === "forest-mmo") return forestMmo(cols, rows, density, wantPath, str(p, "season"), detail, kit, seed >>> 0, hills ? terrainOpts : null);
 
     const tm: TileMap = emptyTileMap(cols, rows, T);
     const farm = biome === "farm" ? farmPlan(cols, rows, seed >>> 0, sea, wantPath, kit) : null;
@@ -614,7 +620,14 @@ function generateMap(p: Params, kit: StyleKit, seed: number): GenResult {
       }
     if (waterDepth) decorateWater(tm, ground, path, reserved, propTile, seed >>> 0, biome);
     if (detail !== "off") applyGroundDetail(tm, kit, seed >>> 0, detail);
-    return { rows: [{ name: "map", frames: [renderTileMap(tm)] }], fps: 1, tilemap: tm };
+    let terrainMeta: Record<string, unknown> | undefined;
+    if (hills && biome !== "farm" && biome !== "rice-village") {
+      const avoid = new Set<number>(path);
+      ground.forEach((g, i) => { if (g === "water") avoid.add(i); });
+      const layout = hillsLayout(cols, rows, seed >>> 0, avoid, terrainOpts.ramp ?? "stone");
+      if (layout) terrainMeta = terrainMetaOf(applyTerrain(tm, kit, layout, seed >>> 0, { ...terrainOpts, clearFront: true }), layout.plateaus, tm);
+    }
+    return { rows: [{ name: "map", frames: [renderTileMap(tm)] }], fps: 1, tilemap: tm, ...(terrainMeta ? { meta: { terrain: terrainMeta } } : {}) };
   }
 }
 
@@ -980,6 +993,8 @@ export interface MapObject {
   x: number;
   y: number;
   solid: boolean;
+  /** Terrain level the object stands on (only on maps with `terrain: "hills"`). */
+  level?: number;
 }
 
 /**
@@ -991,7 +1006,7 @@ export function mapObjects(tm: TileMap): MapObject[] {
   tm.deco.forEach((t, i) => {
     if (t < 0 || !tm.tiles[t]) return;
     const col = i % tm.cols, row = Math.floor(i / tm.cols);
-    out.push({ tile: t, name: tm.tiles[t].name, col, row, x: col * tm.tile + tm.tile / 2, y: (row + 1) * tm.tile, solid: !!tm.tiles[t].solid });
+    out.push({ tile: t, name: tm.tiles[t].name, col, row, x: col * tm.tile + tm.tile / 2, y: (row + 1) * tm.tile, solid: !!tm.tiles[t].solid, ...(tm.heights && tm.orientation !== "isometric" ? { level: tm.heights[i] } : {}) });
   });
   return out.sort((a, b) => a.y - b.y || a.x - b.x);
 }
@@ -1043,9 +1058,14 @@ function paintBridge(tm: TileMap, b: { x0: number; x1: number; y0: number; y1: n
     }
 }
 
-function forestMmo(cols: number, rows: number, density: number, wantPath: boolean, season: string, detail: string, kit: StyleKit, seed: number) {
+/** What a game needs to know about the terrain: heights, ramps, waterfalls, plateau boxes. */
+function terrainMetaOf(info: TerrainInfo, plateaus: unknown, tm: TileMap): Record<string, unknown> {
+  return { kind: "hills", levels: Math.max(...(tm.heights ?? [0])), heights: tm.heights, plateaus, ramps: info.ramps, waterfalls: info.waterfalls, cliffCells: info.hosts.map((i) => ({ x: i % tm.cols, y: Math.floor(i / tm.cols) })) };
+}
+
+function forestMmo(cols: number, rows: number, density: number, wantPath: boolean, season: string, detail: string, kit: StyleKit, seed: number, terrain: TerrainOptions | null = null) {
   const T = kit.sizes.tile;
-  const plan = forestMmoPlan(cols, rows, seed, kit, FOREST_SEASONS.includes(season as never) ? season : "mixed", density, wantPath);
+  const plan = forestMmoPlan(cols, rows, seed, kit, FOREST_SEASONS.includes(season as never) ? season : "mixed", density, wantPath, !!terrain);
   const tm: TileMap = emptyTileMap(cols, rows, T);
   paintGround(tm, plan.ground, kit, seed, rng(seed), { waterDepth: true, smooth: true });
   if (plan.bridge) paintBridge(tm, plan.bridge, kit);
@@ -1082,16 +1102,18 @@ function forestMmo(cols: number, rows: number, density: number, wantPath: boolea
     tm.ground.forEach((t, i) => { if (tm.tiles[t]?.name.startsWith("bridge")) skip.add(i); });
     applyGroundDetail(tm, kit, seed, detail, { maples: plan.trees.filter((t) => t.species === "maple-autumn").map((t) => at(t.x, t.y)), skip });
   }
+  const terrainInfo = terrain && plan.terrain ? applyTerrain(tm, kit, plan.terrain, seed, terrain) : null;
   const objects = mapObjects(tm);
   const meta = {
     biome: "forest-mmo",
+    ...(terrainInfo ? { terrain: terrainMetaOf(terrainInfo, plan.terrain!.plateaus, tm) } : {}),
     /** monster spawn cells (all walkable) */
     spawns: plan.spawns,
     playerStart: plan.start,
     bridge: plan.bridge,
     /** deco objects in draw order (sort key y = base line); tile index into tm.tiles */
     ysorted: true,
-    objects: objects.map((o) => ({ tile: o.tile, name: o.name, col: o.col, row: o.row, x: o.x, y: o.y, solid: o.solid })),
+    objects: objects.map((o) => ({ tile: o.tile, name: o.name, col: o.col, row: o.row, x: o.x, y: o.y, solid: o.solid, ...(o.level !== undefined ? { level: o.level } : {}) })),
   };
   return { rows: [{ name: "map", frames: [renderTileMap(tm)] }], fps: 1, tilemap: tm, meta };
 }
