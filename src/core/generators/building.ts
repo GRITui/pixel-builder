@@ -6,6 +6,7 @@ import { buildingFootprint } from "../footprint";
 import { rng, type Rng } from "../rng";
 import type { StyleKit } from "../types";
 import { isoBuildingResult } from "./isoworld";
+import { richBuildingResult } from "./building-rich";
 import { bool, mat, num, str, type GenResult, type Generator, type Params } from "./types";
 
 const WALLS: Material[] = ["wood", "stone", "sand", "dirt", "leather", "metal", "ui", "cloth2"];
@@ -638,6 +639,7 @@ export const buildingGenerator: Generator = {
     { key: "access", label: "Stilt-house access", type: "select", options: ["stairs", "ladder"], default: "stairs" },
     { key: "trim", label: "Trim / door", type: "material", options: ["wood", "stone", "metal", "gold", "leather", "dirt", "sand"], default: "wood" },
     { key: "flower_box", label: "Flower boxes (farmhouse)", type: "bool", default: true },
+    { key: "look", label: "Look", type: "select", options: ["classic", "rich"], default: "classic" },
   ],
   generate(p, kit, seed) {
     const res = generateSprite(p, kit, seed);
@@ -650,6 +652,7 @@ export const buildingGenerator: Generator = {
 function generateSprite(p: Params, kit: StyleKit, seed: number): GenResult {
   {
     if (kit.camera === "iso") return isoBuildingResult(p, kit, seed);
+    if (str(p, "look") === "rich") return richBuildingResult(p, kit, seed);
     const r = rng(seed);
     const S = kit.sizes.building;
     const k = S / 64;
