@@ -124,3 +124,16 @@ Buildings move from flat front elevations to 3/4 top-down with a real tile scale
 | 3 | #78 Maps and scenes | `buildings: rich` in maps, footprint placement, `village` biome, farm, MMO and village scenes, bench | map files, scripts |
 
 **Exit:** a rich contact sheet at correct scale, and farm, MMO and village scenes with rich buildings.
+
+## Sprint 9: any AI agent drives pixel-builder (epic #82)
+Any AI (Claude, Qwen, GPT, Gemini, local models) can drive pixel-builder and get consistent pixel art, through MCP/CLI and through the web app's AI buttons.
+
+| Wave | Issue | Work | Owns |
+|---|---|---|---|
+| 1 | #83 Provider-agnostic AI | `AI_PROVIDER=anthropic\|openai`; any OpenAI-compatible endpoint (Qwen/DashScope, OpenRouter, Ollama, OpenAI); schema → JSON-mode → text fallback with validation and repair; vision via data URIs | `server/llm.ts`, `server/providers/*` |
+| 1 | #84 Agent-robust tools | Input coercion, errors listing valid values and an example, unknown-param warnings, `--tools core\|all`, Gemini/Qwen-safe schemas | `node/coerce.ts`, `tools.ts`, `mcp.ts`, `cli.ts` |
+| 1 | #85 Agent eval harness | 7 tasks run against any OpenAI-compatible model; success, tool errors, turns, consistency; offline replays in CI | new `bench/agents/` |
+| 1 | #86 URL safety + browser QA | SSRF filter on reference URLs; Playwright smoke test of the web panels | `node/refs.ts`, new `e2e/` |
+| 2 | #87 Integrations + doctor | Qwen Code, Qwen-Agent, OpenCode, Goose, Continue guides; `doctor` and `setup <client>`; non-coder Qwen test checklist | docs, `cli.ts` |
+
+**Exit:** a Qwen model completes the eval tasks through MCP and through the web app with no Claude key; results in `bench/agents/RESULTS.md`.
