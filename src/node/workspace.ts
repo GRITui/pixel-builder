@@ -294,6 +294,8 @@ function tiledExport(tm: TileMap, slug: string, kit: StyleKit, dir: string, meta
       : layer(2, "deco", toGid(tm.deco, decoIdx, decoFirst)),
   ];
   let nextObject = isoObjs ? isoObjs.nextid : 1, nextLayer = 3;
+  // top-down terrain (hills): the level of every cell (0..2) as a hidden layer; the values are heights, not tile ids
+  if (!iso && tm.heights) layers.push({ ...layer(nextLayer++, "height", tm.heights.slice()), visible: false, properties: [{ name: "kind", type: "string", value: "height-field" }] });
   // y-sorted maps (forest-mmo): trees and props also as tile objects ordered by base line, so an engine
   // can draw characters in the same list and walk behind trunks. The flat deco layer is hidden then.
   const objs = !iso && meta?.ysorted && Array.isArray(meta.objects) ? (meta.objects as { tile: number; name: string; col: number; row: number; y: number; solid: boolean }[]) : null;
@@ -305,7 +307,7 @@ function tiledExport(tm: TileMap, slug: string, kit: StyleKit, dir: string, meta
       properties: [{ name: "ysort", type: "bool", value: true }],
       objects: sorted.filter((o) => decoIdx.includes(o.tile)).map((o) => ({
         id: nextObject++, name: o.name, type: o.solid ? "solid" : "prop", gid: decoFirst + decoIdx.indexOf(o.tile),
-        x: o.col * tm.tile, y: o.y, width: Math.max(tm.tile, tm.tiles[o.tile].sprite.w), height: Math.max(tm.tile, tm.tiles[o.tile].sprite.h), rotation: 0, visible: true,
+        ...((o as { level?: number }).level !== undefined ? { properties: [{ name: "level", type: "int", value: (o as { level?: number }).level }] } : {}), x: o.col * tm.tile, y: o.y, width: Math.max(tm.tile, tm.tiles[o.tile].sprite.w), height: Math.max(tm.tile, tm.tiles[o.tile].sprite.h), rotation: 0, visible: true,
       })),
     });
   }

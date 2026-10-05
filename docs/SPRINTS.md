@@ -81,3 +81,31 @@ Reach the look of a polished top-down 2D MMO: lush trees, deep water, cute monst
 | 3 | B | #45 `forest-mmo` biome, ground detail, y-sorting, `docs/img/mmo-scene.png` | `generators/map.ts` (opt-in), `scripts/mmo-scene.ts` | Builds on #42, #43, #44 and #46. |
 
 **Exit:** `docs/img/mmo-scene.png` in `kit-hd-rich` and `kit-hd-deep` (river, trees, path, hero, 3 monsters, HUD), and `bench/RESULTS.md` re-scored with readability and animation up and nothing down.
+
+## Sprint 6: light, life and height (#54-#59)
+Lift the Sprint 5 scene from "clean" to "alive": lighting, blossom trees, more creatures, isometric variants, animated maps and multi-height terrain.
+
+| Wave | Lane | Issue | Outcome |
+|---|---|---|---|
+| 1 | L | #54 Lighting and atmosphere | Shipped: cast shadows, dappled light, water reflections and a palette-locked time-of-day grade (`map` params `lighting`, `time`). |
+| 1 | B | #55 Blossom trees and palette material | Shipped: `blossom` ramp (appended, so older sprites keep their indices) and blossom foliage. |
+| 1 | C | #56 More creatures | Shipped: monster and beast families, rigs and clips. |
+| 1 | I | #57 Iso variants | Shipped: iso variants for buildings, environment props and objects, richer iso villages. |
+| 1 | A | #58 Animated maps and GIF export | Shipped: `animate` / `frames` on `map`, `export_asset format=gif`, living `mmo-scene.gif`. |
+| 2 | T | #59 Multi-height terrain | Shipped: `terrain: hills` (plateaus, cliffs, stairs/ramps, waterfall, solid cliffs and walkable ramps, level-aware metadata and Tiled `height` layer); exit scene regenerated (day, deep, dusk, GIF). |
+
+**Exit:** `docs/img/mmo-scene.png`, `mmo-scene-deep.png`, `mmo-scene-dusk.png` and the living `mmo-scene.gif`: a plateau with cliffs and stairs, a waterfall into the river, lit and animated; `bench/RESULTS.md` has a Sprint 6 section.
+
+## Sprint 7: image reference support (epic #61)
+Hand the tool a reference (a photo, a game screenshot, concept art or pixel art) and it matches the style and subject while staying inside one kit. Style extraction works offline; vision needs `ANTHROPIC_API_KEY`.
+
+| Wave | Issue | Work | Owns |
+|---|---|---|---|
+| 1 | #62 Reference library | `add_reference` / `list_references` / `get_reference`, storage in the workspace and team store, web References panel. Decision: add `jpeg-js` for photos. | `types.ts` Reference, `node/refs.ts`, workspace storage, `ui/References*` |
+| 1 | #63 Kit from reference | Offline `analyzeReference`: palette (OKLab), ramp overrides, outline, light, shade steps, dither, pixel scale. Tool `kit_from_reference`. | new `core/refstyle.ts` |
+| 1 | #64 Vision plumbing | Image blocks in `callStructured`; `reference_ids` on vibe, kit, rig, pixels and inpaint; MCP prompt `match_reference`. | `server/`, `src/ai/client.ts`, `node/mcp.ts` |
+| 1 | #65 Pixel-art import | Grid and scale detection, exact downscale, background removal, sheet splitting; `import_image mode: pixel-art`. | new `core/pixelgrid.ts`, `ImportDialog.tsx` |
+| 2 | #66 Reference-guided generation | `reference_id` + `match` on `generate_asset`, `generate_variations` and `generate_rigged`; offline colour-to-slot/material mapping; AI propose, score and refine. | new `node/refgen.ts` |
+| 2 | #67 Compare to reference | `styleDistance` score, the `compare_to_reference` tool with a side-by-side view, reference bench briefs. | `refstyle.ts` (append), bench |
+
+**Exit:** the half-brick house photo gives a matching building in one call; the MMO screenshot gives a close kit; a pixel-art sprite imports at its true size; results show a match score.
