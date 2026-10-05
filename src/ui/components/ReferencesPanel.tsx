@@ -8,6 +8,7 @@ interface Props {
   onAdd: (r: Reference) => void;
   onUpdate: (id: string, patch: Partial<Pick<Reference, "name" | "tags">>) => void;
   onRemove: (id: string) => void;
+  onGenerate?: (id: string) => void;
   onError: (msg: string) => void;
 }
 
@@ -15,7 +16,7 @@ interface Props {
  * Reference library: drop, paste or pick images; thumbnails with tags; delete; pin one
  * so it floats beside the editor/generator. Lives in the project, so it syncs like assets.
  */
-export function ReferencesPanel({ references, onAdd, onUpdate, onRemove, onError }: Props) {
+export function ReferencesPanel({ references, onAdd, onUpdate, onRemove, onGenerate, onError }: Props) {
   const [open, setOpen] = usePref<boolean>("refs-open", false);
   const [pinned, setPinned] = usePref<string>("refs-pinned", "");
   const [over, setOver] = useState(false);
@@ -105,6 +106,7 @@ export function ReferencesPanel({ references, onAdd, onUpdate, onRemove, onError
                     <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
                       <span style={{ opacity: 0.7 }}>{r.width}x{r.height}</span>
                       <button onClick={() => setPinned(pinned === r.id ? "" : r.id)}>{pinned === r.id ? "Unpin" : "Pin"}</button>
+                      {onGenerate && <button onClick={() => onGenerate(r.id)} title="Generate assets that match this reference">Generate</button>}
                       <button onClick={() => onRemove(r.id)} aria-label={`Delete ${r.name}`}>Delete</button>
                     </div>
                   </div>

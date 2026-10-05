@@ -41,7 +41,7 @@ describe("MCP server (in-memory transport)", () => {
     expect(tools.map((t) => t.name)).toEqual(TOOLS.map((t) => t.name));
     const gen = tools.find((t) => t.name === "generate_asset")!;
     expect(gen.inputSchema.required).toEqual(["generator"]);
-    expect(Object.keys(gen.inputSchema.properties!)).toEqual(["generator", "params", "seed", "kit_id", "name", "save"]);
+    expect(Object.keys(gen.inputSchema.properties!)).toEqual(["generator", "params", "seed", "kit_id", "name", "save", "reference_id", "match"]);
     expect(tools.find((t) => t.name === "list_assets")!.annotations?.readOnlyHint).toBe(true);
     expect(tools.find((t) => t.name === "delete_asset")!.annotations?.destructiveHint).toBe(true);
     expect(client.getInstructions()).toMatch(/get_style_guide/);

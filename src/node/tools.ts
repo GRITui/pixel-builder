@@ -24,6 +24,7 @@ import { randomSeed, rng } from "../core/rng";
 import { CATEGORIES, type Asset, type Category, type Reference, type Sprite, type StyleKit } from "../core/types";
 import { blankImage, decodePng, contactSheet, encodePng, previewScale, sheetImage, spriteImage, type RgbaImage } from "./png";
 import { decodeBase64Image, fetchImage, loadReferenceImage, findReference, referenceFile, referencePreviewPng, removeReferenceFile, safeInputPath, storeReference } from "./refs";
+import { MATCHES, deriveBodySlots, deriveParams, referenceCandidates, type Match } from "./refgen";
 import { isRigged, packById, PACKS, type PackEntry } from "./packs";
 import {
   ToolError, Workspace, assetFiles, exportAsset as exportAssetRaw, findAsset, getKit, isAnimated, kitOf, removeAssetFiles,
@@ -401,13 +402,20 @@ const generateAsset = defineTool({
     kit_id: kitIdField,
     name: z.string().min(1).max(80).optional().describe("Asset name; also the exported file name."),
     save: z.boolean().default(true).describe("false = preview only: nothing is saved or exported."),
+    reference_id: z.string().optional().describe("Reference library id/name (see list_references): colours and shape are mapped onto the params. Explicit params always win."),
+    match: z.enum(MATCHES as [Match, ...Match[]]).default("both").describe("With reference_id: 'style' = colours only, 'subject' = shape/style only, 'both' (default)."),
   },
   positional: "generator",
   run(ws, i) {
     const project = ws.load();
     const kit = getKit(project, i.kit_id);
     const g = resolveGenerator(i.generator);
-    const { params, notes } = validateParams(g, i.params ?? {});
+    const { params, provided, notes } = validateParams(g, i.params ?? {});
+    if (i.reference_id) {
+      const d = deriveParams(g, loadReferenceImage(ws, i.reference_id), kit, i.match);
+      for (const [k, v] of Object.entries(d.params)) if (!provided.includes(k)) params[k] = v;
+      notes.push(...d.notes);
+    }
     const seed = i.seed ?? randomSeed();
     const res = g.generate(params, kit, seed);
     const asset = createAsset({
@@ -418,7 +426,7 @@ const generateAsset = defineTool({
       fps: res.fps,
       source: { kind: "procedural", generator: g.id, params, seed },
       tilemap: res.tilemap,
-      meta: res.meta,
+      meta: i.reference_id ? { ...res.meta, referenceId: findReference(project, i.reference_id).id } : res.meta,
     });
     let files: string[] = [];
     if (i.save) {
@@ -444,6 +452,8 @@ const generateVariations = defineTool({
     params: paramsField.describe("Params to pin. With vary='params' every other param is randomised per variation."),
     vary: z.enum(["seed", "params"]).default("seed").describe("'seed' = same params, different seeds; 'params' = randomise the params you did not pin."),
     kit_id: kitIdField,
+    reference_id: z.string().optional().describe("Reference library id/name (see list_references): colours and shape are mapped onto the params. Explicit params always win."),
+    match: z.enum(MATCHES as [Match, ...Match[]]).default("both").describe("With reference_id: 'style' = colours only, 'subject' = shape/style only, 'both' (default)."),
   },
   positional: "generator",
   readOnly: true,
@@ -452,6 +462,17 @@ const generateVariations = defineTool({
     const kit = getKit(project, i.kit_id);
     const g = resolveGenerator(i.generator);
     const { params: base, provided, notes } = validateParams(g, i.params ?? {});
+    if (i.reference_id) {
+      // ranked by style distance to the reference (best first); the contact sheet is numbered in that order
+      const pinned = Object.fromEntries(provided.map((k) => [k, base[k]]));
+      const { candidates, derived } = referenceCandidates({ generator: g, kit, reference: loadReferenceImage(ws, i.reference_id), pinned, match: i.match, count: i.count });
+      const ranked = candidates.map((c, k) => ({ n: k + 1, seed: c.seed, score: c.score, params: c.params }));
+      const cols = i.count <= 4 ? i.count : i.count <= 6 ? 3 : 4;
+      return {
+        data: { generator: g.id, reference_id: findReference(project, i.reference_id).id, variations: ranked, note: "Ranked best-first by match to the reference (score 0-100). Keep one with generate_asset {generator, seed, params, reference_id}.", ...(notes.length || derived.notes.length ? { notes: [...notes, ...derived.notes] } : {}) },
+        images: [png(contactSheet(candidates.map((c) => c.sprite), kit, { columns: cols }), `${g.id}-ranked`)],
+      };
+    }
     const first = randomSeed();
     const variations: { n: number; seed: number; params: Params }[] = [];
     const sprites: Sprite[] = [];
@@ -1242,6 +1263,8 @@ const generateRigged = defineTool({
     name: z.string().min(1).max(80).optional(),
     kit_id: kitIdField,
     save: z.boolean().default(true),
+    reference_id: z.string().optional().describe("Reference library id/name (see list_references): colours and shape are mapped onto the params. Explicit params always win."),
+    match: z.enum(MATCHES as [Match, ...Match[]]).default("both").describe("With reference_id: 'style' = colours only, 'subject' = shape/style only, 'both' (default)."),
   },
   positional: "rig",
   run(ws, i) {
@@ -1249,7 +1272,16 @@ const generateRigged = defineTool({
     const kit = getKit(project, i.kit_id);
     const lib = resolveRig(project, i.rig);
     const defClips = allClips(project).filter((c) => c.family === lib.family && ["walk", "idle"].includes(c.clip.id)).map((c) => c.clip.id).sort().reverse();
-    const recipe: RigRecipe = { rig: lib.rig.id, ...(i.slots ? { slots: i.slots as Record<string, Material> } : {}), attachments: i.attachments ?? [], clips: i.clips?.length ? i.clips : defClips.length ? defClips : [allClips(project).find((c) => c.family === lib.family)?.clip.id ?? "walk"], ...(i.directions === 8 ? { directions: 8 as const } : {}) };
+    let slots = i.slots as Record<string, Material> | undefined;
+    const refNotes: string[] = [];
+    if (i.reference_id && i.match !== "subject") {
+      const d = deriveBodySlots(loadReferenceImage(ws, i.reference_id), kit);
+      const known = new Set(Object.keys(lib.rig.slots ?? {}));
+      const fromRef = Object.fromEntries(Object.entries(d.slots).filter(([k]) => !known.size || known.has(k)));
+      slots = { ...fromRef, ...(i.slots ?? {}) } as Record<string, Material>;
+      refNotes.push(...d.notes);
+    }
+    const recipe: RigRecipe = { rig: lib.rig.id, ...(slots ? { slots } : {}), attachments: i.attachments ?? [], clips: i.clips?.length ? i.clips : defClips.length ? defClips : [allClips(project).find((c) => c.family === lib.family)?.clip.id ?? "walk"], ...(i.directions === 8 ? { directions: 8 as const } : {}) };
     const res = renderRecipe(project, kit, recipe);
     const asset = createAsset({
       name: uniqueName(project, "character", i.name ?? lib.rig.name.toLowerCase()),
@@ -1258,6 +1290,7 @@ const generateRigged = defineTool({
       rows: res.rows,
       fps: res.fps,
       source: { kind: "rigged", rig: recipe },
+      ...(i.reference_id ? { meta: { referenceId: findReference(project, i.reference_id).id } } : {}),
     });
     let files: string[] = [];
     if (i.save) {
@@ -1265,7 +1298,7 @@ const generateRigged = defineTool({
       ws.save(project);
       files = absPaths(exportAsset(ws, project, asset));
     }
-    return { data: { saved: i.save, asset: { ...summarize(ws, project, asset), files } }, images: [previewOf(asset, kit)] };
+    return { data: { saved: i.save, asset: { ...summarize(ws, project, asset), files }, ...(refNotes.length ? { notes: refNotes } : {}) }, images: [previewOf(asset, kit)] };
   },
 });
 

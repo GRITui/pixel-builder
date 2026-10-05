@@ -265,8 +265,8 @@ optional unless marked *; `kit_id` defaults to the active kit.
 |---|---|---|
 | `get_style_guide` | kit_id, materials[] | kit summary (vibe, light, outline, shade steps, sizes), palette legend text, painting rules |
 | `list_generators` | category | generators with param specs |
-| `generate_asset` | generator*, params, seed, kit_id, name, save (true) | asset summary, exported file paths, preview image |
-| `generate_variations` | generator*, count (1-12), params, vary ("seed" \| "params"), kit_id | contact-sheet image + [{seed, params}] (not saved) |
+| `generate_asset` | generator*, params, seed, kit_id, name, save (true), reference_id, match (style\|subject\|both, default both) | asset summary, exported file paths, preview image |
+| `generate_variations` | generator*, count (1-12), params, vary ("seed" \| "params"), kit_id, reference_id, match | contact-sheet image + [{seed, params}] (not saved) |
 | `paint_asset` | name*, category*, width*, height*, frames* (string[][] of legend rows; one inner array per frame), row_names, fps, outline (true), cleanup (true), kit_id | asset summary, files, preview |
 | `edit_asset` | id*, row, frame, pixels [{x,y,char}], rows (replace frame), name, tags | asset summary, preview |
 | `edit_region` | id*, row, frame, rect {x,y,w,h} \| cells [[x,y]], rows (legend rows for the selection bbox) \| prompt (needs ANTHROPIC_API_KEY), all_frames (false), outline (true) | asset summary, changed_pixels, preview. Only masked cells change; cleanup + outline are re-applied around them only. Async tool (`callToolAsync`) |
@@ -288,7 +288,7 @@ optional unless marked *; `kit_id` defaults to the active kit.
 | `set_active_kit` | kit_id* | kit |
 | `rerender_assets` | ids, kit_id, stale_only | re-generated procedural and rigged assets (consistency after a kit change) |
 | `list_rigs` / `list_clips` / `list_attachments` | family | rigs / clips / attachments (registry first, then project-defined), with family |
-| `generate_rigged` | rig*, slots, attachments[], clips[] (default walk, idle), directions (4 or 8, default 4), name, kit_id, save (true) | character asset (rows `<clip>-<dir>`; 8 adds down-right, up-right, up-left, down-left), spritesheet files, preview |
+| `generate_rigged` | rig*, slots, attachments[], clips[] (default walk, idle), directions (4 or 8, default 4), name, kit_id, save (true), reference_id, match | character asset (rows `<clip>-<dir>`; 8 adds down-right, up-right, up-left, down-left), spritesheet files, preview |
 | `attach` | id*, add[], remove[] | re-rendered rigged asset, files, preview |
 | `create_rig` | rig* (RigDef JSON), kit_id | validated + stored in the project, 3-view preview |
 | `create_clip` | clip* (Clip JSON), rig, kit_id | validated + stored; preview on `rig` if given |
@@ -310,3 +310,14 @@ MCP also exposes resources `pixel-builder://project` (the project JSON) and
   they explain *why*.
 - Finish with a short report: what you built, anything unfinished, and any
   change you need in a shared file.
+
+### Reference-guided generation (#66)
+
+`src/node/refgen.ts` (pure; shared with the web app). `reference_id` on `generate_asset`, `generate_variations` and
+`generate_rigged` maps the reference onto params/slots offline (OKLab nearest ramp per body/roof band; shape picks the
+building style). Explicit params win; `meta.referenceId` is saved. With `reference_id`, `generate_variations` renders a
+pool, ranks it through a `Scorer` (default `localScorer`: palette chamfer + band profile + aspect) and returns the top
+`count` best-first with `score` 0-100. Integrator hook: pass `{ distance: styleDistance-based }` as `scorer` in
+`referenceCandidates` (and swap `localScorer` in `refgen.ts`) once `styleDistance` exists in `core/refstyle.ts`.
+Web: References panel "Generate" opens `ReferenceGenerate` (6 ranked candidates; "Ask Claude" runs `refineWithAi`:
+propose, score, ONE refinement round if the score is below 70, keep the better).
