@@ -2,9 +2,11 @@ import { finalize } from "../enforce";
 import { Painter } from "../painter";
 import type { Material } from "../palette";
 import { proportions } from "../kit";
+import { buildingFootprint } from "../footprint";
 import { rng, type Rng } from "../rng";
 import type { StyleKit } from "../types";
 import { isoBuildingResult } from "./isoworld";
+import { richBuildingResult } from "./building-rich";
 import { bool, mat, num, str, type GenResult, type Generator, type Params } from "./types";
 
 const WALLS: Material[] = ["wood", "stone", "sand", "dirt", "leather", "metal", "ui", "cloth2"];
@@ -637,9 +639,20 @@ export const buildingGenerator: Generator = {
     { key: "access", label: "Stilt-house access", type: "select", options: ["stairs", "ladder"], default: "stairs" },
     { key: "trim", label: "Trim / door", type: "material", options: ["wood", "stone", "metal", "gold", "leather", "dirt", "sand"], default: "wood" },
     { key: "flower_box", label: "Flower boxes (farmhouse)", type: "bool", default: true },
+    { key: "look", label: "Look", type: "select", options: ["classic", "rich"], default: "classic" },
   ],
   generate(p, kit, seed) {
+    const res = generateSprite(p, kit, seed);
+    if (kit.camera === "iso") return res; // iso meta already names its own footprint
+    const fp = buildingFootprint(str(p, "style"), str(p, "size"), kit);
+    return { ...res, meta: { ...res.meta, footprint: fp, door: fp.door, entry: fp.entry } };
+  },
+};
+
+function generateSprite(p: Params, kit: StyleKit, seed: number): GenResult {
+  {
     if (kit.camera === "iso") return isoBuildingResult(p, kit, seed);
+    if (str(p, "look") === "rich") return richBuildingResult(p, kit, seed);
     const r = rng(seed);
     const S = kit.sizes.building;
     const k = S / 64;
@@ -766,5 +779,5 @@ export const buildingGenerator: Generator = {
       for (let xx = wx; xx < wx + ww; xx += Math.round(6 * k)) P.box(xx, wy - rh - Math.round(4 * k), Math.round(3 * k), Math.round(4 * k), wall, [0, -0.4, 1]);
     }
     return { rows: [{ name: "idle", frames: [finalize(P.toSprite(), kit)] }], fps: 1 };
-  },
-};
+  }
+}
