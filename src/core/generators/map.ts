@@ -12,7 +12,8 @@ import { foliageGenerator } from "./foliage";
 import { applyGroundDetail, DETAIL_LEVELS } from "./map-detail";
 import { FOREST_SEASONS, forestMmoPlan } from "./map-forest";
 import type { Sprite } from "../types";
-import { bool, defaults, num, str, type Generator } from "./types";
+import { bool, defaults, num, str, type Generator, type GenResult, type Params } from "./types";
+import { lightMap, TIMES } from "../lighting";
 
 // Rendering a building or a full animal sheet costs far more than the rest of a map,
 // so village deco sprites are memoised per kit object (kits are replaced, not mutated).
@@ -447,8 +448,20 @@ export const mapGenerator: Generator = {
     { key: "river", label: "River (a winding river across meadow / forest / winter maps)", type: "bool", default: false },
     { key: "detail", label: "Ground detail (tufts, petals, pebbles, leaf litter, colour variation; any biome)", type: "select", options: [...DETAIL_LEVELS], default: "off" },
     { key: "season", label: "Tree season (forest-mmo only; mixed = oak, maple, birch, willow groves)", type: "select", options: [...FOREST_SEASONS], default: "mixed" },
+    { key: "lighting", label: "Lighting (cast shadows, dappled light, water reflections, time-of-day grade; palette-locked)", type: "select", options: ["off", "on"], default: "off" },
+    { key: "time", label: "Time of day (needs lighting on)", type: "select", options: [...TIMES], default: "day" },
   ],
   generate(p, kit: StyleKit, seed) {
+    const res = generateMap(p, kit, seed);
+    if (str(p, "lighting") !== "on" || !res.tilemap) return res;
+    const time = (TIMES as readonly string[]).includes(str(p, "time")) ? (str(p, "time") as (typeof TIMES)[number]) : "day";
+    const lit = lightMap(res.rows[0].frames[0], res.tilemap, kit, { time, seed: seed >>> 0 });
+    return { ...res, rows: [{ name: "map", frames: [lit] }] };
+  },
+};
+
+function generateMap(p: Params, kit: StyleKit, seed: number): GenResult {
+  {
     const biome = ((BIOMES as readonly string[]).includes(str(p, "biome")) ? str(p, "biome") : "meadow") as Biome;
     const cols = clamp(Math.round(num(p, "cols")) || 24, 12, 48);
     const rows = clamp(Math.round(num(p, "rows")) || 20, 12, 48);
@@ -594,8 +607,8 @@ export const mapGenerator: Generator = {
     if (waterDepth) decorateWater(tm, ground, path, reserved, propTile, seed >>> 0, biome);
     if (detail !== "off") applyGroundDetail(tm, kit, seed >>> 0, detail);
     return { rows: [{ name: "map", frames: [renderTileMap(tm)] }], fps: 1, tilemap: tm };
-  },
-};
+  }
+}
 
 /**
  * Fill `tm.ground` from a ground-type grid: textured kit tiles with blended edges between
