@@ -5,7 +5,8 @@ import { readFile } from "node:fs/promises";
 import { extname, join, normalize, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { callStructured, getModel, hasKey } from "./claude";
+import { callStructured } from "./claude";
+import { aiHealth } from "./llm";
 import { buildLegend, decodeRows } from "../src/core/legend";
 import { inpaint } from "./inpaint";
 import { clipRoute } from "./clip";
@@ -50,10 +51,7 @@ async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> 
   }
 }
 
-function health() {
-  if (!hasKey()) return { enabled: false, model: null, reason: "ANTHROPIC_API_KEY is not set on the server" };
-  return { enabled: true, model: getModel() };
-}
+const health = () => aiHealth();
 
 async function vibe(body: Record<string, unknown>, signal: AbortSignal) {
   const prompt = P.requirePrompt(body.prompt);
@@ -200,5 +198,5 @@ const server = createServer(async (req, res) => {
 const port = Number(process.env.PORT ?? 8787);
 server.listen(port, () => {
   const h = health();
-  console.log(`auth=${process.env.AUTH || "none"} data=${store.dir}; api on :${port} (${h.enabled ? `model ${h.model}` : "AI disabled: no ANTHROPIC_API_KEY"})${production ? ", serving dist/" : ""}`);
+  console.log(`auth=${process.env.AUTH || "none"} data=${store.dir}; api on :${port} (${h.enabled ? `${h.provider} model ${h.model}` : `AI disabled: ${h.reason}`})${production ? ", serving dist/" : ""}`);
 });
