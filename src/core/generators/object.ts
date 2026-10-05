@@ -3,6 +3,7 @@ import { Painter } from "../painter";
 import type { Material } from "../palette";
 import { rng } from "../rng";
 import type { FrameSet, Sprite, StyleKit } from "../types";
+import { isoObject } from "./isoprops";
 import { num, PAINT, str, type Generator, type Params } from "./types";
 
 export const OBJECT_KINDS = [
@@ -720,6 +721,7 @@ export const objectGenerator: Generator = {
   ],
   generate(p, kit, seed) {
     const kind = (OBJECT_KINDS as readonly string[]).includes(str(p, "kind")) ? str(p, "kind") : "chest";
+    if (kit.camera === "iso") { const iso = isoObject({ ...p, kind }, kit, seed); if (iso) return iso; }
     if ((TOOL_KINDS as readonly string[]).includes(kind)) {
       const use = Array.from({ length: USE_FRAMES }, (_, f) => drawObject(kind, p, kit, seed, f, true));
       return { rows: [{ name: "icon", frames: [drawObject(kind, p, kit, seed, 0)] }, { name: "use", frames: use }], fps: 8 };
