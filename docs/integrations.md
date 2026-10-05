@@ -1,10 +1,10 @@
 # Use pixel-builder with AI agents
 
-pixel-builder exposes the same 16 tools two ways, so any agent can drive it:
+pixel-builder exposes the same 33 tools two ways, so any agent can drive it:
 
 - **MCP server** (stdio, or Streamable HTTP): for Claude Code, Hermes Agent,
-  Claude Desktop, Cursor, Codex CLI, Gemini CLI, VS Code / GitHub Copilot,
-  Windsurf, Cline, Zed, the OpenAI Agents SDK and remote MCP clients.
+  Claude Desktop, Cursor, Codex CLI, Gemini CLI, Qwen Code, OpenCode, Goose, Continue,
+  VS Code / GitHub Copilot, Windsurf, Cline, Zed, the OpenAI Agents SDK and remote MCP clients.
 - **CLI**: for any agent that can run shell commands. Same tools as
   kebab-case commands (`generate_asset` -> `generate-asset`) with `--json`.
 
@@ -53,14 +53,14 @@ Deployment and setup: [`deploy.md`](deploy.md).
 - GUI apps (Claude Desktop, Windsurf, Cursor from the dock) often don't inherit
   your shell `PATH`. If `npx`/`node` isn't found, put the absolute path of the
   binary (`which node`) in `command`.
-- Check the server works before wiring a client:
+- Check everything at once with `npx tsx src/node/cli.ts doctor` (see "Setup and doctor helpers"), or just the server:
   `npx tsx src/node/cli.ts get-style-guide --json` should print the kit and legend.
   I ran the stdio server (dev and built), the HTTP server and the CLI examples in
-  this guide against the current code: all 16 tools list over both transports.
+  this guide against the current code: all 33 tools list over both transports.
 
 ### Tool profiles
 
-`--tools core|all` (env `PIXEL_BUILDER_TOOLS`) on `mcp` (stdio and `--http`) and on `--help`. `core` exposes 12 tools (get_style_guide, list_kits, set_active_kit, list_generators, generate_asset, generate_variations, paint_asset, edit_asset, list_assets, get_asset, export_asset, import_image) for smaller models (Qwen, Gemini, local); default `all`. Tool input schemas avoid oneOf/anyOf/$ref/tuples so Gemini and Qwen function calling accept them.
+`--tools core|all` (env `PIXEL_BUILDER_TOOLS`) on `mcp` (stdio and `--http`) and on `--help`. `core` exposes 12 tools (get_style_guide, list_kits, set_active_kit, list_generators, generate_asset, generate_variations, paint_asset, edit_asset, list_assets, get_asset, export_asset, import_image) for smaller models (Qwen, Gemini, local; recommended for Qwen Code, Qwen-Agent, Ollama); default `all`. `setup <client> --tools core` writes it into the config. Tool input schemas avoid oneOf/anyOf/$ref/tuples so Gemini and Qwen function calling accept them.
 
 ## 1. Claude Code
 
@@ -438,7 +438,7 @@ from `agents.mcp`. Passing `SKILL.md` as `instructions` is how this SDK takes a
 skill. (`env` and `cwd` are optional stdio params per the SDK reference
 excerpt.) The JavaScript/TypeScript Agents SDK was not checked.
 
-**Check:** `await server.list_tools()` inside the `async with` returns the 16 tools.
+**Check:** `await server.list_tools()` inside the `async with` returns the 33 tools.
 
 ## 12. Remote MCP clients (HTTP transport)
 
@@ -471,7 +471,7 @@ To reach the local server from the internet you need a tunnel (for example
 Claude Desktop's remote connectors and Claude.ai also need a public HTTPS URL
 (not verified here).
 
-**Check:** this lists the 16 tools (a plain `GET` in a browser gives 405, which
+**Check:** this lists the 33 tools (a plain `GET` in a browser gives 405, which
 also proves it is up):
 
 ```bash
@@ -513,7 +513,7 @@ MMO HUD: `generate_asset` with `generator: "ui"` and `skin: "mmo-gold" | "mmo-st
 
 `get_style_guide`, `list_generators`, `generate_asset`, `generate_variations`,
 `paint_asset`, `edit_asset`, `edit_region` (change only a rect/cells region: your own legend `rows`, or a `prompt` for the server model when `ANTHROPIC_API_KEY` is set), `list_assets`, `get_asset`, `delete_asset`,
-`export_asset` (png, spritesheet, tiled, svg, aseprite, gif, tiled-tileset, godot, unity, atlas), `import_image` (`mode: pixel-art|auto` detects the pixel grid of upscaled pixel art and recovers the true size, `palette_mapping: ramps` keeps shading, `split` cuts a sheet into frames, `reference_id` imports a stored reference; `auto` is recommended for unknown sources, default is `resample`), `import_svg`, `add_reference` (path | url | base64, PNG/JPEG, 10 MB, 4096px; full PNG in `references/<id>.png`, preview in the project), `list_references`, `get_reference` (returns the preview image), `delete_reference`, `reference_id` + `match` on `generate_asset` / `generate_variations` / `generate_rigged` (offline colour-to-material/slot mapping and shape-to-style guess; variations come back ranked with a 0-100 match score; explicit params win; `meta.referenceId` saved), `kit_from_reference` (offline: derive a kit from a PNG or `reference_id`, palette ramps + outline/light/shade/dither guesses + preview sheet), `compare_to_reference` (`asset_id`, `reference_id`, optional `row`/`frame`: style-distance score 0..100, per-component scores for palette, shades, outline, light, detail and silhouette, tips such as "try kit-hd-deep", and a side-by-side preview with the reference on the left; stores `referenceId` + `matchScore` in the asset meta), `list_kits`, `create_kit`, `update_kit` (refuses `locked` kits; fork with `create_kit`),
+`export_asset` (png, spritesheet, tiled, svg, aseprite, gif, tiled-tileset, godot, unity, atlas), `import_image` (`mode: pixel-art|auto` detects the pixel grid of upscaled pixel art and recovers the true size, `palette_mapping: ramps` keeps shading, `split` cuts a sheet into frames, `reference_id` imports a stored reference; `auto` is recommended for unknown sources, default is `resample`), `import_svg`, `add_reference` (path | url | base64, PNG/JPEG, 10 MB, 4096px; URLs that resolve to private/loopback/reserved addresses are refused (SSRF filter), set `PIXEL_BUILDER_ALLOW_PRIVATE_URLS=1` in the server's `env` to allow them for local development; full PNG in `references/<id>.png`, preview in the project), `list_references`, `get_reference` (returns the preview image), `delete_reference`, `reference_id` + `match` on `generate_asset` / `generate_variations` / `generate_rigged` (offline colour-to-material/slot mapping and shape-to-style guess; variations come back ranked with a 0-100 match score; explicit params win; `meta.referenceId` saved), `kit_from_reference` (offline: derive a kit from a PNG or `reference_id`, palette ramps + outline/light/shade/dither guesses + preview sheet), `compare_to_reference` (`asset_id`, `reference_id`, optional `row`/`frame`: style-distance score 0..100, per-component scores for palette, shades, outline, light, detail and silhouette, tips such as "try kit-hd-deep", and a side-by-side preview with the reference on the left; stores `referenceId` + `matchScore` in the asset meta), `list_kits`, `create_kit`, `update_kit` (refuses `locked` kits; fork with `create_kit`),
 `set_active_kit`, `rerender_assets` (`stale_only`), `list_rigs`, `list_clips`, `list_attachments`,
 `generate_rigged` (`directions: 4|8`; 8 adds 3/4 diagonal rows), `attach`, `create_rig`, `create_clip`, `create_attachment`, `generate_pack` (whole starter set in one call, e.g. `farming-v1`, `monsters-v1` (mushroom/slime/plant/bat/wolf/skeleton rigs `monster-*` with idle, walk, attack, hurt, die) `side-view-starter` for the `kit-side` platformer camera or `iso-starter` for the `kit-iso` isometric camera). `kit-iso` is the isometric camera (2:1 dimetric, 32x16 diamond tiles): generators `iso-tile`, `iso-prop`, `iso-building`, `isomap` (Tiled export `orientation: isometric` with a ground tile layer and a y-sorted `props` object layer), and rigged characters get rows `<clip>-se|sw|ne|nw` (`directions: 8` adds `s|e|n|w`); pack `iso-starter`. Under `kit-iso` the ordinary generators go isometric too: `building` (every style cottage/shop/tower/keep/barn/farmhouse/coop/stilt-house/half-brick and every `roof_style` gable/hip/flat/dome/spire/corrugated as an iso box on a 1x1..3x3 footprint chosen by `size`; meta `footprint`), `environment` (trees, palm, dead-tree, bushes, rocks, flowers, mushroom, tall-grass, crystal, stump, fences/gates and the ground/soil tiles as diamonds) and `object` (world props chest, chest-open, barrel, crate, torch = lamp post, sign, pot; inventory icons and tools stay flat). `iso-prop` also has well, haystack, gate-closed/open, crop (variant 0-3 = growth), lamp-post and tree-hd (a `foliage` species, `species`/`size` params, re-anchored on its trunk); `iso-tile` has kind `soil`. All iso sprites are bottom-centred so the footprint sits on the grid. `isomap` has a `village` param (extra cottages/barn/shop, well, crop field, haystack). The `iso-starter` pack includes them (docs/img/iso-village.png). `export_asset format=svg` writes a layered SVG (layer per material, per part for rigged assets, locked `guides` layer);
 `export_asset format=gif` writes `<slug>.gif` (or `<slug>.<row>.gif` per animation row; `row` picks one; `scale` upscales). Maps: generate with `animate: true` (+ `frames`, default 8) to store living frames. Demo: `npx tsx scripts/mmo-scene.ts --gif`. `export_asset format=aseprite` writes `<slug>.aseprite` (see section 14). `import_svg` reads it back: edit by layer, keep `data-material` attrs or use kit colours, the guides layer is ignored. MCP also exposes the resources
@@ -584,6 +584,184 @@ curl -s localhost:8787/api/vibe -H 'content-type: application/json' -d "$(jq -n 
 
 Expect `params.style` near `half-brick`, with roof/material params chosen from the kit.
 
+## 15. Qwen Code
+
+Docs: <https://github.com/QwenLM/qwen-code/blob/main/docs/users/features/mcp.md> and
+<https://github.com/QwenLM/qwen-code/blob/main/docs/users/features/skills.md> (**verified**
+via the docs' source on GitHub; the project is a Gemini CLI fork, so the format is the same)
+
+Project `.qwen/settings.json` or user `~/.qwen/settings.json`, top-level key `mcpServers`
+(stdio fields `command`, `args`, `cwd`, `env`, `timeout`, `trust`; HTTP uses `httpUrl`).
+Qwen models are smaller than frontier models, so **use `--tools core`** (12 tools).
+Fastest way, from this repo, which fills in absolute paths and merges without
+touching your other servers:
+
+```bash
+npx tsx src/node/cli.ts setup qwen-code --tools core --write
+```
+
+What it writes (`<ABS>` / `<GAME>` as in section 0):
+
+```json
+{
+  "mcpServers": {
+    "pixel-builder": {
+      "command": "node",
+      "args": ["<ABS>/dist-node/cli.mjs", "mcp", "--tools", "core"],
+      "env": { "PIXEL_BUILDER_WORKSPACE": "<GAME>/pixel-assets" }
+    }
+  }
+}
+```
+
+(Without a build, `args` is `["<ABS>/node_modules/tsx/dist/cli.mjs", "<ABS>/src/node/cli.ts", "mcp", "--tools", "core"]`.)
+CLI alternative (documented syntax): `qwen mcp add pixel-builder -e PIXEL_BUILDER_WORKSPACE=<GAME>/pixel-assets -- node <ABS>/dist-node/cli.mjs mcp --tools core`
+(the `--` form is untested; prefer `setup`). HTTP: `"httpUrl": "http://127.0.0.1:8788/mcp"`.
+
+Skill: Qwen Code reads `SKILL.md` folders from `.qwen/skills/` (project) or
+`~/.qwen/skills/` (user); frontmatter `name` + `description`:
+`mkdir -p .qwen/skills && cp -r <ABS>/skills/pixel-builder .qwen/skills/`. Its docs do
+not mention `AGENTS.md`; if the skill is not picked up, paste `SKILL.md` into the chat first.
+
+**Check:** `qwen mcp list` (reported) or `/mcp` in a session, shows `pixel-builder` connected with its tools.
+Non-coder walkthrough: [`agent-testing.md`](agent-testing.md).
+
+## 16. Qwen-Agent (Python)
+
+Docs: <https://github.com/QwenLM/Qwen-Agent/blob/main/README.md> (**excerpt-verified**:
+the README gives the `mcpServers` JSON shape and `pip install -U "qwen-agent[mcp]"`; the
+`function_list` wiring below follows the README's description of its MCP example and was
+not run here)
+
+```python
+from qwen_agent.agents import Assistant
+
+SKILL = open("<ABS>/skills/pixel-builder/SKILL.md").read()
+tools = [{
+    "mcpServers": {
+        "pixel-builder": {
+            "command": "node",
+            "args": ["<ABS>/dist-node/cli.mjs", "mcp", "--tools", "core"],
+            "env": {"PIXEL_BUILDER_WORKSPACE": "<GAME>/pixel-assets"},
+        }
+    }
+}]
+llm_cfg = {  # DashScope; or a local OpenAI-compatible server: {"model": "qwen3:14b", "model_server": "http://localhost:11434/v1", "api_key": "EMPTY"}
+    "model": "qwen-max",
+    "model_server": "dashscope",
+}
+bot = Assistant(llm=llm_cfg, system_message=SKILL, function_list=tools)
+for rsp in bot.run([{"role": "user", "content": "Make a starter forest pack."}]):
+    pass
+print(rsp[-1]["content"])
+```
+
+Requires Node (the server) and `pip install -U "qwen-agent[mcp]"`. The skill goes in
+`system_message`. Qwen-Agent hands tool results to the model as text, so the agent will
+not *see* previews; it can read the saved `previews` paths only with a vision-capable setup.
+
+**Check:** running the script should print a reply that lists created files under `<GAME>/pixel-assets/`.
+
+## 17. OpenCode
+
+Docs: <https://opencode.ai/docs/mcp-servers/> (**verified** via the docs' source,
+`packages/web/src/content/docs/mcp-servers.mdx` in sst/opencode; the site itself was not reachable)
+
+`opencode.json` in the project (or the global OpenCode config). Note: top-level key
+**`mcp`**, `type: "local"`, and `command` is a single **array** (program and args together),
+env is `environment`.
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "pixel-builder": {
+      "type": "local",
+      "command": ["node", "<ABS>/dist-node/cli.mjs", "mcp", "--tools", "core"],
+      "enabled": true,
+      "environment": { "PIXEL_BUILDER_WORKSPACE": "<GAME>/pixel-assets" }
+    }
+  }
+}
+```
+
+`npx tsx <ABS>/src/node/cli.ts setup opencode --tools core --write` writes this for you.
+Skill: OpenCode's skill folder location was not verified here; paste `SKILL.md` into the
+rules file (`AGENTS.md` is read by OpenCode, reported) or the first message.
+**Check:** `opencode mcp list` (reported) shows the server, or ask it to list generators.
+
+## 18. Goose
+
+Docs: <https://github.com/block/goose/blob/main/documentation/docs/getting-started/using-extensions.md>
+(**verified** via the docs' source on GitHub)
+
+Interactive: `goose configure` -> Add Extension -> Command-line Extension, enter the
+command `node <ABS>/dist-node/cli.mjs mcp --tools core`, a timeout and the env var. Or edit
+`~/.config/goose/config.yaml` (path is the usual default, not re-verified):
+
+```yaml
+extensions:
+  pixel-builder:
+    name: pixel-builder
+    type: stdio
+    cmd: node
+    args: ["<ABS>/dist-node/cli.mjs", "mcp", "--tools", "core"]
+    envs: { "PIXEL_BUILDER_WORKSPACE": "<GAME>/pixel-assets" }
+    enabled: true
+    timeout: 300
+```
+
+`npx tsx src/node/cli.ts setup goose --tools core` prints this with paths filled in.
+Skill: Goose has no skill folder we verified; put the contents of `SKILL.md` in a `.goosehints`
+file in the project (reported) or paste it into the first message.
+**Check:** `goose session`, then ask it to list the pixel-builder generators; the extension shows as enabled.
+
+## 19. Continue
+
+Docs: <https://github.com/continuedev/continue/blob/main/docs/customize/deep-dives/mcp.mdx>
+(**verified** via the docs' source on GitHub). MCP works in **agent mode** only.
+
+`.continue/mcpServers/pixel-builder.yaml` in the workspace (a standalone block needs
+`name`, `version`, `schema`):
+
+```yaml
+name: pixel-builder
+version: 0.0.1
+schema: v1
+mcpServers:
+  - name: pixel-builder
+    type: stdio
+    command: node
+    args:
+      - "<ABS>/dist-node/cli.mjs"
+      - "mcp"
+      - "--tools"
+      - "core"
+    env:
+      PIXEL_BUILDER_WORKSPACE: "<GAME>/pixel-assets"
+```
+
+`setup continue --tools core` prints it with paths filled in. Skill: Continue has no skill
+folder we verified; add `SKILL.md` as a rule (`.continue/rules/pixel-builder.md`, reported) or paste it.
+**Check:** switch the chat to Agent mode; the tools list shows `pixel-builder`'s tools.
+
+## Setup and doctor helpers
+
+Not MCP tools, CLI only (so the tool contract is unchanged):
+
+```bash
+npx tsx src/node/cli.ts doctor                    # Node >= 20, workspace writable, 33 tools, generate round-trip, MCP handshake, AI env
+npx tsx src/node/cli.ts doctor --json             # same, machine-readable; exit code 1 if anything fails
+npx tsx src/node/cli.ts setup <client> [--tools core] [--workspace <dir>] [--write]
+```
+
+`<client>` is one of `claude-code, claude-desktop, cursor, codex, gemini-cli, qwen-code, opencode,
+goose, continue, vscode, windsurf, cline, zed, http`. The snippet has this checkout's absolute path and
+an absolute workspace filled in. `--write` merges the server into the client's project-local file
+(`.mcp.json`, `.cursor/mcp.json`, `.gemini/settings.json`, `.qwen/settings.json`, `opencode.json`,
+`.vscode/mcp.json`) in the current folder and keeps other servers; for every other client it prints where to paste.
+A malformed existing file is never overwritten. Run these from the folder of the project that should get the config.
+
 ## Where the skill goes (summary)
 
 | Tool | Skill location | Notes |
@@ -591,6 +769,9 @@ Expect `params.style` near `half-brick`, with roof/material params chosen from t
 | Claude Code | `.claude/skills/pixel-builder/` (project) or `~/.claude/skills/` | verified |
 | Hermes Agent | `~/.hermes/skills/pixel-builder/` or `skills.external_dirs` | verified |
 | Codex CLI, Cursor, Gemini CLI, Copilot | `.agents/skills/pixel-builder/` (Copilot also `.github/skills/`; Cursor `.cursor/skills/`) | reported by third-party guides; unverified |
+| Qwen Code | `.qwen/skills/pixel-builder/` or `~/.qwen/skills/` | verified |
+| Qwen-Agent | `system_message` | n/a |
+| OpenCode, Goose, Continue | paste into rules / `.goosehints` / `.continue/rules/` | unverified |
 | Anything else | paste `SKILL.md` into the system prompt / rules / `AGENTS.md` | always works |
 
 ## 14. Aseprite (export + extension)
