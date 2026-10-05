@@ -273,7 +273,7 @@ optional unless marked *; `kit_id` defaults to the active kit.
 | `list_assets` | category, query | summaries |
 | `get_asset` | id*, include_pixels (false) | summary, preview, legend rows if asked |
 | `delete_asset` | id* | ok |
-| `export_asset` | id*, format (png \| spritesheet \| tiled \| svg \| aseprite \| tiled-tileset \| godot \| unity \| atlas), scale (1), out_dir | file paths (svg: layered, guides layer; aseprite: indexed, kit palette, layers, tags) |
+| `export_asset` | id*, row (gif), format (png \| spritesheet \| tiled \| svg \| aseprite \| gif \| tiled-tileset \| godot \| unity \| atlas), scale (1), out_dir | file paths (svg: layered, guides layer; aseprite: indexed, kit palette, layers, tags) |
 | `import_image` | path* (PNG), width*, height*, category*, name, remove_background, crop, outline | asset summary, preview |
 | `import_svg` | path*, name, category, replace_id, kit_id | asset summary, preview (layered SVG back into the kit) |
 | `list_kits` | — | kits (id, name, active) |

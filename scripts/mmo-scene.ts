@@ -4,8 +4,13 @@
  *
  *   npx tsx scripts/mmo-scene.ts                      # docs/img/mmo-scene.png (kit-hd-rich) + mmo-scene-deep.png (kit-hd-deep)
  *   npx tsx scripts/mmo-scene.ts out.png kit-hd-deep [seed]
+ *   npx tsx scripts/mmo-scene.ts --gif                # docs/img/mmo-scene.gif: hero walks, monsters idle, water flows, trees sway
  */
 import { renderTileMap } from "../src/core/tilemap";
+import { mapAnimator, renderMapFrames } from "../src/core/mapanim";
+import { encodeGif } from "../src/node/gif";
+import { kitColors } from "../src/node/png";
+import { writeFileSync } from "node:fs";
 import { KIT_PRESETS } from "../src/core/kit";
 import { GENERATORS, defaults } from "../src/core/generators";
 import { mapObjects } from "../src/core/generators/map";
@@ -27,7 +32,18 @@ const trim = (s: Sprite): Sprite => {
   return o;
 };
 
-export function renderScene(kit: StyleKit, seed: number, time?: TimeOfDay): Sprite {
+/** Common crop of several frames (so an animated actor does not jitter): [x0,y0,x1,y1]. */
+const unionBox = (ss: Sprite[]) => ss.map((s) => bounds(s)!).reduce((a, b) => ({ x0: Math.min(a.x0, b.x0), y0: Math.min(a.y0, b.y0), x1: Math.max(a.x1, b.x1), y1: Math.max(a.y1, b.y1) }));
+const cropBox = (s: Sprite, b: { x0: number; y0: number; x1: number; y1: number }): Sprite => {
+  const o = createSprite(b.x1 - b.x0 + 1, b.y1 - b.y0 + 1);
+  for (let y = b.y0; y <= b.y1; y++) for (let x = b.x0; x <= b.x1; x++) o.data[(y - b.y0) * o.w + x - b.x0] = s.data[y * s.w + x];
+  return o;
+};
+
+export const renderScene = (kit: StyleKit, seed: number, time?: TimeOfDay): Sprite => renderSceneFrames(kit, seed, 1, time)[0];
+
+/** n = 1: the still scene. n > 1 (even): a living loop; hero walks the path and back, monsters idle, water flows, trees sway. */
+export function renderSceneFrames(kit: StyleKit, seed: number, n: number, time?: TimeOfDay): Sprite[] {
   const gen = (id: string, p: object, s = 1) => {
     const g = GENERATORS.find((x) => x.id === id)!;
     return g.generate({ ...defaults(g), ...p } as never, kit, s);
@@ -40,28 +56,33 @@ export function renderScene(kit: StyleKit, seed: number, time?: TimeOfDay): Spri
   const meta = map.meta as { spawns: { x: number; y: number }[]; playerStart: { x: number; y: number } };
   // ground only; deco and characters go through one y-sorted list
   const groundOnly: TileMap = { ...tm, deco: tm.deco.map(() => -1) };
-  let world = cloneSprite(renderTileMap(groundOnly));
-  // lighting (opt-in): shadows and reflections go under the y-sorted items, the grade over them
-  if (time) world = castLight(world, mapLitObjects(tm), kit, { seed });
+  const baseWorld = cloneSprite(renderTileMap(groundOnly));
+  const animated = n > 1;
+  const groundFrames = animated ? renderMapFrames(groundOnly, kit, n, seed) : [baseWorld];
+  const anim = animated ? mapAnimator(tm, kit, seed) : null;
 
-  type Item = { sprite: Sprite; x: number; y: number; shadow?: number };
+  type Item = { sprite: Sprite; x: number; y: number; shadow?: number; tile?: { i: number; col: number; row: number } };
   const items: Item[] = mapObjects(tm).map((o) => {
     const sp = tm.tiles[o.tile].sprite;
-    return { sprite: sp, x: o.x - sp.w / 2, y: o.y - sp.h };
+    return { sprite: sp, x: o.x - sp.w / 2, y: o.y - sp.h, tile: { i: o.tile, col: o.col, row: o.row } };
   });
   // standing positions: a cell's bottom-centre
   const feet = (c: { x: number; y: number }) => ({ x: c.x * T + T / 2, y: (c.y + 1) * T - 2 });
   const place = (sp: Sprite, c: { x: number; y: number }, shadow = 0.4) => {
     const f = feet(c);
     const t = trim(sp);
-    items.push({ sprite: t, x: Math.round(f.x - t.w / 2), y: f.y - t.h, shadow: shadow * t.w });
-    return { cx: f.x, top: f.y - t.h, base: f.y };
+    const item: Item = { sprite: t, x: Math.round(f.x - t.w / 2), y: f.y - t.h, shadow: shadow * t.w };
+    items.push(item);
+    return { cx: f.x, top: f.y - t.h, base: f.y, item };
   };
-  const monster = (rig: string, clip: string, dir: string, frame = 0) => {
+  const monsterRows = (rig: string, clip: string, dir: string) => {
     const r = rigById(rig)!;
     const clips = [CLIPS.find((c) => c.clip.id === clip && c.family === r.family)!.clip];
     const rows = renderRig({ rig: r.rig, kit }, clips, { directions: 4 });
-    const f = rows.find((x) => x.name === `${clip}-${dir}`)!.frames;
+    return rows.find((x) => x.name === `${clip}-${dir}`)!.frames;
+  };
+  const monster = (rig: string, clip: string, dir: string, frame = 0) => {
+    const f = monsterRows(rig, clip, dir);
     return f[Math.min(frame, f.length - 1)];
   };
 
@@ -73,7 +94,7 @@ export function renderScene(kit: StyleKit, seed: number, time?: TimeOfDay): Spri
   const quest = ui("quest-tracker");
   const bar = ui("skill-bar", { slots: 7, cooldown: 3 });
   const chat = ui("chat-panel", { width: 96, height: 44 });
-  const W = world.w, H = world.h;
+  const W = baseWorld.w, H = baseWorld.h;
   const hud = [
     { s: unit, x: 4, y: 4 }, { s: mm, x: W - mm.w - 4, y: 4 }, { s: quest, x: W - quest.w - 4, y: 4 + mm.h + 3 },
     { s: bar, x: Math.round((W - bar.w) / 2) + 28, y: H - bar.h - 4 }, { s: chat, x: 4, y: H - chat.h - 4 },
@@ -118,35 +139,65 @@ export function renderScene(kit: StyleKit, seed: number, time?: TimeOfDay): Spri
   const hp = place(hero, heroAt);
   const marks = cast.map((m, k) => ({ ...place(m.sprite, chosen[k]), name: m.name, level: m.level, hp: m.hp }));
 
-  // y-sort: base line = sprite bottom (shadows sit under the sprite, drawn with it)
-  items.sort((a, b) => a.y + a.sprite.h - (b.y + b.sprite.h) || a.x - b.x);
-  // characters keep their hues under the night grade
-  const keepHue = new Uint8Array(world.w * world.h);
-  for (const it of items) {
-    for (let y = 0; y < it.sprite.h; y++) for (let x = 0; x < it.sprite.w; x++) {
-      const X = it.x + x, Y = it.y + y;
-      if (it.sprite.data[y * it.sprite.w + x] && X >= 0 && Y >= 0 && X < world.w && Y < world.h) keepHue[Y * world.w + X] = it.shadow ? 1 : 0;
+  // actors: animated frames, cropped to one box per actor so they do not jitter
+  const rigFrames = (rig: string, clip: string) => monsterRows(rig, clip, "down");
+  const walkRows = gen("character", { headwear: "none", hair_style: "spiky", costume: "overalls", weapon: "sword", top: "cloth2" }).rows;
+  const heroFrames = animated ? [...walkRows.find((r) => r.name === "walk-right")!.frames, ...walkRows.find((r) => r.name === "walk-left")!.frames] : [];
+  const heroBox = animated ? unionBox(heroFrames) : null;
+  const monsterIds = [["monster-mushroom-red", "idle"], ["monster-slime-green", "idle"], ["monster-plant", "idle"]];
+  const monsterFrames = animated ? monsterIds.map(([r, c]) => rigFrames(r, c)) : [];
+  const monsterBoxes = monsterFrames.map(unionBox);
+  const stepsOut = Math.floor(n / 2);
+  const reach = (() => { let k = 0; while (k < 7 && walkable({ x: heroAt.x + k + 1, y: heroAt.y })) k++; return k; })();
+
+  const compose = (f: number): Sprite => {
+    let world = cloneSprite(groundFrames[f % groundFrames.length]);
+    let hpNow = hp;
+    if (animated) {
+      for (const it of items) if (it.tile) it.sprite = anim!.deco(it.tile.i, it.tile.col, it.tile.row, f);
+      // hero: out along the path (walk-right) then back (walk-left); the loop closes
+      const out = f < stepsOut, t = out ? f : f - stepsOut;
+      const px = (reach * T * (out ? t : stepsOut - t)) / stepsOut;
+      const hf = heroFrames[(out ? 0 : 4) + (f % 4)];
+      const sp = cropBox(hf, heroBox!), fx = feet(heroAt).x + px, fy = feet(heroAt).y;
+      Object.assign(hp.item, { sprite: sp, x: Math.round(fx - sp.w / 2), y: fy - sp.h });
+      hpNow = { cx: fx, top: fy - sp.h, base: fy, item: hp.item };
+      marks.forEach((m, k) => {
+        const fr = monsterFrames[k], msp = cropBox(fr[f % fr.length], monsterBoxes[k]), c = feet(chosen[k]);
+        Object.assign(m.item, { sprite: msp, x: Math.round(c.x - msp.w / 2), y: c.y - msp.h });
+        m.top = c.y - msp.h;
+      });
     }
-    if (it.shadow) shadowUnder(world, it.x + it.sprite.w / 2, it.y + it.sprite.h - 1, it.shadow);
-    blit(world, it.sprite, it.x, it.y);
-  }
+    // lighting (opt-in): shadows and reflections go under the y-sorted items, the grade over them
+    if (time) world = castLight(world, mapLitObjects(tm), kit, { seed });
+    const sorted = [...items].sort((a, b) => a.y + a.sprite.h - (b.y + b.sprite.h) || a.x - b.x);
+    // characters keep their hues under the night grade
+    const keepHue = new Uint8Array(world.w * world.h);
+    for (const it of sorted) {
+      for (let y = 0; y < it.sprite.h; y++) for (let x = 0; x < it.sprite.w; x++) {
+        const X = it.x + x, Y = it.y + y;
+        if (it.sprite.data[y * it.sprite.w + x] && X >= 0 && Y >= 0 && X < world.w && Y < world.h) keepHue[Y * world.w + X] = it.shadow ? 1 : 0;
+      }
+      if (it.shadow) shadowUnder(world, it.x + it.sprite.w / 2, it.y + it.sprite.h - 1, it.shadow);
+      blit(world, it.sprite, it.x, it.y);
+    }
+    if (time) world = grade(world, kit, time, [{ x: hpNow.cx + 6, y: hpNow.base - 14, r: 34 }], seed, keepHue);
+    // floating text and nameplates are UI: above everything
+    const put = (s: Sprite, x: number, y: number) => blit(world, s, Math.round(x), Math.round(y));
+    const plate = (m: { cx: number; top: number }, p: object) => { const s = ui("nameplate", p); put(s, m.cx - s.w / 2, m.top - s.h - 1); };
+    plate(hpNow, { name: "HERO", level: 12, tone: "green", hp: 80 });
+    marks.forEach((m) => plate(m, { name: m.name, level: m.level, tone: "red", hp: m.hp }));
+    const dmg = (amount: number, tone: string, frame: number, m: { cx: number; top: number }, crit = false) => {
+      const s = gen("ui", { kind: "damage-numbers", amount, tone, crit }).rows[0].frames[frame];
+      put(s, m.cx - s.w / 2 + 6, m.top - 34);
+    };
+    dmg(342, "yellow", 1, marks[0], true);
+    dmg(18, "green", 3, { cx: hpNow.cx + 16, top: hpNow.top + 8 });
 
-  if (time) world = grade(world, kit, time, [{ x: hp.cx + 6, y: hp.base - 14, r: 34 }], seed, keepHue);
-
-  // floating text and nameplates are UI: above everything
-  const put = (s: Sprite, x: number, y: number) => blit(world, s, Math.round(x), Math.round(y));
-  const plate = (m: { cx: number; top: number }, p: object) => { const s = ui("nameplate", p); put(s, m.cx - s.w / 2, m.top - s.h - 1); };
-  plate(hp, { name: "HERO", level: 12, tone: "green", hp: 80 });
-  marks.forEach((m) => plate(m, { name: m.name, level: m.level, tone: "red", hp: m.hp }));
-  const dmg = (amount: number, tone: string, frame: number, m: { cx: number; top: number }, crit = false) => {
-    const s = gen("ui", { kind: "damage-numbers", amount, tone, crit }).rows[0].frames[frame];
-    put(s, m.cx - s.w / 2 + 6, m.top - 34);
+    for (const h of hud) put(h.s, h.x, h.y);
+    return world;
   };
-  dmg(342, "yellow", 1, marks[0], true);
-  dmg(18, "green", 3, { cx: hp.cx + 16, top: hp.top + 8 });
-
-  for (const h of hud) put(h.s, h.x, h.y);
-  return world;
+  return Array.from({ length: animated ? n : 1 }, (_, f) => compose(f));
 }
 
 /** A soft contact shadow: darkens the ground one ramp step under the feet (only ground pixels). */
@@ -183,13 +234,24 @@ function fillMinimap(mm: Sprite, r: { x: number; y: number; w: number; h: number
 }
 
 if (process.argv[1]?.endsWith("mmo-scene.ts")) {
-  const [, , out, kitId, seedArg] = process.argv;
+  const args = process.argv.slice(2), gif = args.includes("--gif");
+  const [out, kitId, seedArg] = args.filter((x) => x !== "--gif");
   const time = (process.env.TIME ?? "") as TimeOfDay | "";
-  const jobs = out ? [[out, kitId ?? "kit-hd-rich"]] : [["docs/img/mmo-scene.png", "kit-hd-rich"], ["docs/img/mmo-scene-deep.png", "kit-hd-deep"]];
-  for (const [file, id] of jobs) {
-    const kit = KIT_PRESETS.find((k) => k.id === id);
-    if (!kit) throw new Error(`unknown kit ${id}`);
-    savePng(file, [[renderScene(kit, Number(seedArg ?? process.env.SEED ?? 7), time || undefined)]], kit, SCALE);
-    console.log(`wrote ${file}`);
+  if (gif) {
+    // living loop: docs/img/mmo-scene.gif (kit-hd-rich, 16 frames @ 8 fps, 2x pixels, ~1 MB)
+    const kit = KIT_PRESETS.find((k) => k.id === (kitId ?? "kit-hd-rich"))!;
+    const file = out ?? "docs/img/mmo-scene.gif";
+    const frames = renderSceneFrames(kit, Number(seedArg ?? process.env.SEED ?? 7), Number(process.env.FRAMES ?? 16), time || undefined);
+    const bytes = encodeGif(frames, { colors: kitColors(kit), fps: Number(process.env.FPS ?? 8), scale: Number(process.env.GIF_SCALE ?? 2) });
+    writeFileSync(file, bytes);
+    console.log(`wrote ${file} (${frames.length} frames, ${(bytes.length / 1024).toFixed(0)} KB)`);
+  } else {
+    const jobs = out ? [[out, kitId ?? "kit-hd-rich"]] : [["docs/img/mmo-scene.png", "kit-hd-rich"], ["docs/img/mmo-scene-deep.png", "kit-hd-deep"]];
+    for (const [file, id] of jobs) {
+      const kit = KIT_PRESETS.find((k) => k.id === id);
+      if (!kit) throw new Error(`unknown kit ${id}`);
+      savePng(file, [[renderScene(kit, Number(seedArg ?? process.env.SEED ?? 7), time || undefined)]], kit, SCALE);
+      console.log(`wrote ${file}`);
+    }
   }
 }

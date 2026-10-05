@@ -715,18 +715,19 @@ const exportAssetTool = defineTool({
   name: "export_asset",
   title: "Export asset",
   description:
-    "Write game-ready files for an asset. 'png' = image (animated assets become a spritesheet + .json metadata; maps also get .tiled.json + tilesets); 'spritesheet' = always sheet + .json; 'tiled' = map only; 'aseprite' = .aseprite file (indexed colour with the kit palette locked, one layer per rig part or material, one tag per animation row; opens in Aseprite/LibreSprite), 'svg' = layered vector (a layer per material, per part for rigged assets, plus a locked 'guides' layer with pixel/tile grid, ground line, frame labels, joints) that opens in Inkscape/Figma and comes back with import_svg. Autotile assets (generator 'tileset') also export 'tiled-tileset' (.tsj with a wangset), 'godot' (.tres TileSet with terrain + peering bits), 'unity' (PNG + .rules.json slice rects and neighbour rules) and 'atlas' (PNG + .atlas.json index); each writes <slug>.png beside it. Default folder: <workspace>/<category>s/ (characters/, buildings/, environments/, objects/, maps/ - and ui/ for UI assets, not uis/).",
+    "Write game-ready files for an asset. 'png' = image (animated assets become a spritesheet + .json metadata; maps also get .tiled.json + tilesets); 'spritesheet' = always sheet + .json; 'tiled' = map only; 'aseprite' = .aseprite file (indexed colour with the kit palette locked, one layer per rig part or material, one tag per animation row; opens in Aseprite/LibreSprite), 'svg' = layered vector (a layer per material, per part for rigged assets, plus a locked 'guides' layer with pixel/tile grid, ground line, frame labels, joints) that opens in Inkscape/Figma and comes back with import_svg. 'gif' = animated GIF89a in the kit palette (transparent background; one GIF per animated row, or the chosen row; props, characters, and maps made with animate: true). Autotile assets (generator 'tileset') also export 'tiled-tileset' (.tsj with a wangset), 'godot' (.tres TileSet with terrain + peering bits), 'unity' (PNG + .rules.json slice rects and neighbour rules) and 'atlas' (PNG + .atlas.json index); each writes <slug>.png beside it. Default folder: <workspace>/<category>s/ (characters/, buildings/, environments/, objects/, maps/ - and ui/ for UI assets, not uis/).",
   shape: {
     id: z.string().describe("Asset id (or exact name)."),
-    format: z.enum(["png", "spritesheet", "tiled", "svg", "aseprite", "tiled-tileset", "godot", "unity", "atlas"]).default("png"),
-    scale: z.number().int().min(1).max(16).default(1).describe("Integer upscale of the PNG (nearest neighbour); ignored for svg and aseprite."),
+    format: z.enum(["png", "spritesheet", "tiled", "svg", "aseprite", "gif", "tiled-tileset", "godot", "unity", "atlas"]).default("png"),
+    scale: z.number().int().min(1).max(16).default(1).describe("Integer upscale of the PNG or GIF (nearest neighbour); ignored for svg and aseprite."),
+    row: z.string().optional().describe("gif only: one animation row (name like walk-down, or index). Default: one GIF per animated row."),
     out_dir: z.string().optional().describe("Output folder (relative to the current directory). Default: <workspace>/<category>s/ (ui/ for UI assets)."),
   },
   positional: "id",
   run(ws, i) {
     const project = ws.load();
     const asset = findAsset(project, i.id);
-    const files = exportAsset(ws, project, asset, { format: i.format, scale: i.scale, outDir: i.out_dir, rig: i.format === "svg" || i.format === "aseprite" ? rigInfoOf(project, asset) : undefined });
+    const files = exportAsset(ws, project, asset, { format: i.format, scale: i.scale, outDir: i.out_dir, row: i.row, rig: i.format === "svg" || i.format === "aseprite" ? rigInfoOf(project, asset) : undefined });
     return { data: { asset: { id: asset.id, name: asset.name }, files } };
   },
 });

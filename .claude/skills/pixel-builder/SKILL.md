@@ -36,7 +36,7 @@ hand-write PNGs or invent colours.
 | `edit_asset` | fix pixels or replace a frame of an existing asset |
 | `edit_region` | change only a rect or cell region (add a scarf, recolour a hat): your own `rows`, or `prompt` with an API key |
 | `list_assets` / `get_asset` / `delete_asset` | manage the library |
-| `export_asset` | `png`, `spritesheet`, `tiled` (maps), `svg` (layered, see below), `aseprite` (see below) or, for `tileset` assets, `tiled-tileset` / `godot` / `unity` / `atlas` (engine autotile files, see reference) |
+| `export_asset` | `png`, `spritesheet`, `tiled` (maps), `svg` (layered, see below), `aseprite` (see below), `gif` (animated GIF89a, kit palette; one per animated row or `row`; maps need generate_asset params `animate: true` for living water, swaying trees, reeds) or, for `tileset` assets, `tiled-tileset` / `godot` / `unity` / `atlas` (engine autotile files, see reference) |
 | `import_image` | quantise an existing PNG to the kit palette |
 | `import_svg` | read a layered SVG back (new asset, or `replace_id` to retexture an existing one): edit by layer, keep `data-material`/`data-level` or use kit colours, the `guides` layer is ignored |
 | `rerender_assets` | regenerate procedural and rigged assets after a kit change (`stale_only` = only assets made with an older kit version) |

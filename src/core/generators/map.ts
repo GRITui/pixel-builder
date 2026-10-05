@@ -9,6 +9,7 @@ import { Painter } from "../painter";
 import { finalize } from "../enforce";
 import { blit, createSprite } from "../sprite";
 import { foliageGenerator } from "./foliage";
+import { MAP_FPS, MAP_FRAMES_DEFAULT, renderMapFrames } from "../mapanim";
 import { applyGroundDetail, DETAIL_LEVELS } from "./map-detail";
 import { FOREST_SEASONS, forestMmoPlan } from "./map-forest";
 import type { Sprite } from "../types";
@@ -448,15 +449,22 @@ export const mapGenerator: Generator = {
     { key: "river", label: "River (a winding river across meadow / forest / winter maps)", type: "bool", default: false },
     { key: "detail", label: "Ground detail (tufts, petals, pebbles, leaf litter, colour variation; any biome)", type: "select", options: [...DETAIL_LEVELS], default: "off" },
     { key: "season", label: "Tree season (forest-mmo only; mixed = oak, maple, birch, willow groves)", type: "select", options: [...FOREST_SEASONS], default: "mixed" },
+    { key: "animate", label: "Living map (stores animated frames: water shimmer, tree sway, reeds, lily pads; export_asset format gif)", type: "bool", default: false },
+    { key: "frames", label: "Animation frames (animate only)", type: "number", min: 2, max: 24, step: 1, default: 8 },
     { key: "lighting", label: "Lighting (cast shadows, dappled light, water reflections, time-of-day grade; palette-locked)", type: "select", options: ["off", "on"], default: "off" },
     { key: "time", label: "Time of day (needs lighting on)", type: "select", options: [...TIMES], default: "day" },
   ],
   generate(p, kit: StyleKit, seed) {
-    const res = generateMap(p, kit, seed);
+    let res = generateMap(p, kit, seed);
+    // order: build -> animate (frames) -> light each frame
+    if (bool(p, "animate") && res.tilemap && res.tilemap.orientation !== "isometric") {
+      const n = clamp(Math.round(num(p, "frames")) || MAP_FRAMES_DEFAULT, 2, 24);
+      res = { ...res, rows: [{ name: "map", frames: renderMapFrames(res.tilemap, kit, n, seed >>> 0) }], fps: MAP_FPS };
+    }
     if (str(p, "lighting") !== "on" || !res.tilemap) return res;
     const time = (TIMES as readonly string[]).includes(str(p, "time")) ? (str(p, "time") as (typeof TIMES)[number]) : "day";
-    const lit = lightMap(res.rows[0].frames[0], res.tilemap, kit, { time, seed: seed >>> 0 });
-    return { ...res, rows: [{ name: "map", frames: [lit] }] };
+    const tm = res.tilemap;
+    return { ...res, rows: [{ name: "map", frames: res.rows[0].frames.map((f) => lightMap(f, tm, kit, { time, seed: seed >>> 0 })) }] };
   },
 };
 
