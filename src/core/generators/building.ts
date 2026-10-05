@@ -6,7 +6,7 @@ import { buildingFootprint } from "../footprint";
 import { rng, type Rng } from "../rng";
 import type { StyleKit } from "../types";
 import { isoBuildingResult } from "./isoworld";
-import { richBuildingResult } from "./building-rich";
+import { richBuildingResult, SIGN_OPTIONS, TRI } from "./building-rich-render";
 import { bool, mat, num, str, type GenResult, type Generator, type Params } from "./types";
 
 const WALLS: Material[] = ["wood", "stone", "sand", "dirt", "leather", "metal", "ui", "cloth2"];
@@ -626,7 +626,7 @@ export const buildingGenerator: Generator = {
   label: "Building",
   description: "Front-facing 3/4 view building: cottage, shop, tower, keep, barn raised stilt-house (open ground floor, stairs/ladder, veranda) or two-storey half-brick house (masonry ground floor, wooden upper floor, gabled balcony wing) with wall/roof materials, floors, windows, chimney.",
   params: [
-    { key: "style", label: "Style", type: "select", options: ["cottage", "shop", "tower", "keep", "barn", "stilt-house", "half-brick", "farmhouse", "coop"], default: "cottage" },
+    { key: "style", label: "Style", type: "select", options: ["cottage", "shop", "tower", "keep", "barn", "stilt-house", "half-brick", "farmhouse", "coop", "inn", "blacksmith", "temple", "windmill", "greenhouse", "market-stall", "well-house"], default: "cottage" },
     // medium is today's output for every older style; barn small and medium are the same classic barn, large is the gambrel barn.
     { key: "size", label: "Size", type: "select", options: ["small", "medium", "large"], default: "medium" },
     { key: "wall", label: "Walls", type: "material", options: WALLS, default: "wood" },
@@ -640,11 +640,25 @@ export const buildingGenerator: Generator = {
     { key: "trim", label: "Trim / door", type: "material", options: ["wood", "stone", "metal", "gold", "leather", "dirt", "sand"], default: "wood" },
     { key: "flower_box", label: "Flower boxes (farmhouse)", type: "bool", default: true },
     { key: "look", label: "Look", type: "select", options: ["classic", "rich"], default: "classic" },
+    // Rich-look details (ignored by classic). auto = the style's own default.
+    { key: "tier", label: "Upgrade tier (rich farmhouse/barn/coop; 0 = from size)", type: "number", min: 0, max: 3, default: 0 },
+    { key: "porch", label: "Porch hood", type: "select", options: TRI, default: "auto" },
+    { key: "balcony", label: "Balcony", type: "select", options: TRI, default: "auto" },
+    { key: "awning", label: "Striped awning", type: "select", options: TRI, default: "auto" },
+    { key: "awning_color", label: "Awning colour", type: "material", options: ["cloth2", "cloth", "accent", "foliage", "water", "gold"], default: "cloth2" },
+    { key: "sign", label: "Sign text", type: "select", options: SIGN_OPTIONS, default: "auto" },
+    { key: "lanterns", label: "Wall lanterns", type: "select", options: TRI, default: "auto" },
+    { key: "flower_boxes", label: "Window flower boxes", type: "select", options: TRI, default: "auto" },
+    { key: "ivy", label: "Ivy", type: "select", options: TRI, default: "auto" },
+    { key: "wear", label: "Wear (cracks, stains, moss)", type: "select", options: TRI, default: "auto" },
+    { key: "yard", label: "Yard props (crates, barrels)", type: "select", options: TRI, default: "auto" },
+    { key: "hayloft", label: "Hayloft door (barn)", type: "select", options: TRI, default: "auto" },
+    { key: "gable", label: "Gable (stilt-house, half-brick, any rich roof)", type: "select", options: ["western", "thai"], default: "western" },
   ],
   generate(p, kit, seed) {
     const res = generateSprite(p, kit, seed);
     if (kit.camera === "iso") return res; // iso meta already names its own footprint
-    const fp = buildingFootprint(str(p, "style"), str(p, "size"), kit);
+    const fp = buildingFootprint(str(p, "style"), str(p, "size"), kit, num(p, "tier"));
     return { ...res, meta: { ...res.meta, footprint: fp, door: fp.door, entry: fp.entry } };
   },
 };
