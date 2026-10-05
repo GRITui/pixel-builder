@@ -14,6 +14,7 @@ import { renderRig } from "../src/core/rig";
 import { CLIPS, rigById } from "../src/core/rigs";
 import { blit, bounds, cloneSprite, createSprite } from "../src/core/sprite";
 import type { Sprite, StyleKit, TileMap } from "../src/core/types";
+import { castLight, grade, mapLitObjects, type TimeOfDay } from "../src/core/lighting";
 import { savePng } from "./sheet";
 
 const COLS = 21, ROWS = 14;
@@ -26,7 +27,7 @@ const trim = (s: Sprite): Sprite => {
   return o;
 };
 
-export function renderScene(kit: StyleKit, seed: number): Sprite {
+export function renderScene(kit: StyleKit, seed: number, time?: TimeOfDay): Sprite {
   const gen = (id: string, p: object, s = 1) => {
     const g = GENERATORS.find((x) => x.id === id)!;
     return g.generate({ ...defaults(g), ...p } as never, kit, s);
@@ -39,7 +40,9 @@ export function renderScene(kit: StyleKit, seed: number): Sprite {
   const meta = map.meta as { spawns: { x: number; y: number }[]; playerStart: { x: number; y: number } };
   // ground only; deco and characters go through one y-sorted list
   const groundOnly: TileMap = { ...tm, deco: tm.deco.map(() => -1) };
-  const world = cloneSprite(renderTileMap(groundOnly));
+  let world = cloneSprite(renderTileMap(groundOnly));
+  // lighting (opt-in): shadows and reflections go under the y-sorted items, the grade over them
+  if (time) world = castLight(world, mapLitObjects(tm), kit, { seed });
 
   type Item = { sprite: Sprite; x: number; y: number; shadow?: number };
   const items: Item[] = mapObjects(tm).map((o) => {
@@ -122,6 +125,8 @@ export function renderScene(kit: StyleKit, seed: number): Sprite {
     blit(world, it.sprite, it.x, it.y);
   }
 
+  if (time) world = grade(world, kit, time, [{ x: hp.cx + 6, y: hp.base - 14, r: 34 }], seed);
+
   // floating text and nameplates are UI: above everything
   const put = (s: Sprite, x: number, y: number) => blit(world, s, Math.round(x), Math.round(y));
   const plate = (m: { cx: number; top: number }, p: object) => { const s = ui("nameplate", p); put(s, m.cx - s.w / 2, m.top - s.h - 1); };
@@ -173,11 +178,12 @@ function fillMinimap(mm: Sprite, r: { x: number; y: number; w: number; h: number
 
 if (process.argv[1]?.endsWith("mmo-scene.ts")) {
   const [, , out, kitId, seedArg] = process.argv;
+  const time = (process.env.TIME ?? "") as TimeOfDay | "";
   const jobs = out ? [[out, kitId ?? "kit-hd-rich"]] : [["docs/img/mmo-scene.png", "kit-hd-rich"], ["docs/img/mmo-scene-deep.png", "kit-hd-deep"]];
   for (const [file, id] of jobs) {
     const kit = KIT_PRESETS.find((k) => k.id === id);
     if (!kit) throw new Error(`unknown kit ${id}`);
-    savePng(file, [[renderScene(kit, Number(seedArg ?? process.env.SEED ?? 7))]], kit, SCALE);
+    savePng(file, [[renderScene(kit, Number(seedArg ?? process.env.SEED ?? 7), time || undefined)]], kit, SCALE);
     console.log(`wrote ${file}`);
   }
 }
