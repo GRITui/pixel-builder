@@ -97,7 +97,7 @@ Lift the Sprint 5 scene from "clean" to "alive": lighting, blossom trees, more c
 **Exit:** `docs/img/mmo-scene.png`, `mmo-scene-deep.png`, `mmo-scene-dusk.png` and the living `mmo-scene.gif`: a plateau with cliffs and stairs, a waterfall into the river, lit and animated; `bench/RESULTS.md` has a Sprint 6 section.
 
 ## Sprint 7: image reference support (epic #61)
-Hand the tool a reference (a photo, a game screenshot, concept art or pixel art) and it matches the style and subject while staying inside one kit. Style extraction works offline; vision needs `ANTHROPIC_API_KEY`.
+Also closes the farm quality gap: the `farm` biome predates the Sprint 5 MMO work. Hand the tool a reference (a photo, a game screenshot, concept art or pixel art) and it matches the style and subject while staying inside one kit. Style extraction works offline; vision needs `ANTHROPIC_API_KEY`.
 
 | Wave | Issue | Work | Owns |
 |---|---|---|---|
@@ -105,7 +105,10 @@ Hand the tool a reference (a photo, a game screenshot, concept art or pixel art)
 | 1 | #63 Kit from reference | Offline `analyzeReference`: palette (OKLab), ramp overrides, outline, light, shade steps, dither, pixel scale. Tool `kit_from_reference`. | new `core/refstyle.ts` |
 | 1 | #64 Vision plumbing | Image blocks in `callStructured`; `reference_ids` on vibe, kit, rig, pixels and inpaint; MCP prompt `match_reference`. | `server/`, `src/ai/client.ts`, `node/mcp.ts` |
 | 1 | #65 Pixel-art import | Grid and scale detection, exact downscale, background removal, sheet splitting; `import_image mode: pixel-art`. | new `core/pixelgrid.ts`, `ImportDialog.tsx` |
+| 1 | #69 Crops | 6+ species × growth stages (seed → ready, withered) for top-down fields, plus a `cropField` helper. | new `generators/crops.ts` |
+| 1 | #70 Open-land ground detail | Retune the `detail` pass for farm and meadow (no dark blotches); forest-mmo stays byte-identical. | `map-detail.ts` |
 | 2 | #66 Reference-guided generation | `reference_id` + `match` on `generate_asset`, `generate_variations` and `generate_rigged`; offline colour-to-slot/material mapping; AI propose, score and refine. | new `node/refgen.ts` |
+| 2 | #71 farm-mmo biome | Farm with HD trees, deep water, crops, orchard, woodland edge and a filled layout; farm exit scene with villagers at work. | new `map-farm.ts`, `scripts/farm-scene.ts` |
 | 2 | #67 Compare to reference | `styleDistance` score, the `compare_to_reference` tool with a side-by-side view, reference bench briefs. | `refstyle.ts` (append), bench |
 
-**Exit:** the half-brick house photo gives a matching building in one call; the MMO screenshot gives a close kit; a pixel-art sprite imports at its true size; results show a match score.
+**Exit:** the half-brick house photo gives a matching building in one call; the MMO screenshot gives a close kit; a pixel-art sprite imports at its true size; results show a match score; the farm scene looks as rich as the MMO scene.

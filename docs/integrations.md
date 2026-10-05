@@ -509,12 +509,12 @@ MMO HUD: `generate_asset` with `generator: "ui"` and `skin: "mmo-gold" | "mmo-st
 
 `get_style_guide`, `list_generators`, `generate_asset`, `generate_variations`,
 `paint_asset`, `edit_asset`, `edit_region` (change only a rect/cells region: your own legend `rows`, or a `prompt` for the server model when `ANTHROPIC_API_KEY` is set), `list_assets`, `get_asset`, `delete_asset`,
-`export_asset` (png, spritesheet, tiled, svg, aseprite, gif, tiled-tileset, godot, unity, atlas), `import_image`, `import_svg`, `list_kits`, `create_kit`, `update_kit` (refuses `locked` kits; fork with `create_kit`),
+`export_asset` (png, spritesheet, tiled, svg, aseprite, gif, tiled-tileset, godot, unity, atlas), `import_image` (`mode: pixel-art|auto` detects the pixel grid of upscaled pixel art and recovers the true size, `palette_mapping: ramps` keeps shading, `split` cuts a sheet into frames, `reference_id` imports a stored reference; `auto` is recommended for unknown sources, default is `resample`), `import_svg`, `add_reference` (path | url | base64, PNG/JPEG, 10 MB, 4096px; full PNG in `references/<id>.png`, preview in the project), `list_references`, `get_reference` (returns the preview image), `delete_reference`, `kit_from_reference` (offline: derive a kit from a PNG or `reference_id`, palette ramps + outline/light/shade/dither guesses + preview sheet), `list_kits`, `create_kit`, `update_kit` (refuses `locked` kits; fork with `create_kit`),
 `set_active_kit`, `rerender_assets` (`stale_only`), `list_rigs`, `list_clips`, `list_attachments`,
 `generate_rigged` (`directions: 4|8`; 8 adds 3/4 diagonal rows), `attach`, `create_rig`, `create_clip`, `create_attachment`, `generate_pack` (whole starter set in one call, e.g. `farming-v1`, `monsters-v1` (mushroom/slime/plant/bat/wolf/skeleton rigs `monster-*` with idle, walk, attack, hurt, die) `side-view-starter` for the `kit-side` platformer camera or `iso-starter` for the `kit-iso` isometric camera). `kit-iso` is the isometric camera (2:1 dimetric, 32x16 diamond tiles): generators `iso-tile`, `iso-prop`, `iso-building`, `isomap` (Tiled export `orientation: isometric` with a ground tile layer and a y-sorted `props` object layer), and rigged characters get rows `<clip>-se|sw|ne|nw` (`directions: 8` adds `s|e|n|w`); pack `iso-starter`. Under `kit-iso` the ordinary generators go isometric too: `building` (every style cottage/shop/tower/keep/barn/farmhouse/coop/stilt-house/half-brick and every `roof_style` gable/hip/flat/dome/spire/corrugated as an iso box on a 1x1..3x3 footprint chosen by `size`; meta `footprint`), `environment` (trees, palm, dead-tree, bushes, rocks, flowers, mushroom, tall-grass, crystal, stump, fences/gates and the ground/soil tiles as diamonds) and `object` (world props chest, chest-open, barrel, crate, torch = lamp post, sign, pot; inventory icons and tools stay flat). `iso-prop` also has well, haystack, gate-closed/open, crop (variant 0-3 = growth), lamp-post and tree-hd (a `foliage` species, `species`/`size` params, re-anchored on its trunk); `iso-tile` has kind `soil`. All iso sprites are bottom-centred so the footprint sits on the grid. `isomap` has a `village` param (extra cottages/barn/shop, well, crop field, haystack). The `iso-starter` pack includes them (docs/img/iso-village.png). `export_asset format=svg` writes a layered SVG (layer per material, per part for rigged assets, locked `guides` layer);
 `export_asset format=gif` writes `<slug>.gif` (or `<slug>.<row>.gif` per animation row; `row` picks one; `scale` upscales). Maps: generate with `animate: true` (+ `frames`, default 8) to store living frames. Demo: `npx tsx scripts/mmo-scene.ts --gif`. `export_asset format=aseprite` writes `<slug>.aseprite` (see section 14). `import_svg` reads it back: edit by layer, keep `data-material` attrs or use kit colours, the guides layer is ignored. MCP also exposes the resources
 `pixel-builder://project`, `pixel-builder://style-guide` and the prompt
-`asset_pack` (`game`, `count`) and `design_creature` (`description`, `family?`: pick a family or write a new rig, `create_rig` / `create_attachment` / `create_clip`, `generate_rigged` with idle + walk, look, fix; no API key needed). The web app's rigged-mode "Describe" box does the same with a server key via `POST /api/rig` (`{prompt, kit, base?}`). Inputs and outputs: see
+`asset_pack` (`game`, `count`) `match_reference` (`reference`, `subject?`: `get_reference`, `kit_from_reference`, generators, compare; no API key needed) and `design_creature` (`description`, `family?`: pick a family or write a new rig, `create_rig` / `create_attachment` / `create_clip`, `generate_rigged` with idle + walk, look, fix; no API key needed). The web app's rigged-mode "Describe" box does the same with a server key via `POST /api/rig` (`{prompt, kit, base?}`). Inputs and outputs: see
 [`BUILD_PLAN.md`](BUILD_PLAN.md) ("Agent tool contract") and the skill's cheat-sheet.
 
 **Text to animation clip.** Agents write the clip JSON themselves and call `create_clip` with `rig`
@@ -547,6 +547,30 @@ colour 1 = lower, 2 = upper), `godot` (`.tres` TileSet, terrain 0 = lower, 1 = u
 copy the PNG to `res://`), `unity` (`.rules.json`: slice `sprites` with top-left `rect` and
 bottom-left `unityRect`, per-tile `ruleNeighbors` in the order NW N NE W E SW S SE with 0 DontCare,
 1 This, 2 NotThis; "This" = upper) and `atlas` (`.atlas.json` index).
+
+## Reference images in the AI endpoints
+
+With `ANTHROPIC_API_KEY` set, `POST /api/vibe`, `/api/kit`, `/api/rig`, `/api/pixels` and `/api/inpaint`
+accept optional reference inputs:
+
+- `images`: up to 4 base64 strings or `data:image/...;base64,` URLs (PNG, JPEG, WebP, GIF; the type is sniffed from the bytes). PNGs over 1024px on the long side are downscaled on the server; other formats must be at most 3 MB each (6 MB total), so downscale JPEGs client-side (the web app does: 1024px, JPEG). Invalid images return 400, oversized 413. Request bodies may be up to 10 MB.
+- `reference_ids` (+ optional `project`): resolved by a server-side `ReferenceResolver` (`server/images.ts`, `setReferenceResolver`) once the reference library is wired; without a resolver they return 400.
+- `/api/kit` also takes an optional `analysis` object (offline `analyzeReference` output) that seeds the palette/ramp choice.
+
+The prompts say the image is a reference for subject and style only; colours must come from the kit,
+and outputs are still schema-validated (one repair round) and run through the kit (`finalize`, `coerceParams`).
+The web app shows an "Attach reference" button next to each AI action.
+
+Manual live smoke test (needs a key; the unit tests are mocked): start `npx tsx server/index.ts`, then
+send a half-brick house photo (any JPEG under 3 MB) to the building generator:
+
+```bash
+IMG=$(base64 -w0 house.jpg)
+curl -s localhost:8787/api/vibe -H 'content-type: application/json' -d "$(jq -n --arg i "$IMG" \
+  '{prompt:"match the reference",images:[$i],generator:{id:"building",label:"Building",description:"houses",params:[{key:"style",label:"Style",type:"select",options:["cottage","half-brick","tower"],default:"cottage"}]},kit:{}}')"
+```
+
+Expect `params.style` near `half-brick`, with roof/material params chosen from the kit.
 
 ## Where the skill goes (summary)
 
@@ -594,6 +618,14 @@ if a command fails the dialog shows the CLI's error text.
 ## Deep palette ramps
 
 `kit-hd-deep` (HD sizes, rich detail, `rampDepth` 9) shades volumes with 9 shades per material. `get_style_guide` then lists extra legend chars (non-ASCII, `level 0.5` ...) for the in-between shades; the 90 classic chars are unchanged. Aseprite export carries the full 172-entry palette (<= 256): indices 1..90 classic, 91..162 deep shades, 163..167 blossom levels, 168..171 blossom deep shades. The `blossom` material (pink; foliage sakura, flowers `accent: "blossom"`, `create_kit` `rampOverrides.blossom`) was appended after the original 18 so no existing index or legend char moved.
+
+## Crops
+
+`crop` makes top-down farm crops with growth stages (species wheat, corn, carrot, cabbage, tomato, pumpkin, strawberry, rice, sunflower; stage seed, sprout, growing, ready, withered; rows idle + sway). One-tile footprint; corn, sunflower and ripe wheat are taller and bottom-anchored. The `farming-v1` pack includes every species and stage (`crop-<species>-<stage>`). See `docs/img/crops.png`.
+
+```bash
+pixel-builder generate-asset crop --params species=pumpkin,stage=ready --seed 1 --name "pumpkin"
+```
 
 ## HD trees
 

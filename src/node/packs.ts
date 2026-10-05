@@ -99,6 +99,9 @@ const FARMING_V1: PackManifest = {
     g("ui-slot", "ui", { kind: "slot", material: "wood", style: "inset" }, ["ui"]),
     g("ui-button", "ui", { kind: "button", material: "wood" }, ["ui"]),
     g("ui-stamina", "ui", { kind: "bar", material: "wood", accent: "grass" }, ["ui", "hud"]),
+    // 5. crops: every species at each growth stage (appended; earlier entries unchanged)
+    ...(["wheat", "corn", "carrot", "cabbage", "tomato", "pumpkin", "strawberry", "rice", "sunflower"] as const).flatMap((species) =>
+      (["seed", "sprout", "growing", "ready", "withered"] as const).map((stage) => g(`crop-${species}-${stage}`, "crop", { species, stage }, ["environment", "crop", stage]))),
   ],
 };
 

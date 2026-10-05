@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AttachReference } from "./components/AttachReference";
 import { aiInpaint, aiStatus } from "../ai/client";
 import { applyOutline, stripOutline } from "../core/enforce";
 import type { Rect } from "../core/inpaint";
@@ -83,6 +84,7 @@ export function PixelEditor({ asset, kit, onSave, onClose }: PixelEditorProps) {
   // AI region edit: selection, prompt, key status and the pending preview (committed as one history step on Accept)
   const [sel, setSel] = useState<Rect | null>(null);
   const [aiPrompt, setAiPrompt] = useState("");
+  const [aiRef, setAiRef] = useState<string | null>(null);
   const [aiAll, setAiAll] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiError, setAiError] = useState("");
@@ -257,7 +259,7 @@ export function PixelEditor({ asset, kit, onSave, onClose }: PixelEditorProps) {
       for (const i of targets) {
         const f = row.frames[i];
         if (f.w !== frame.w || f.h !== frame.h) continue;
-        const r = await aiInpaint({ rows: encodeSprite(f, legend), mask: { rect: sel }, prompt: aiPrompt.trim(), kit });
+        const r = await aiInpaint({ rows: encodeSprite(f, legend), mask: { rect: sel }, prompt: aiPrompt.trim(), kit, images: aiRef ? [aiRef] : undefined });
         edits.push({ fi: i, rows: r.rows });
       }
       setProposal(applyRegionToRow(rows, ri, edits, sel, kit, true));
@@ -529,6 +531,7 @@ export function PixelEditor({ asset, kit, onSave, onClose }: PixelEditorProps) {
               onChange={(e) => setAiPrompt(e.target.value)}
               aria-label="Region edit prompt"
             />
+            <AttachReference value={aiRef} onChange={setAiRef} disabled={aiBusy || !!proposal} />
             {row.frames.length > 1 && (
               <label className="pe-check" title="Repaint the same region on every frame of this animation row (one model call per frame)">
                 <input type="checkbox" checked={aiAll} disabled={aiBusy || !!proposal} onChange={(e) => setAiAll(e.target.checked)} />Apply to all {row.frames.length} frames

@@ -3,24 +3,27 @@
 // (mcp.ts) and the CLI (cli.ts) are thin adapters over TOOLS, so tool names and
 // input fields are identical in both.
 import { fitRigToWorld } from "../core/rigs/fit";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { basename, extname, resolve } from "node:path";
 import { z } from "zod";
 import { createAsset } from "../core/asset";
 import { downscaleRGBA, finalize, materialsUsed, quantizeRGBA } from "../core/enforce";
 import { GENERATORS, generatorById } from "../core/generators";
 import { coerceParams, defaults, randomParams, type Generator, type ParamSpec, type Params } from "../core/generators/types";
-import { newId } from "../core/kit";
+import { newId, resolveRamps } from "../core/kit";
+import { analyzeReference, kitChangesFromAnalysis, type RefAnalysis } from "../core/refstyle";
+import { cropToContentImage, detectGrid, downscaleGrid, hasOutline, imageToSprite, makeRampMapper, padToCommon, removeBackgroundFlood, splitSheet, type GridInfo } from "../core/pixelgrid";
 import { applyRegionEdit, cellsMask, checkRegionRows, maskBounds, rectMask, regionContext } from "../core/inpaint";
 import { buildLegend, decodeRows, encodeSprite, legendText, type Legend } from "../core/legend";
-import { MATERIALS, PALETTES, RAMP_LEN, type Material } from "../core/palette";
+import { MATERIALS, PALETTES, RAMP_LEN, hexToRgb, type Material } from "../core/palette";
 import type { ProjectFile } from "../core/project";
 import { rigSvgInfo, svgToSprites } from "../core/svg";
 import { renderRig, renderRigFrame, validateRig, type Attachment, type Clip, type RigDef, type RigRecipe } from "../core/rig";
 import { ATTACHMENTS, CLIPS, RIGS, withHumanoidDefaults } from "../core/rigs";
 import { randomSeed, rng } from "../core/rng";
-import { CATEGORIES, type Asset, type Category, type Sprite, type StyleKit } from "../core/types";
-import { decodePng, contactSheet, encodePng, previewScale, sheetImage, spriteImage, type RgbaImage } from "./png";
+import { CATEGORIES, type Asset, type Category, type Reference, type Sprite, type StyleKit } from "../core/types";
+import { blankImage, decodePng, contactSheet, encodePng, previewScale, sheetImage, spriteImage, type RgbaImage } from "./png";
+import { decodeBase64Image, fetchImage, loadReferenceImage, findReference, referenceFile, referencePreviewPng, removeReferenceFile, safeInputPath, storeReference } from "./refs";
 import { isRigged, packById, PACKS, type PackEntry } from "./packs";
 import {
   ToolError, Workspace, assetFiles, exportAsset as exportAssetRaw, findAsset, getKit, isAnimated, kitOf, removeAssetFiles,
@@ -797,69 +800,121 @@ function cropToContent(img: RgbaImage): RgbaImage {
   return { width: w, height: h, rgba: out };
 }
 
+/** A stored reference (full-size file when present, else its preview) as a decoded image for import_image. */
+function importReference(ws: Workspace, id: string): { image: RgbaImage; name: string } {
+  const ref = findReference(ws.load(), id);
+  const im = loadReferenceImage(ws, id);
+  return { image: { width: im.w, height: im.h, rgba: new Uint8Array(im.data.buffer, im.data.byteOffset, im.data.length) }, name: ref.name };
+}
+
 const importImage = defineTool({
   name: "import_image",
   title: "Import image",
   description:
-    "Import a PNG (e.g. AI-generated art or a mock-up) as an asset: optionally remove its background and crop to content, fit it into width x height, then snap every pixel to the kit palette so it matches the rest. Saves and exports it.",
+    "Import a PNG (e.g. AI-generated art or a mock-up) as an asset: optionally remove its background and crop to content, fit it into width x height, then snap every pixel to the kit palette so it matches the rest. Saves and exports it. " +
+    "mode 'pixel-art' is for pixel art that was upscaled (screenshots, scaled sprites, even JPEG-noisy): it detects the grid, recovers the true 1:1 pixels by per-cell vote (width/height then optional: omitted = true size) and reports scale/offset/confidence. " +
+    "mode 'auto' uses pixel-art when a grid is found (scale >= 2, confidence >= 0.6), else resample. Default 'resample' (photos, concept art). " +
+    "palette_mapping 'ramps' keeps shading by giving each source hue one material ramp. split cuts a sheet into frames (one row of an asset).",
   shape: {
-    path: z.string().describe("Path to a PNG file (relative to the current directory)."),
-    width: z.number().int().min(1).max(256).describe("Target width in pixels."),
-    height: z.number().int().min(1).max(256).describe("Target height in pixels."),
+    path: z.string().optional().describe("Path to a PNG file (relative to the current directory). Required unless reference_id is given."),
+    reference_id: z.string().optional().describe("Use a stored reference image instead of path (needs the reference library)."),
+    width: z.number().int().min(1).max(256).optional().describe("Target width in pixels. Required for mode resample; in pixel-art mode omit to keep the true size."),
+    height: z.number().int().min(1).max(256).optional().describe("Target height in pixels. Required for mode resample; in pixel-art mode omit to keep the true size."),
     category: categoryEnum,
     name: z.string().min(1).max(80).optional().describe("Default: the file name."),
+    mode: z.enum(["resample", "pixel-art", "auto"]).default("resample").describe("resample = fit and snap (default); pixel-art = detect the grid and recover the 1:1 image; auto = pixel-art if a grid is found."),
+    palette_mapping: z.enum(["nearest", "ramps"]).default("nearest").describe("nearest = closest kit colour (OKLab); ramps = keep shading by mapping each source hue onto one material ramp."),
+    split: z.boolean().default(false).describe("Treat the image as a sheet: split into frames (equal lattice cells or content islands) and import them as one animation row. Needs a transparent background or remove_background."),
     remove_background: z.boolean().default(false).describe("Make the background (flood-filled from the image border, colour of the top-left pixel) transparent."),
     crop: z.boolean().default(false).describe("Crop to the non-transparent content before fitting."),
-    outline: z.boolean().default(true).describe("Add the kit's outline (set false if the image already has one). Reserves a 1px margin."),
+    outline: z.boolean().optional().describe("Add the kit's outline (default true; in pixel-art mode default is auto: off when the art already has a dark outline). Reserves a 1px margin."),
     kit_id: kitIdField,
   },
   positional: "path",
   run(ws, i) {
-    const file = resolve(i.path);
-    let buf: Buffer;
-    try {
-      buf = readFileSync(file);
-    } catch (e) {
-      throw new ToolError(`Cannot read '${file}': ${(e as Error).message}`);
-    }
     let img: RgbaImage;
-    try {
-      img = decodePng(buf);
-    } catch (e) {
-      throw new ToolError(`'${file}': ${(e as Error).message}`);
+    let stem: string;
+    if (i.reference_id) {
+      const ref = importReference(ws, i.reference_id);
+      img = ref.image;
+      stem = ref.name;
+    } else {
+      if (!i.path) throw new ToolError("Pass path (a PNG file) or reference_id.");
+      const file = resolve(i.path);
+      let buf: Buffer;
+      try {
+        buf = readFileSync(file);
+      } catch (e) {
+        throw new ToolError(`Cannot read '${file}': ${(e as Error).message}`);
+      }
+      try {
+        img = decodePng(buf);
+      } catch (e) {
+        throw new ToolError(`'${file}': ${(e as Error).message}`);
+      }
+      stem = file.split(/[\\/]/).pop()!.replace(/\.png$/i, "");
     }
     const notes: string[] = [];
-    if (i.remove_background) img = removeBackground(img);
-    else if (!img.rgba.some((_, k) => k % 4 === 3 && img.rgba[k] < 128)) notes.push("image is fully opaque; pass remove_background=true to cut out a flat background");
-    if (i.crop) img = cropToContent(img);
+
+    // pixel-art: find the grid on the raw image, then work 1:1
+    let mode: "resample" | "pixel-art" = i.mode === "pixel-art" ? "pixel-art" : "resample";
+    let grid: GridInfo | undefined;
+    if (i.mode !== "resample") {
+      grid = detectGrid(img);
+      if (i.mode === "auto") mode = grid.scale >= 2 && grid.confidence >= 0.6 ? "pixel-art" : "resample";
+      else if (grid.scale < 2 || grid.confidence < 0.5) notes.push(`no pixel grid found (scale ${grid.scale}, confidence ${grid.confidence.toFixed(2)}); the image was imported at its own pixel size`);
+    }
+    if (mode === "pixel-art") img = downscaleGrid(img, grid!) as RgbaImage;
+    if (mode === "resample" && (i.width === undefined || i.height === undefined)) throw new ToolError("width and height are required (only pixel-art mode can keep the true size).");
+
+    const hasAlpha = img.rgba.some((_, k) => k % 4 === 3 && img.rgba[k] < 128);
+    if (i.remove_background) img = mode === "pixel-art" ? removeBackgroundFlood(img) as RgbaImage : removeBackground(img);
+    else if (!hasAlpha) notes.push("image is fully opaque; pass remove_background=true to cut out a flat background");
+    if (i.crop && !i.split) img = cropToContent(img);
+
+    let parts: RgbaImage[] = [img];
+    if (i.split) {
+      const sp = splitSheet(img);
+      if (sp.frames.length) {
+        parts = padToCommon(sp.frames.map((f) => cropToContentImage(f.image) as RgbaImage), "bottom") as RgbaImage[];
+        notes.push(`split into ${parts.length} frame(s) (${sp.layout}${sp.cols ? `, ${sp.cols}x${sp.rows}` : ""})`);
+      } else notes.push("split found no content; importing the image as one frame");
+    }
 
     const project = ws.load();
     const kit = getKit(project, i.kit_id);
-    const m = i.outline ? 1 : 0;
-    const bw = Math.max(1, i.width - 2 * m), bh = Math.max(1, i.height - 2 * m);
-    const k = Math.min(bw / img.width, bh / img.height);
-    const iw = Math.max(1, Math.round(img.width * k)), ih = Math.max(1, Math.round(img.height * k));
-    const fitted = iw === img.width && ih === img.height ? img.rgba : downscaleRGBA(new Uint8ClampedArray(img.rgba.buffer, img.rgba.byteOffset, img.rgba.length), img.width, img.height, iw, ih);
-    const canvas = new Uint8ClampedArray(i.width * i.height * 4);
-    const ox = Math.floor((i.width - iw) / 2);
-    const oy = i.category === "ui" ? Math.floor((i.height - ih) / 2) : i.height - ih - m;
-    for (let y = 0; y < ih; y++) canvas.set(fitted.subarray(y * iw * 4, (y + 1) * iw * 4), ((oy + y) * i.width + ox) * 4);
-    const sprite = finalize(quantizeRGBA(canvas, i.width, i.height, kit), kit, { outline: i.outline, cleanup: true });
-    if (!sprite.data.some((v) => v > 0)) throw new ToolError("The imported image ended up empty (fully transparent). Check remove_background / the source image.");
-    const stem = file.split(/[\\/]/).pop()!.replace(/\.png$/i, "");
+    const outline = i.outline ?? (mode === "pixel-art" ? !hasOutline(img) : true);
+    const m = outline ? 1 : 0;
+    const W = i.width ?? parts[0].width + 2 * m, H = i.height ?? parts[0].height + 2 * m;
+    const mapper = i.palette_mapping === "ramps" ? makeRampMapper(parts, resolveRamps(kit)) : undefined;
+    const frames = parts.map((part) => {
+      const bw = Math.max(1, W - 2 * m), bh = Math.max(1, H - 2 * m);
+      // pixel-art keeps 1:1 unless it does not fit; resample may scale either way as before
+      const k = mode === "pixel-art" ? Math.min(1, bw / part.width, bh / part.height) : Math.min(bw / part.width, bh / part.height);
+      const iw = Math.max(1, Math.round(part.width * k)), ih = Math.max(1, Math.round(part.height * k));
+      const fitted = iw === part.width && ih === part.height ? part.rgba : downscaleRGBA(new Uint8ClampedArray(part.rgba.buffer, part.rgba.byteOffset, part.rgba.length), part.width, part.height, iw, ih);
+      const canvas = new Uint8ClampedArray(W * H * 4);
+      const ox = Math.floor((W - iw) / 2);
+      const oy = i.category === "ui" ? Math.floor((H - ih) / 2) : H - ih - m;
+      for (let y = 0; y < ih; y++) canvas.set(fitted.subarray(y * iw * 4, (y + 1) * iw * 4), ((oy + y) * W + ox) * 4);
+      const raw = mapper ? imageToSprite({ width: W, height: H, rgba: canvas }, mapper) : quantizeRGBA(canvas, W, H, kit);
+      return finalize(raw, kit, { outline, cleanup: true });
+    });
+    if (!frames.some((f) => f.data.some((v) => v > 0))) throw new ToolError("The imported image ended up empty (fully transparent). Check remove_background / the source image.");
     const asset = createAsset({
       name: i.name ?? stem,
       category: i.category,
       kit,
-      rows: [{ name: "idle", frames: [sprite] }],
-      fps: 1,
+      rows: [{ name: "idle", frames }],
+      fps: frames.length > 1 ? 8 : 1,
       source: { kind: "import" },
-      meta: i.outline ? undefined : { outline: false },
+      meta: outline ? undefined : { outline: false },
     });
     project.assets.push(asset);
     ws.save(project);
     const files = absPaths(exportAsset(ws, project, asset));
-    return { data: { asset: { ...summarize(ws, project, asset), files }, ...(notes.length ? { notes } : {}) }, images: [previewOf(asset, kit)] };
+    const detected = grid ? { scale: grid.scale, offset_x: grid.offsetX, offset_y: grid.offsetY, confidence: Math.round(grid.confidence * 100) / 100 } : undefined;
+    return { data: { asset: { ...summarize(ws, project, asset), files }, ...(i.mode !== "resample" ? { mode, grid: detected } : {}), ...(notes.length ? { notes } : {}) }, images: [previewOf(asset, kit)] };
   },
 });
 
@@ -1454,9 +1509,206 @@ const generatePack = defineTool({
   },
 });
 
+// ---------- reference library ----------
+
+const refSummary = (r: Reference) => ({ id: r.id, name: r.name, tags: r.tags, width: r.width, height: r.height, source: r.source });
+
+const addReference = defineTool({
+  name: "add_reference",
+  title: "Add reference image",
+  description:
+    "Add a reference image (mood board / style target) to the project's reference library. Give exactly one of path (PNG/JPEG file), url (http/https, max 10 MB, 15 s) or base64 (PNG/JPEG, optionally a data: URI). Max 4096px per side; WebP/GIF only work in the web app. The full PNG is saved to <workspace>/references/<id>.png and a <=512px preview syncs with the project. Look at it with get_reference.",
+  shape: {
+    path: z.string().optional().describe("Path to a .png/.jpg/.jpeg file (relative to the current directory; '..' segments are rejected)."),
+    url: z.string().optional().describe("http(s) URL of a PNG or JPEG."),
+    base64: z.string().optional().describe("Base64 of a PNG or JPEG (data: URIs accepted)."),
+    name: z.string().min(1).max(80).optional().describe("Default: the file/URL name."),
+    tags: z.array(z.string().min(1).max(40)).max(20).default([]).describe("Free tags, e.g. ['palette','character','mood']."),
+  },
+  positional: "path",
+  async: true,
+  async run(ws, i) {
+    const given = [i.path, i.url, i.base64].filter((x) => x !== undefined).length;
+    if (given !== 1) throw new ToolError("Give exactly one of path, url or base64.");
+    let buf: Buffer, source: Reference["source"], stem: string;
+    if (i.path !== undefined) {
+      const file = safeInputPath(i.path);
+      try {
+        buf = readFileSync(file);
+      } catch (e) {
+        throw new ToolError(`Cannot read '${file}': ${(e as Error).message}`);
+      }
+      source = { kind: "path", value: i.path };
+      stem = file.split(/[\\/]/).pop()!.replace(/\.[^.]+$/, "");
+    } else if (i.url !== undefined) {
+      buf = await fetchImage(i.url);
+      source = { kind: "url", value: i.url };
+      stem = (new URL(i.url).pathname.split("/").pop() || "reference").replace(/\.[^.]+$/, "");
+    } else {
+      buf = decodeBase64Image(i.base64!);
+      source = { kind: "paste", value: "" };
+      stem = "reference";
+    }
+    const project = ws.load();
+    const ref = storeReference(ws, project, buf, { name: i.name ?? (stem || "reference"), tags: i.tags, source });
+    ws.save(project);
+    return { data: { reference: refSummary(ref), file: ws.rel(referenceFile(ws, ref.id)) }, images: [{ png: referencePreviewPng(ref), label: ref.id }] };
+  },
+});
+
+const listReferences = defineTool({
+  name: "list_references",
+  title: "List reference images",
+  description: "List the project's reference images (id, name, tags, size, source). Optionally filter by tag.",
+  shape: { tag: z.string().optional().describe("Only references with this tag.") },
+  positional: "tag",
+  readOnly: true,
+  run(ws, i) {
+    const refs = (ws.load().references ?? []).filter((r) => !i.tag || r.tags.includes(i.tag));
+    return { data: { count: refs.length, references: refs.map(refSummary) } };
+  },
+});
+
+const getReference = defineTool({
+  name: "get_reference",
+  title: "Get reference image",
+  description: "Show one reference image (returns the <=512px preview as an image) with its metadata and file path.",
+  shape: { id: z.string().describe("Reference id (or exact name).") },
+  positional: "id",
+  readOnly: true,
+  run(ws, i) {
+    const ref = findReference(ws.load(), i.id);
+    const file = referenceFile(ws, ref.id);
+    return { data: { ...refSummary(ref), createdAt: ref.createdAt, file: existsSync(file) ? ws.rel(file) : null }, images: [{ png: referencePreviewPng(ref), label: ref.id }] };
+  },
+});
+
+const deleteReference = defineTool({
+  name: "delete_reference",
+  title: "Delete reference image",
+  description: "Remove a reference image from the project and delete its stored file.",
+  shape: { id: z.string().describe("Reference id (or exact name).") },
+  positional: "id",
+  destructive: true,
+  run(ws, i) {
+    const project = ws.load();
+    const ref = findReference(project, i.id);
+    removeReferenceFile(ws, ref.id);
+    project.references = (project.references ?? []).filter((r) => r.id !== ref.id);
+    ws.save(project);
+    return { data: { ok: true, deleted: { id: ref.id, name: ref.name } } };
+  },
+});
+
+// ---------- kit from reference (#63) ----------
+
+/** Loads a stored reference image by id. TODO(integrator, #62): call `setReferenceLoader((ws, id) => loadReferenceImage(ws, id))` once node/refs.ts exists. */
+export type ReferenceLoader = (ws: Workspace, id: string) => RgbaImage;
+let referenceLoader: ReferenceLoader | undefined = (ws, id) => {
+  const im = loadReferenceImage(ws, id);
+  return { width: im.w, height: im.h, rgba: new Uint8Array(im.data.buffer, im.data.byteOffset, im.data.length) };
+};
+export function setReferenceLoader(fn: ReferenceLoader | undefined): void {
+  referenceLoader = fn;
+}
+
+const REF_SHEET: [string, Record<string, unknown>][] = [["character", {}], ["environment", { kind: "oak" }], ["building", {}], ["environment", { kind: "grass-tile" }]];
+
+function refAnalysisSummary(a: RefAnalysis, matched: string[]) {
+  return {
+    image: `${a.size.w}x${a.size.h}`,
+    pixel_scale: a.pixelScale,
+    palette: a.palette.map((p) => `${p.hex} ${(p.weight * 100).toFixed(1)}%`),
+    limited_palette: a.limited,
+    matched_materials: matched,
+    outline: a.outline.mode,
+    light: a.light.dir,
+    shade_steps: a.shadeSteps,
+    dither: a.dither.enabled,
+    suggested: { detail: a.suggest.detail, rampDepth: a.suggest.rampDepth, note: "Not applied (both hue-shift the ramps again); set them with update_kit if the reference looks that rich." },
+  };
+}
+
+/** Palette strip (dominant colours) under a thumbnail of the reference, so the sheet shows source and result together. */
+function referenceStrip(img: RgbaImage, a: RefAnalysis): RgbaImage {
+  const k = Math.min(1, 140 / img.height);
+  const tw = Math.max(1, Math.round(img.width * k)), th = Math.max(1, Math.round(img.height * k));
+  const thumb = k === 1 ? img.rgba : Uint8Array.from(downscaleRGBA(new Uint8ClampedArray(img.rgba.buffer, img.rgba.byteOffset, img.rgba.length), img.width, img.height, tw, th));
+  const sw = 14, cols = Math.min(a.palette.length, 16);
+  const out = blankImage(Math.max(tw, cols * sw), th + sw + 2, [40, 38, 52, 255]);
+  for (let y = 0; y < th; y++) out.rgba.set(thumb.subarray(y * tw * 4, (y + 1) * tw * 4), y * out.width * 4);
+  a.palette.slice(0, cols).forEach((p, i) => {
+    const [r, g, b] = hexToRgb(p.hex);
+    for (let y = th + 2; y < th + 2 + sw; y++) for (let x = i * sw; x < (i + 1) * sw; x++) out.rgba.set([r, g, b, 255], (y * out.width + x) * 4);
+  });
+  return out;
+}
+
+const kitFromReference = defineTool({
+  name: "kit_from_reference",
+  title: "Kit from reference",
+  description:
+    "Derive a style kit from a reference image, offline (no API key): dominant colours become per-material ramp overrides (materials whose colour family is absent keep the base palette), plus outline, light direction, shade steps and dither guesses. Pixel art that was upscaled is detected. Creates the kit (not activated) and returns a preview sheet (character, tree, house, grass tile) and a reference/palette strip so you can compare, with an analysis summary. Fine-tune with update_kit.",
+  shape: {
+    path: z.string().optional().describe("Path to a PNG reference (relative to the current directory)."),
+    reference_id: z.string().optional().describe("Id of a stored reference (see list_references) instead of `path`."),
+    name: z.string().min(1).max(60).optional().describe("Kit name. Default: from the file / reference name."),
+    base_kit_id: z.string().optional().describe("Kit to copy sizes, camera and fallback palette from. Default: the active kit."),
+    apply: z.enum(["palette", "all"]).default("all").describe("palette = only colours (ramp overrides); all = also outline, light, shade steps, dither and a vibe note."),
+    strength: z.number().min(0).max(1).default(1).describe("0..1: how far the ramps move from the base palette toward the reference."),
+    palette_size: z.number().int().min(8).max(32).default(16).describe("Dominant colours to extract."),
+  },
+  positional: "path",
+  run(ws, i) {
+    if (!i.path === !i.reference_id) throw new ToolError("Pass exactly one of `path` (a PNG file) or `reference_id`.");
+    let img: RgbaImage, label: string;
+    if (i.path) {
+      const file = resolve(i.path);
+      try {
+        img = decodePng(readFileSync(file));
+      } catch (e) {
+        throw new ToolError(`Cannot read PNG '${file}': ${(e as Error).message}`);
+      }
+      label = basename(file, extname(file));
+    } else {
+      if (!referenceLoader) throw new ToolError("reference_id needs the reference library, which is not available here; pass `path` instead.");
+      img = referenceLoader(ws, i.reference_id!);
+      label = i.reference_id!;
+    }
+    const project = ws.load();
+    const base = getKit(project, i.base_kit_id);
+    const baseRamps = resolveRamps({ ...base, rampDepth: 5, detail: "standard" });
+    const a = analyzeReference({ w: img.width, h: img.height, data: img.rgba }, { paletteSize: i.palette_size, baseRamps });
+    if (a.solidPixels === 0) throw new ToolError("The reference has no opaque pixels to analyse.");
+
+    const { locked: _l, version: _v, ...baseRest } = base;
+    const changes = kitChangesFromAnalysis(a, baseRamps, { apply: i.apply, strength: i.strength, label });
+    const kit: StyleKit = {
+      ...(baseRest as StyleKit),
+      ...changes,
+      id: newId("kit"),
+      name: i.name ?? `${label} (from reference)`,
+      rampOverrides: { ...base.rampOverrides, ...changes.rampOverrides },
+    };
+    project.kits.push(kit);
+    ws.save(project);
+
+    const sprites = REF_SHEET.map(([id, p], n) => {
+      const g = generatorById(id)!;
+      return g.generate(coerceParams(g, p), kit, 3 + n).rows[0].frames[0];
+    });
+    const matched = MATERIALS.filter((m) => a.rampOverrides[m]);
+    return {
+      data: { kit, analysis: refAnalysisSummary(a, matched), note: `Created '${kit.id}' from ${i.path ?? i.reference_id} (not activated: set_active_kit, then generate). Unmatched materials ${i.apply === "all" ? "were harmonised toward the reference saturation" : "keep the base palette"}.` },
+      images: [png(contactSheet(sprites, kit, { columns: 4, numbers: false }), "kit-from-reference"), png(referenceStrip(img, a), "reference-palette")],
+    };
+  },
+});
+
 export const TOOLS: ToolDef[] = [
   getStyleGuide, listGenerators, generateAsset, generateVariations, paintAsset, editAsset, editRegion, listAssets, getAsset,
   deleteAsset, exportAssetTool, importImage, listKits, createKit, updateKit, setActiveKit, rerenderAssets,
   listRigs, listClips, listAttachments, generateRigged, attach, createRig, createClip, createAttachment,
   generatePack, importSvg,
+  addReference, listReferences, getReference, deleteReference, kitFromReference,
 ];

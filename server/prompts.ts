@@ -364,3 +364,16 @@ export function parseKit(raw: unknown): { kit: Partial<StyleKit>; notes: string 
   return { kit, notes: cleanText(o.notes, 300) };
 }
 
+
+/** Optional offline analysis of a reference (from analyzeReference), appended as data to a kit prompt. */
+export function withAnalysis(user: string, analysis: unknown): string {
+  if (!isObj(analysis)) return user;
+  let json = "";
+  try {
+    json = JSON.stringify(analysis);
+  } catch {
+    return user;
+  }
+  if (!json || json === "{}") return user;
+  return `${user}\n\nOffline analysis of the reference (measured data, use it to seed the palette and ramps):\n${json.slice(0, 3000)}`;
+}

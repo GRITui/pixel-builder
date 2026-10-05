@@ -1,8 +1,10 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { AttachReference } from "./AttachReference";
 import { vibeKit } from "../../ai/client";
 import { generatorById, coerceParams, type GenResult } from "../../core/generators";
 import { ALL_KIT_PRESETS as KIT_PRESETS, resolveRamps } from "../../core/kit";
 import { MATERIALS, PALETTES, RAMP_LEN, type Material } from "../../core/palette";
+import { analyzeReference, kitChangesFromAnalysis } from "../../core/refstyle";
 import type { LightDir, OutlineMode, StyleKit } from "../../core/types";
 import { paletteFor } from "../render";
 import { aiOffReason, Modal } from "./common";
@@ -72,6 +74,7 @@ export function KitEditor(props: {
   useEffect(() => setDraft(active), [active]);
   const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(active), [draft, active]);
   const [styleText, setStyleText] = useState("");
+  const [refImg, setRefImg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ text: string; error?: boolean } | null>(null);
 
@@ -104,7 +107,7 @@ export function KitEditor(props: {
     setBusy(true);
     setMsg(null);
     try {
-      const r = await vibeKit({ prompt: styleText.trim(), kit: draft });
+      const r = await vibeKit({ prompt: styleText.trim(), kit: draft, images: refImg ? [refImg] : undefined });
       setDraft((d) => {
         const k = r.kit;
         const paletteChanged = k.paletteId !== undefined && k.paletteId !== d.paletteId;
@@ -122,6 +125,29 @@ export function KitEditor(props: {
       setMsg({ text: e instanceof Error ? e.message : String(e), error: true });
     } finally {
       setBusy(false);
+    }
+  };
+
+  const [refSize, setRefSize] = useState(16);
+  const [refStrength, setRefStrength] = useState(1);
+  const fromReference = async (blob: Blob | undefined, label: string) => {
+    if (!blob || active.locked) return;
+    setMsg(null);
+    try {
+      const bmp = await createImageBitmap(blob);
+      const cv = document.createElement("canvas");
+      cv.width = bmp.width;
+      cv.height = bmp.height;
+      const ctx = cv.getContext("2d")!;
+      ctx.drawImage(bmp, 0, 0);
+      const px = ctx.getImageData(0, 0, cv.width, cv.height);
+      const baseRamps = resolveRamps({ ...draft, rampDepth: 5, detail: "standard" });
+      const a = analyzeReference({ w: px.width, h: px.height, data: px.data }, { paletteSize: refSize, baseRamps });
+      const changes = kitChangesFromAnalysis(a, baseRamps, { apply: "all", strength: refStrength, label });
+      setDraft((d) => ({ ...d, ...changes, rampOverrides: { ...d.rampOverrides, ...changes.rampOverrides } }));
+      setMsg({ text: `Matched ${Object.keys(a.rampOverrides).length} materials from ${a.palette.length} colours (outline ${a.outline.mode}, light ${a.light.dir}${a.pixelScale > 1 ? `, pixel art x${a.pixelScale}` : ""}). Review it, then save.` });
+    } catch (e) {
+      setMsg({ text: e instanceof Error ? e.message : String(e), error: true });
     }
   };
 
@@ -192,8 +218,39 @@ export function KitEditor(props: {
                 {busy ? "Thinking…" : "✦ Apply"}
               </button>
             </div>
+            <AttachReference value={refImg} onChange={setRefImg} disabled={busy} />
             {!aiOn && <p className="hint">{aiTitle}</p>}
             {msg && <p className={msg.error ? "error" : "notes"}>{msg.text}</p>}
+          </fieldset>
+
+          <fieldset onPaste={(e) => fromReference(Array.from(e.clipboardData.files).find((f) => f.type.startsWith("image/")), "pasted image")}>
+            <legend>Make kit from reference</legend>
+            <div className="row">
+              <label className="file-button">
+                <input
+                  type="file"
+                  accept="image/*"
+                  aria-label="Reference image"
+                  disabled={!!active.locked}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    void fromReference(f, f?.name.replace(/\.[^.]+$/, "") ?? "");
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+            </div>
+            <div className="grid2">
+              <label>
+                Palette size · {refSize}
+                <input type="range" min={8} max={32} step={1} value={refSize} onChange={(e) => setRefSize(Number(e.target.value))} />
+              </label>
+              <label>
+                Strength · {refStrength.toFixed(2)}
+                <input type="range" min={0} max={1} step={0.05} value={refStrength} onChange={(e) => setRefStrength(Number(e.target.value))} />
+              </label>
+            </div>
+            <p className="hint">Pick or paste an image: colours, outline and light are read offline and applied to the unsaved kit.</p>
           </fieldset>
 
           <fieldset>

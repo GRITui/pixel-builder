@@ -26,6 +26,18 @@ export interface PixelsResult {
   sprite: Sprite;
 }
 
+/** Optional reference inputs shared by the AI calls: data-URL images and/or library reference ids. */
+export interface ReferenceArgs {
+  images?: string[];
+  referenceIds?: string[];
+  project?: string;
+}
+export const refBody = (a: ReferenceArgs) => ({
+  ...(a.images?.length ? { images: a.images.slice(0, 4) } : {}),
+  ...(a.referenceIds?.length ? { reference_ids: a.referenceIds } : {}),
+  ...(a.project && a.referenceIds?.length ? { project: a.project } : {}),
+});
+
 const STATUS_TIMEOUT_MS = 5_000;
 const CALL_TIMEOUT_MS = 240_000;
 
@@ -69,7 +81,7 @@ export async function aiStatus(): Promise<AiStatus> {
  * "Vibe" mode: natural language -> parameters for a procedural generator.
  * Output always goes through the same generator + kit, so it stays on-style.
  */
-export async function vibeParams(args: { prompt: string; generator: Generator; kit: StyleKit; current?: Params }): Promise<VibeResult> {
+export async function vibeParams(args: { prompt: string; generator: Generator; kit: StyleKit; current?: Params } & ReferenceArgs): Promise<VibeResult> {
   const { generator } = args;
   const r = await request<{ name?: unknown; params?: unknown; notes?: unknown }>("/api/vibe", {
     method: "POST",
@@ -79,6 +91,7 @@ export async function vibeParams(args: { prompt: string; generator: Generator; k
       generator: { id: generator.id, label: generator.label, description: generator.description, params: generator.params },
       kit: args.kit,
       current: args.current,
+      ...refBody(args),
     },
   });
   const raw = r.params && typeof r.params === "object" ? (r.params as Record<string, unknown>) : {};
@@ -94,11 +107,11 @@ export async function vibeParams(args: { prompt: string; generator: Generator; k
  * palette; result is then run through the enforcement pass (outline etc).
  * `references` (e.g. library sprites) are sent as style examples.
  */
-export async function aiPixels(args: { prompt: string; category: Category; w: number; h: number; kit: StyleKit; references?: Sprite[] }): Promise<PixelsResult> {
+export async function aiPixels(args: { prompt: string; category: Category; w: number; h: number; kit: StyleKit; references?: Sprite[] } & ReferenceArgs): Promise<PixelsResult> {
   const r = await request<{ name?: unknown; sprite?: Partial<Sprite> }>("/api/pixels", {
     method: "POST",
     timeoutMs: CALL_TIMEOUT_MS,
-    body: { prompt: args.prompt, category: args.category, w: args.w, h: args.h, kit: args.kit, references: args.references?.slice(0, 2) },
+    body: { prompt: args.prompt, category: args.category, w: args.w, h: args.h, kit: args.kit, references: args.references?.slice(0, 2), ...refBody(args) },
   });
   const s = r.sprite;
   if (!s || !Number.isInteger(s.w) || !Number.isInteger(s.h) || !Array.isArray(s.data) || s.data.length !== (s.w as number) * (s.h as number)) {
@@ -109,11 +122,11 @@ export async function aiPixels(args: { prompt: string; category: Category; w: nu
 }
 
 /** "Describe a style": natural language -> a partial style kit (palette, outline, light, ramp tweaks...). */
-export async function vibeKit(args: { prompt: string; kit: StyleKit }): Promise<{ kit: Partial<StyleKit>; notes: string }> {
+export async function vibeKit(args: { prompt: string; kit: StyleKit; /** Offline analysis of the reference (analyzeReference output). */ analysis?: unknown } & ReferenceArgs): Promise<{ kit: Partial<StyleKit>; notes: string }> {
   const r = await request<{ kit?: unknown; notes?: unknown }>("/api/kit", {
     method: "POST",
     timeoutMs: CALL_TIMEOUT_MS,
-    body: { prompt: args.prompt, kit: args.kit },
+    body: { prompt: args.prompt, kit: args.kit, ...(args.analysis ? { analysis: args.analysis } : {}), ...refBody(args) },
   });
   return {
     kit: r.kit && typeof r.kit === "object" ? (r.kit as Partial<StyleKit>) : {},
@@ -130,11 +143,11 @@ export async function aiInpaint(args: {
   mask: { rect: { x: number; y: number; w: number; h: number } } | { cells: [number, number][] };
   prompt: string;
   kit: StyleKit;
-}): Promise<{ rect: { x: number; y: number; w: number; h: number }; rows: string[] }> {
+} & ReferenceArgs): Promise<{ rect: { x: number; y: number; w: number; h: number }; rows: string[] }> {
   const r = await request<{ rect?: { x: number; y: number; w: number; h: number }; rows?: unknown }>("/api/inpaint", {
     method: "POST",
     timeoutMs: CALL_TIMEOUT_MS,
-    body: { rows: args.rows, mask: args.mask, prompt: args.prompt, kit: args.kit },
+    body: { rows: args.rows, mask: args.mask, prompt: args.prompt, kit: args.kit, ...refBody(args) },
   });
   if (!r.rect || !Array.isArray(r.rows) || !r.rows.every((x) => typeof x === "string")) throw new Error("The server returned a malformed edit.");
   return { rect: r.rect, rows: r.rows as string[] };
@@ -170,11 +183,11 @@ export interface RigAuthorResult {
  * "Describe a character": text -> a rigged character or creature (a new rig, or a registry rig plus
  * new attachments). The server validates the result; the caller stores it in the project.
  */
-export async function aiRig(args: { prompt: string; kit: StyleKit; base?: string }): Promise<RigAuthorResult> {
+export async function aiRig(args: { prompt: string; kit: StyleKit; base?: string } & ReferenceArgs): Promise<RigAuthorResult> {
   const r = await request<Partial<RigAuthorResult>>("/api/rig", {
     method: "POST",
     timeoutMs: CALL_TIMEOUT_MS,
-    body: { prompt: args.prompt, kit: args.kit, ...(args.base ? { base: args.base } : {}) },
+    body: { prompt: args.prompt, kit: args.kit, ...(args.base ? { base: args.base } : {}), ...refBody(args) },
   });
   const rig = r.rig && typeof r.rig === "object" && Array.isArray(r.rig.joints) && Array.isArray(r.rig.parts) ? r.rig : undefined;
   const baseRig = typeof r.baseRig === "string" ? r.baseRig : undefined;

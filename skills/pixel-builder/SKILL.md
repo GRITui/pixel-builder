@@ -37,8 +37,9 @@ hand-write PNGs or invent colours.
 | `edit_region` | change only a rect or cell region (add a scarf, recolour a hat): your own `rows`, or `prompt` with an API key |
 | `list_assets` / `get_asset` / `delete_asset` | manage the library |
 | `export_asset` | `png`, `spritesheet`, `tiled` (maps), `svg` (layered, see below), `aseprite` (see below), `gif` (animated GIF89a, kit palette; one per animated row or `row`; maps need generate_asset params `animate: true` for living water, swaying trees, reeds) or, for `tileset` assets, `tiled-tileset` / `godot` / `unity` / `atlas` (engine autotile files, see reference) |
-| `import_image` | quantise an existing PNG to the kit palette |
+| `import_image` | quantise an existing PNG to the kit palette. Upscaled pixel art (screenshots, scaled sprites, JPEG-noisy): `mode: pixel-art` (or `auto`, recommended) detects the grid and recovers the true 1:1 pixels, reports `grid {scale, offset_x, offset_y, confidence}`, and `width`/`height` may be omitted to keep the true size. `palette_mapping: ramps` keeps shading (each source hue -> one material ramp); `split: true` cuts a sheet into frames. Default `resample` is for photos and concept art. |
 | `import_svg` | read a layered SVG back (new asset, or `replace_id` to retexture an existing one): edit by layer, keep `data-material`/`data-level` or use kit colours, the `guides` layer is ignored |
+| `add_reference` / `list_references` / `get_reference` / `delete_reference` | reference library (mood board): add a PNG/JPEG by `path`, `url` or `base64` (max 10 MB, 4096px) with `name`/`tags`; `get_reference` returns a preview you can look at. Also browsable in the web app (References panel), synced like assets |
 | `rerender_assets` | regenerate procedural and rigged assets after a kit change (`stale_only` = only assets made with an older kit version) |
 | `list_rigs` / `list_clips` / `list_attachments` | rigs, animation clips and accessories (with family); ids for `generate_rigged` |
 | `generate_rigged` | animated character: rig + `slots` + `attachments` + `clips` -> walk/idle rows in 4 directions (`directions: 8` adds the 3/4 diagonals down-right, up-right, up-left, down-left), exported as a spritesheet |
@@ -60,6 +61,7 @@ look at it before moving on.
 - `building`: cottage, shop, tower, keep, barn, `stilt-house` (raised Southeast-Asian house; `access` stairs/ladder) and `half-brick` (two-storey Thai house: masonry ground floor, wooden upper floor, balcony gable; 1.5x building width); `farmhouse` and `coop` with `size` small/medium/large (barn has a large gambrel version; red barn = `wall: "cloth2", trim: "sand"`); roofs gable, hip, flat, dome, spire, `corrugated` (use `roof: "metal"` for zinc).
 - `environment`: props with animation rows (trees: sway/chop/fall/stump when `cuttable`; `old-oak` landmark; bush/weed cut; rock break), `fence` (`piece`: h, v, post, corners, T, cross, gates), seamless tiles incl. animated `water-tile`, `paddy-tile` and soil `tilled-soil-tile`, `watered-soil-tile`, `dried-soil-tile`, `snowed-soil-tile`.
 - `foliage`: lush HD trees from lit leaf clusters (flared barked trunk, limbs, ragged crown, ground shadow); `species` oak, willow, maple-autumn, birch, fruit-tree, pine-hd, sakura; `size` small/medium/large (48/64/96 px square); `season` spring/summer/fall/winter (recolour, snow in winter); `leaf`, `accent` (fruit/blossom) materials, `variant` 0-9; rows idle + sway. Uses the extra shades on deep kits (see `docs/img/foliage.png`). The `environment` trees are unchanged.
+- `crop`: top-down farm crops on a one-tile footprint (bottom-anchored; corn, sunflower and ripe wheat rise to 1.5 tiles); `species` wheat, corn, carrot, cabbage, tomato, pumpkin, strawberry, rice, sunflower; `stage` seed, sprout, growing, ready (harvestable produce), withered; `variant` 0-9; rows idle + sway. Pack `farming-v1` has `crop-<species>-<stage>` entries; `cropField(cells, species, opts)` in `generators/crops.ts` lays out stage-mixed rows with an optional irrigation edge (see `docs/img/crops.png`).
 - `object`: items plus farm tools `hoe`, `watering-can`, `tool-axe`, `pickaxe`, `sickle`, `hammer`, `fishing-rod`, `seed-bag` (rows `icon` + `use` effect sprite).
 - `ui`: buttons, panels, slots, bars, plus HUD `clock` (`hour`), `time-panel`, `date-panel` (`day`, `weekday`, `season`), `weather-icon` (sunny, cloudy, rain, storm, snow, windy), `season-icon`. MMO HUD: set `skin` to `mmo-gold`, `mmo-stone` or `mmo-dark` (default `wood` is unchanged) to get glossy `bar`/`panel`/`button`/`slot`, and the kinds `unit-frame` (`name`, `level`, `hp`, `mp`, `xp`, `portrait` none|silhouette|hero), `minimap-frame` (`shape` round|square; `meta.mapRect`), `skill-bar` (`slots`, `cooldown` 0-8; a `sweep` row has all 9 steps), `chat-panel`, `quest-tracker`, `tooltip` (`rarity`), `nameplate` (`name`, `level`, `hp`, `tone`) and `damage-numbers` (`amount`, `tone` white|yellow|red|green, `crit`; 4 rise frames). Compose them over a map with `scripts/mmo-hud.ts` (see `docs/img/mmo-hud.png`).
 - `map`: biomes meadow, forest, island, desert, winter, `rice-village`, `farm` (farmstead, fenced fields with gates, pen with animals, pond; `set` normal or `sea`), `forest-mmo` (see below).
@@ -74,7 +76,10 @@ look at it before moving on.
    one doesn't fit), `create_kit` (name, optional `base_kit_id`, `changes` such as
    `paletteId`, `outline`, `lightDir`, `shadeSteps`, `dither`, `sizes`, `vibe`),
    then `set_active_kit`. Do this before generating anything. Changing the kit
-   later means `rerender_assets`.
+   later means `rerender_assets`. Have a reference image (screenshot, concept art, pixel art)?
+   `kit_from_reference` (`path` PNG, optional `apply`, `strength`, `palette_size`) derives
+   the kit offline: palette ramps, outline, light, shade steps and dither; look at its
+   preview sheet and fine-tune with `update_kit`.
 2. **Pick a generator.** `list_generators` (optionally with `category`). Read the
    param specs; use real option values, materials come from the 18 names.
 3. **Generate.** `generate_asset` with `generator`, `params`, `seed`, `name`.
@@ -274,7 +279,12 @@ go to a local folder (`--out-dir <dir>` or env `PIXEL_BUILDER_OUT_DIR`, default 
 See `docs/deploy.md`.
 Copy or point the game at those files. MCP also exposes the resources
 `pixel-builder://project` and `pixel-builder://style-guide`, and a prompt
-`asset_pack` (`game`, `count`) that walks through a starter pack, and `design_creature` (`description`, `family?`) for authoring a rigged creature.
+`asset_pack` (`game`, `count`) that walks through a starter pack, and `design_creature` (`description`, `family?`) for authoring a rigged creature,
+and `match_reference` (`reference`, `subject?`) that walks you from a reference image
+(`get_reference`, `kit_from_reference`, generators, compare) to an on-kit asset; no key needed.
+With a server key the web app's AI endpoints (`/api/vibe`, `/api/kit`, `/api/rig`, `/api/pixels`,
+`/api/inpaint`) also accept `images` (base64 / data URLs, max 4) and `reference_ids`; the image
+guides subject and style only, colours always come from the kit.
 
 ## No MCP? Use the CLI
 

@@ -619,7 +619,7 @@ function generateMap(p: Params, kit: StyleKit, seed: number): GenResult {
         tm.deco[i] = propTile(kind, vRoll);
       }
     if (waterDepth) decorateWater(tm, ground, path, reserved, propTile, seed >>> 0, biome);
-    if (detail !== "off") applyGroundDetail(tm, kit, seed >>> 0, detail);
+    if (detail !== "off") applyGroundDetail(tm, kit, seed >>> 0, detail, { profile: biome === "forest" ? "forest" : "open" });
     let terrainMeta: Record<string, unknown> | undefined;
     if (hills && biome !== "farm" && biome !== "rice-village") {
       const avoid = new Set<number>(path);

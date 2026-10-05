@@ -25,7 +25,7 @@ describe("tool contract", () => {
       "get_style_guide", "list_generators", "generate_asset", "generate_variations", "paint_asset", "edit_asset", "edit_region", "list_assets",
       "get_asset", "delete_asset", "export_asset", "import_image", "list_kits", "create_kit", "update_kit", "set_active_kit", "rerender_assets",
       "list_rigs", "list_clips", "list_attachments", "generate_rigged", "attach", "create_rig", "create_clip", "create_attachment",
-      "generate_pack", "import_svg",
+      "generate_pack", "import_svg", "add_reference", "list_references", "get_reference", "delete_reference", "kit_from_reference",
     ]);
     for (const t of TOOLS) expect(t.description.length).toBeGreaterThan(20);
   });
@@ -72,7 +72,7 @@ describe("get_style_guide / list_generators", () => {
     const all = data("list_generators").generators;
     expect(all.map((g: { id: string }) => g.id)).toEqual(GENERATORS.map((g) => g.id));
     const env = data("list_generators", { category: "environment" }).generators;
-    expect(env.map((g: { id: string }) => g.id)).toEqual(["environment", "tileset", "sideview", "foliage", "iso-tile", "iso-prop"]);
+    expect(env.map((g: { id: string }) => g.id)).toEqual(["environment", "tileset", "sideview", "foliage", "iso-tile", "iso-prop", "crop"]);
     expect(env[0].params.find((p: { key: string }) => p.key === "kind").options).toContain("oak");
     expect(env[0].defaults.kind).toBe("oak");
   });
@@ -261,6 +261,39 @@ describe("import_image", () => {
     expect(r.images).toHaveLength(1);
     const noBg = data("import_image", { path: file, width: 16, height: 16, category: "object", name: "Blob2" });
     expect(noBg.notes[0]).toMatch(/fully opaque/);
+  });
+
+  it("pixel-art mode recovers the true size from an upscaled, noisy image and reports the grid", () => {
+    // 10x10 art with a dark outline ring, 4x upscaled with a 2px offset and block noise
+    const art = blankImage(10, 10);
+    for (let y = 1; y < 9; y++) for (let x = 1; x < 9; x++) art.rgba.set(x === 1 || y === 1 || x === 8 || y === 8 ? [20, 20, 30, 255] : [(x + y) % 2 ? 200 : 150, 60, 60, 255], (y * 10 + x) * 4);
+    const k = 4, ox = 2, oy = 1, big = blankImage(10 * k + ox, 10 * k + oy);
+    for (let y = 0; y < 10 * k; y++)
+      for (let x = 0; x < 10 * k; x++) {
+        const n = ((x >> 3) * 7 + (y >> 3) * 3) % 9 - 4;
+        const c = art.rgba.subarray((Math.floor(y / k) * 10 + Math.floor(x / k)) * 4, (Math.floor(y / k) * 10 + Math.floor(x / k)) * 4 + 4);
+        big.rgba.set([c[0] + n, c[1] + n, c[2] + n, c[3]], ((y + oy) * big.width + x + ox) * 4);
+      }
+    const file = join(dir, "up.png");
+    writeFileSync(file, encodePng(big));
+    const d = data("import_image", { path: file, category: "object", name: "Up", mode: "pixel-art", crop: true });
+    expect(d.mode).toBe("pixel-art");
+    expect(d.grid).toMatchObject({ scale: 4, offset_x: ox, offset_y: oy });
+    expect(d.grid.confidence).toBeGreaterThan(0.6);
+    expect(d.asset).toMatchObject({ width: 8, height: 8 }); // cropped 8x8 art, existing outline kept (no extra margin)
+    const auto = data("import_image", { path: file, category: "object", name: "Up2", mode: "auto", crop: true, palette_mapping: "ramps" });
+    expect(auto.mode).toBe("pixel-art");
+    expect(() => call("import_image", { path: file, category: "object" })).toThrow(/width and height/);
+  });
+
+  it("split imports a sheet as one animation row", () => {
+    const sheet = blankImage(24, 10);
+    for (const x0 of [1, 9, 17]) for (let y = 2; y < 8; y++) for (let x = x0; x < x0 + 5; x++) sheet.rgba.set([200, 60, 60, 255], (y * 24 + x) * 4);
+    const file = join(dir, "sheet.png");
+    writeFileSync(file, encodePng(sheet));
+    const d = data("import_image", { path: file, category: "character", name: "Sheet", mode: "pixel-art", split: true, outline: false });
+    expect(d.asset.frames ?? 3).toBe(3);
+    expect(d.notes.join(" ")).toMatch(/split into 3 frame/);
   });
 
   it("explains unreadable files", () => {
