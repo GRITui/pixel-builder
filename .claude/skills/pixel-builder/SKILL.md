@@ -29,7 +29,7 @@ Read the error: it names the field, lists the valid values (or the nearest match
 
 ## Tool profiles (small models)
 
-`pixel-builder mcp --tools core` (or env `PIXEL_BUILDER_TOOLS=core`) exposes 12 tools: get_style_guide, list_kits, set_active_kit, list_generators, generate_asset, generate_variations, paint_asset, edit_asset, list_assets, get_asset, export_asset, import_image. Default is `all`. Every result that makes art includes the image and the saved preview path (`previews`) for clients that drop images.
+`pixel-builder mcp --tools core` (or env `PIXEL_BUILDER_TOOLS=core`) exposes 12 tools: get_style_guide, list_kits, set_active_kit, list_generators, generate_asset, generate_variations, paint_asset, edit_asset, list_assets, get_asset, export_asset, import_image. Default is `all`; use `core` for Qwen and other small or local models. If the tools do not show up, run `pixel-builder doctor`; `pixel-builder setup <client> --tools core` prints the MCP config for your client (CLI-only commands, not tools). Every result that makes art includes the image and the saved preview path (`previews`) for clients that drop images.
 
 ## Tools (MCP tool names = CLI commands in kebab-case)
 

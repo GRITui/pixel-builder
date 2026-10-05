@@ -2,13 +2,13 @@
 
 > Vibe-code consistent pixel art for games: characters, buildings, trees and ground tiles, props and items, UI and tile maps, all generated from one Style Kit (palette ramps, one light direction, one outline mode) so everything matches. Drive it from any AI agent through an MCP server (stdio or Streamable HTTP) or a CLI, or use the web app. Procedural generators need no API key.
 
-Agents making pixel art: read the skill first. Agents editing this repository: read AGENTS.md. The 16 tools have the same names in MCP and in the CLI (kebab-case commands, `--json`).
+Agents making pixel art: read the skill first. Agents editing this repository: read AGENTS.md. The 33 tools have the same names in MCP and in the CLI (kebab-case commands, `--json`).
 
 ## Use it
 
 - [Skill: pixel-builder (SKILL.md)](https://github.com/GRITui/pixel-builder/blob/main/skills/pixel-builder/SKILL.md): when to use it, the vibe-code workflow, consistency rules, tool cheat-sheet, how to paint with the legend.
 - [Skill reference](https://github.com/GRITui/pixel-builder/blob/main/skills/pixel-builder/reference.md): legend characters, kit fields, generator catalogue, export formats.
-- [Integrations guide](https://github.com/GRITui/pixel-builder/blob/main/docs/integrations.md): copy-paste setup for Claude Code, Hermes Agent, Claude Desktop, Cursor, Codex CLI, Gemini CLI, VS Code / Copilot, Windsurf, Cline, Zed, OpenAI Agents SDK, remote MCP (HTTP) and plain shell agents.
+- [Integrations guide](https://github.com/GRITui/pixel-builder/blob/main/docs/integrations.md): copy-paste setup for Claude Code, Hermes Agent, Claude Desktop, Cursor, Codex CLI, Gemini CLI, Qwen Code, Qwen-Agent, OpenCode, Goose, Continue, VS Code / Copilot, Windsurf, Cline, Zed, OpenAI Agents SDK, remote MCP (HTTP) and plain shell agents.
 
 ## Work on it
 
@@ -20,6 +20,7 @@ Agents making pixel art: read the skill first. Agents editing this repository: r
 - Launch (stdio MCP, inside the repo): `npx tsx src/node/cli.ts mcp`
 - Launch (Streamable HTTP): `npx tsx src/node/cli.ts mcp --http --port 8788` then `http://127.0.0.1:8788/mcp`
 - CLI: `npx tsx src/node/cli.ts <command> --json` (for example `get-style-guide`, `list-generators`, `generate-asset`)
+- Check and configure: `npx tsx src/node/cli.ts doctor` (self-check, `--json`) and `npx tsx src/node/cli.ts setup <client> [--tools core] [--write]` (prints the MCP config for claude-code, claude-desktop, cursor, codex, gemini-cli, qwen-code, opencode, goose, continue, vscode, windsurf, cline, zed, http). CLI-only, not MCP tools.
 - Workspace: `--workspace <dir>` or env `PIXEL_BUILDER_WORKSPACE` (default `./pixel-assets`), or a shared-server URL `http(s)://host/api/projects/<id>` (token env `PIXEL_BUILDER_TOKEN`, exports to `--out-dir`/`PIXEL_BUILDER_OUT_DIR`); exports in `<workspace>/characters|buildings|environments|objects|ui|maps/`
 
 ## Tools (MCP tool names)
