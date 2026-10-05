@@ -70,6 +70,18 @@ look at it before moving on.
 - Water depth (`environment` + `map` + `tileset`): `water-tile` takes `depth` 0 shallow (sandy bottom) .. 3 abyss (absent/-1 = classic), `shore` (letters of `nesw` = land sides: animated foam line + wet sand bank) and `shore_rocks`; props `lily-pad` (`flower`), `reeds`, `cattail`, `river-rock`, `driftwood` (animated) and `small-bridge` (`span` 1-3, `trunk` wood | stone). `map` `water_depth: true` shades water by distance to shore (smooth gradient, foam, wet banks, lily pads, reeds); `river: true` carves a river across meadow/forest/winter. `tileset` `lower_depth` / `upper_depth` make water depth-band autotiles (water over water). Defaults are unchanged. Deep kits use the finer ramp shades for the gradient.
 - Rigged assets (`generate_rigged`): any rig (incl. `human-<male|female>-<baby|kid|young-adult|senior|elder>`) + clips (idle, walk, run, attack, farm, carry, sit, chop, water, mine, fish) + attachments (layers `face-*`, `hair-*`, `costume-*`, `hat-*`, `bag-*`, tools `hoe`, `axe`, `watering-can`, `pickaxe`, `hammer`, `fishing-rod`...); add/remove accessories later with `attach`. Built-in humanoid rigs get short hair and a face by default; pick another `hair-short|long|spiky|ponytail|bald` attachment, or `no-face` to opt out.
 
+## Start from a reference
+
+Have a photo, concept art or screenshot of the thing you want? `add_reference` it, then pass
+`reference_id` (and optionally `match: "style" | "subject" | "both"`, default both) to
+`generate_asset`, `generate_variations` or `generate_rigged`. Offline (no API key) the
+reference's colours are mapped to the nearest material ramps (roof, wall, trim; skin, hair,
+top, bottom, boots) and its shape picks the building style (two-tone two-storey -> half-brick,
+raised on stilts -> stilt-house, tall and narrow -> tower). Explicit `params` / `slots` always
+win. `generate_variations` with `reference_id` returns candidates ranked best-first with a
+0-100 match score; keep one with `generate_asset {generator, seed, params, reference_id}`.
+Results record `meta.referenceId`. Flat backdrops work best; busy scenes only give colours.
+
 ## Workflow
 
 1. **Style first.** `get_style_guide`. If the game has no kit yet (or the active

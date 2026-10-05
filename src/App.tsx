@@ -13,6 +13,7 @@ import { usePalette, useAiStatus } from "./ui/components/common";
 import { canRerender } from "./ui/components/AssetCard";
 import { exportProject, readProjectFile } from "./ui/exportAsset";
 import { ImportDialog } from "./ui/ImportDialog";
+import { ReferenceGenerate } from "./ui/components/ReferenceGenerate";
 import { MapEditor } from "./ui/MapEditor";
 import { PixelEditor } from "./ui/PixelEditor";
 import { SyncBadge } from "./ui/components/SyncBadge";
@@ -36,6 +37,7 @@ export default function App() {
   const [refIds, setRefIds] = useState<string[]>([]);
   const [editing, setEditing] = useState<Asset | null>(null);
   const [importing, setImporting] = useState(false);
+  const [genRef, setGenRef] = useState<string | null>(null);
   const [kitOpen, setKitOpen] = useState(false);
 
   useEffect(() => {
@@ -142,7 +144,7 @@ export default function App() {
   return (
     <div className="app">
       <SyncBadge state={sync.state} message={sync.message} reload={sync.reload} />
-      <ReferencesPanel references={references} onAdd={addReference} onUpdate={updateReference} onRemove={removeReference} onError={error} />
+      <ReferencesPanel references={references} onAdd={addReference} onUpdate={updateReference} onRemove={removeReference} onGenerate={setGenRef} onError={error} />
       <TopBar kits={kits.kits} kit={kit} onKit={kits.setActive} onEditKit={() => setKitOpen(true)} status={status} onRefreshAi={refresh} />
       <div className={`body ${view === "library" ? "no-strip" : ""}`}>
         <CategoryNav view={view} onView={setViewPref} assets={library.assets} />
@@ -213,6 +215,17 @@ export default function App() {
             push(`Imported “${a.name}” into the library.`);
           }}
           onClose={() => setImporting(false)}
+        />
+      )}
+      {genRef !== null && (
+        <ReferenceGenerate
+          references={references}
+          initialId={genRef}
+          kit={kit}
+          status={status}
+          onKeep={(a) => { library.add(a); setGenRef(null); push(`Saved “${a.name}” to the library.`); }}
+          onClose={() => setGenRef(null)}
+          onError={error}
         />
       )}
       <Toasts toasts={toasts} dismiss={dismiss} />
