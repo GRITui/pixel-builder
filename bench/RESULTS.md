@@ -222,3 +222,9 @@ Remaining:
 | `ref-pixel-sprite` (`bench/refs/hero-sprite.png`, made with kit-default) | 100 | 62.9 | 70.9 | 86.4 | - |
 
 Reading: the scores order the kits the way the eye does (the HD scene reference is closest to `kit-hd-rich`; the 4-tone handheld reference to `kit-gameboy`; the sprite made in `kit-default` matches itself at 100). Limits: the score is a heuristic over colours, outline mode, light direction, edge density and silhouette, not a perceptual model; it does not see composition, and the light-direction estimate is noisy on busy scenes.
+
+## Sprint 7: farm-mmo (#71)
+
+New brief `map-farm-mmo` (42x26, detail medium, lighting on; all five kits). The `farm` brief is unchanged (the old biome is byte-identical); no existing number moves. `farm-mmo` is planned, not scattered: yard with well, mailbox, garden bed, flower beds and hay; fields in rows of mixed growth stages with an irrigation channel; a fenced pen; pond; orchard; a stream under a bridge; HD woodland around the border. Look at `docs/img/farm-scene.png`: the gap the user named ("farm detail is not as rich as the MMORPG scene") is mostly closed in the HD kits.
+
+Honest gaps: crops do not sway under `animate` (only the scene script animates them; `mapanim` knows props and trees by name); no literal `small-bridge` (the road crosses the stream on the big bridge); the 16px kits read as a dense mush in the woodland ring; villagers are scene-script actors, not map objects (the map only provides `meta.spawns` work spots); the farmer works from the gate lane, not inside the crop rows.
