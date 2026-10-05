@@ -110,8 +110,11 @@ export class Workspace {
 
 export function getKit(project: ProjectFile, kitId?: string): StyleKit {
   const id = kitId ?? project.activeKitId;
-  const kit = project.kits.find((k) => k.id === id) ?? (kitId ? undefined : project.kits[0]);
-  if (!kit) throw new ToolError(`Unknown kit '${id}'. Kits: ${project.kits.map((k) => k.id).join(", ")} (see list_kits).`);
+  const norm = (x: string) => x.toLowerCase().replace(/[\s_\-]+/g, "");
+  // by id, else by display name (case / separator insensitive) when that is unambiguous
+  const byName = kitId ? project.kits.filter((k) => norm(k.name) === norm(kitId) || norm(k.id) === norm(kitId)) : [];
+  const kit = project.kits.find((k) => k.id === id) ?? (byName.length === 1 ? byName[0] : kitId ? undefined : project.kits[0]);
+  if (!kit) throw new ToolError(`Unknown kit '${id}'. Kits: ${project.kits.map((k) => `${k.id} (${k.name})`).join(", ")} (see list_kits).`);
   return kit;
 }
 
