@@ -228,3 +228,20 @@ Reading: the scores order the kits the way the eye does (the HD scene reference 
 New brief `map-farm-mmo` (42x26, detail medium, lighting on; all five kits). The `farm` brief is unchanged (the old biome is byte-identical); no existing number moves. `farm-mmo` is planned, not scattered: yard with well, mailbox, garden bed, flower beds and hay; fields in rows of mixed growth stages with an irrigation channel; a fenced pen; pond; orchard; a stream under a bridge; HD woodland around the border. Look at `docs/img/farm-scene.png`: the gap the user named ("farm detail is not as rich as the MMORPG scene") is mostly closed in the HD kits.
 
 Honest gaps: crops do not sway under `animate` (only the scene script animates them; `mapanim` knows props and trees by name); no literal `small-bridge` (the road crosses the stream on the big bridge); the 16px kits read as a dense mush in the woodland ring; villagers are scene-script actors, not map objects (the map only provides `meta.spawns` work spots); the farmer works from the gate lane, not inside the crop rows.
+
+## Sprint 8: rich buildings in maps and the village (#78)
+
+New briefs `building-rich` (shop, inn, blacksmith, farmhouse tier 2, windmill, well-house; `look: rich`) and `map-village` (44x36, detail medium, lighting dusk), all five kits, offline, 0 failed. Nothing that existed moved: the map `buildings` param defaults to `classic`, and the fingerprints of `farm-mmo` (normal and sea), `farm`, `rice-village`, `forest-mmo` and `meadow` (lighting on, two kits) are asserted byte-identical in `map-village.test.ts` (recorded from the commit before this lane). `farm-mmo` with `buildings: rich` is new output only.
+
+What changed in the picture: buildings stand at person scale (a door is 1.25 characters, a storey 1.6), placed by footprint with a walkable entry tile, a path to every door, solid cells equal to the footprint, y-sort at the footprint's front row, lit windows / lamps / forge at dusk and night through `meta.lights`, chimney smoke and windmill sails under `animate`. The `village` biome (main street, plaza, well-house, stalls, houses, windmill, lamps, benches, trees, villager spawns) is the exit scene: `docs/img/village-scene.png`, `village-scene-night.png`, `village-scene.gif`; `farm-scene.png` / dusk / gif were re-rendered with rich buildings.
+
+Honest gaps:
+
+1. **Rich is only wired into `farm-mmo` and `village`.** `farm` and `rice-village` ignore `buildings: rich` (classic sprites); `village` is always rich.
+2. **One deco tile per building.** The sprite hangs on the door column of the front row; cells behind the footprint (under the roof) are walkable but hidden by the roof, and trees and props are kept off the whole sprite rectangle, not just the footprint.
+3. **Even-width footprints** (farmhouse tier 2) pad the sprite one tile so the door column is the anchor; the door is then half a tile left of the footprint centre.
+4. **16px kits.** Buildings read (see the `kit-gameboy` village), but windows and signs are 1-2 px and dirt lanes vanish into grass, so the village uses cobble for its lanes in 3-shade kits.
+5. **Shadows** of rich buildings are shortened (30% of the usual length); a tall inn would otherwise throw a shadow across half the street. No roof shadow on neighbours.
+6. **Layout is a template** (one main street, one plaza, one lane), varied by seed and set, not a street graph: no side streets, wall, second plaza or canals. Needs about 36 columns and 34 rows for the full layout; smaller maps drop the south row and the plaza.
+7. **Villagers** are scene-script actors walking back and forth; the map only provides `meta.spawns`. No interiors or schedules.
+8. **Self-rated** by one rater; no PixelLab columns.
