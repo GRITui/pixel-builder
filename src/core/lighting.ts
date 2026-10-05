@@ -105,7 +105,7 @@ export function castLight(img: Sprite, objects: LitObject[], kit: StyleKit, opts
       for (let y = 0; y < o.sprite.h; y++) {
         const ht = base - (o.y + y);
         // a tree's shadow comes from its crown; the trunk's own base is hidden by it anyway
-        const len = (tree ? 0.6 : 0.8) * ht;
+        const len = (tree ? 0.6 : o.name.startsWith("rich:") ? 0.3 : 0.8) * ht;
         for (let x = 0; x < o.sprite.w; x++) {
           if (!o.sprite.data[y * o.sprite.w + x]) continue;
           const dx = o.x + x - cx;
@@ -245,7 +245,7 @@ export function mapLitObjects(tm: TileMap): LitObject[] {
     const tile = tm.tiles[t];
     if (t < 0 || !tile) return;
     const bx = (i % tm.cols) * tm.tile + tm.tile / 2, by = (Math.floor(i / tm.cols) + 1) * tm.tile;
-    out.push({ sprite: tile.sprite, x: Math.round(bx - tile.sprite.w / 2), y: by - tile.sprite.h, name: tile.name });
+    out.push({ sprite: tile.sprite, x: Math.round(bx - tile.sprite.w / 2), y: by - tile.sprite.h, name: tile.name, ...(tile.lights ? { lights: tile.lights } : {}) });
   });
   return out.sort((a, b) => a.y + a.sprite.h - (b.y + b.sprite.h) || a.x - b.x);
 }

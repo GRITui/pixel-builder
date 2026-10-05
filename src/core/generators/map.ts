@@ -14,6 +14,8 @@ import { applyGroundDetail, DETAIL_LEVELS } from "./map-detail";
 import { FOREST_SEASONS, forestMmoPlan } from "./map-forest";
 import { calmDirt, farmBuildingSprite, farmMmoPlan, farmPropSprite, farmWalkable, FARM_PROP_KINDS, FARM_SOLID } from "./map-farm";
 import { cropsGenerator } from "./crops";
+import { placedRich, richBuilding, type Extra } from "./map-rich";
+import { villageMap } from "./map-village";
 import { objectGenerator } from "./object";
 import { applyTerrain, hillsLayout, type TerrainInfo, type TerrainOptions } from "./map-terrain";
 import type { Sprite } from "../types";
@@ -24,7 +26,7 @@ import { lightMap, TIMES } from "../lighting";
 // so village deco sprites are memoised per kit object (kits are replaced, not mutated).
 const HOUSE_VARIANTS = 4;
 const spriteCache = new WeakMap<StyleKit, Map<string, Sprite>>();
-function cachedSprite(kit: StyleKit, key: string, make: () => Sprite): Sprite {
+export function cachedSprite(kit: StyleKit, key: string, make: () => Sprite): Sprite {
   let m = spriteCache.get(kit);
   if (!m) spriteCache.set(kit, (m = new Map()));
   let sp = m.get(key);
@@ -32,7 +34,7 @@ function cachedSprite(kit: StyleKit, key: string, make: () => Sprite): Sprite {
   return { ...sp, data: sp.data.slice() };
 }
 
-export const BIOMES = ["meadow", "forest", "island", "desert", "winter", "rice-village", "farm", "forest-mmo", "farm-mmo"] as const;
+export const BIOMES = ["meadow", "forest", "island", "desert", "winter", "rice-village", "farm", "forest-mmo", "farm-mmo", "village"] as const;
 type Biome = (typeof BIOMES)[number];
 export type Ground = "grass" | "dirt" | "sand" | "water" | "stone-path" | "snow" | "paddy" | "tilled-soil" | "watered-soil";
 
@@ -82,6 +84,8 @@ const PROPS: Record<Biome, Weights> = {
   "forest-mmo": {},
   // laid out by farmMmoPlan (fields, pen, orchard, woodland edge), not scattered
   "farm-mmo": {},
+  // laid out by villagePlan (street, plaza, shops, houses, trees), not scattered
+  village: {},
 };
 const FARM_SEA_PROPS: Weights = {
   grass: { palm: 4, bush: 3, flowers: 3, "tall-grass": 4, rock: 1 },
@@ -89,9 +93,9 @@ const FARM_SEA_PROPS: Weights = {
 };
 
 /** Chance (before density and clumping) that a free cell gets a prop. */
-const BASE_CHANCE: Record<Biome, number> = { meadow: 0.22, forest: 0.55, island: 0.3, desert: 0.14, winter: 0.3, "rice-village": 0.2, farm: 0.22, "forest-mmo": 0.5, "farm-mmo": 0.5 };
-const BASE_GROUND: Record<Biome, Ground> = { meadow: "grass", forest: "grass", island: "grass", desert: "sand", winter: "snow", "rice-village": "grass", farm: "grass", "forest-mmo": "grass", "farm-mmo": "grass" };
-const PATH_GROUND: Record<Biome, Ground> = { meadow: "dirt", forest: "dirt", island: "dirt", desert: "dirt", winter: "stone-path", "rice-village": "dirt", farm: "dirt", "forest-mmo": "dirt", "farm-mmo": "dirt" };
+const BASE_CHANCE: Record<Biome, number> = { meadow: 0.22, forest: 0.55, island: 0.3, desert: 0.14, winter: 0.3, "rice-village": 0.2, farm: 0.22, "forest-mmo": 0.5, "farm-mmo": 0.5, village: 0.5 };
+const BASE_GROUND: Record<Biome, Ground> = { meadow: "grass", forest: "grass", island: "grass", desert: "sand", winter: "snow", "rice-village": "grass", farm: "grass", "forest-mmo": "grass", "farm-mmo": "grass", village: "grass" };
+const PATH_GROUND: Record<Biome, Ground> = { meadow: "dirt", forest: "dirt", island: "dirt", desert: "dirt", winter: "stone-path", "rice-village": "dirt", farm: "dirt", "forest-mmo": "dirt", "farm-mmo": "dirt", village: "dirt" };
 const VARIANTS = 6;
 /** Which ground spreads over which at a seam (higher wins); water uses shoreTile instead. */
 const BLEND_PRIORITY: Record<Ground, number> = { water: -1, paddy: 0, "tilled-soil": 0.5, "watered-soil": 0.5, dirt: 1, "stone-path": 1, sand: 2, grass: 3, snow: 4 };
@@ -237,7 +241,7 @@ function animalSprite(kit: StyleKit, species: string, age: string, dir: string):
 }
 
 /** Fence piece for a cell from which of its four neighbours are fence. */
-function fencePiece(has: (dx: number, dy: number) => boolean): string {
+export function fencePiece(has: (dx: number, dy: number) => boolean): string {
   const n = has(0, -1), e = has(1, 0), s = has(0, 1), w = has(-1, 0);
   const c = +n + +e + +s + +w;
   if (c === 4) return "cross";
@@ -450,7 +454,8 @@ export const mapGenerator: Generator = {
     { key: "rows", label: "Rows", type: "number", min: 12, max: 48, step: 1, default: 20 },
     { key: "density", label: "Prop density", type: "number", min: 0, max: 1, step: 0.05, default: 0.5 },
     { key: "path", label: "Winding path", type: "bool", default: true },
-    { key: "set", label: "Farm set (farm and farm-mmo biomes)", type: "select", options: ["normal", "sea"], default: "normal" },
+    { key: "set", label: "Farm set (farm and farm-mmo biomes); village: sea = Thai wat, palms, stilt houses", type: "select", options: ["normal", "sea"], default: "normal" },
+    { key: "buildings", label: "Buildings (rich = 3/4 footprint buildings placed by footprint with doors, paths, lights; farm-mmo and village; classic keeps every older map byte-identical)", type: "select", options: ["classic", "rich"], default: "classic" },
     { key: "water_depth", label: "Water depth (smooth shallow-to-abyss gradient, sandy shore banks, lily pads, reeds)", type: "bool", default: false },
     { key: "river", label: "River (a winding river across meadow / forest / winter maps)", type: "bool", default: false },
     { key: "detail", label: "Ground detail (tufts, petals, pebbles, leaf litter, colour variation; any biome)", type: "select", options: [...DETAIL_LEVELS], default: "off" },
@@ -491,7 +496,9 @@ function generateMap(p: Params, kit: StyleKit, seed: number): GenResult {
     const detail = str(p, "detail") || "off";
     const hills = str(p, "terrain") === "hills";
     const terrainOpts: TerrainOptions = { ramp: str(p, "ramp") === "stone" ? "stone" : "wood", cliff: str(p, "cliff") === "stone" ? "stone" : "dirt" };
-    if (biome === "farm-mmo") return farmMmo(cols, rows, density, wantPath, sea, detail, kit, seed >>> 0, hills ? terrainOpts : null);
+    const rich = str(p, "buildings") === "rich";
+    if (biome === "village") return villageMap({ cols, rows, density, wantPath, sea, detail, kit, seed: seed >>> 0, helpers: { paintGround: (tm, g, k, sd) => paintGround(tm, g, k, sd), cachedSprite, mapObjects } });
+    if (biome === "farm-mmo") return farmMmo(cols, rows, density, wantPath, sea, detail, kit, seed >>> 0, hills ? terrainOpts : null, rich);
     if (biome === "forest-mmo") return forestMmo(cols, rows, density, wantPath, str(p, "season"), detail, kit, seed >>> 0, hills ? terrainOpts : null);
 
     const tm: TileMap = emptyTileMap(cols, rows, T);
@@ -959,7 +966,7 @@ function carveRiver(ground: Ground[], cols: number, rows: number, seed: number, 
 }
 
 /** Lily pads on the shallows, reeds / rocks / driftwood on the banks. Own rng: the rest of the map is untouched. */
-function decorateWater(tm: TileMap, ground: Ground[], path: Set<number>, reserved: Set<number>, propTile: (kind: string, v: number) => number, seed: number, biome: Biome): void {
+export function decorateWater(tm: TileMap, ground: Ground[], path: Set<number>, reserved: Set<number>, propTile: (kind: string, v: number) => number, seed: number, biome: Biome): void {
   const { cols, rows } = tm;
   const dep = waterDepthField(ground, cols, rows);
   const hr = rng((seed ^ 0xa11e) >>> 0);
@@ -1018,7 +1025,7 @@ export function mapObjects(tm: TileMap): MapObject[] {
 }
 
 /** Wooden bridge over the river, painted into the ground tiles of the cells it covers (so walkers are always on top of it). */
-function paintBridge(tm: TileMap, b: { x0: number; x1: number; y0: number; y1: number }, kit: StyleKit): void {
+export function paintBridge(tm: TileMap, b: { x0: number; x1: number; y0: number; y1: number }, kit: StyleKit): void {
   const T = tm.tile, nx = b.x1 - b.x0 + 1, W = nx * T, H = 4 * T;
   const region = createSprite(W, H);
   for (let cy = 0; cy < 4; cy++)
@@ -1128,9 +1135,9 @@ function forestMmo(cols: number, rows: number, density: number, wantPath: boolea
 
 const FARM_OBJECTS = new Set(["sign", "barrel", "crate"]);
 
-function farmMmo(cols: number, rows: number, density: number, wantPath: boolean, sea: boolean, detail: string, kit: StyleKit, seed: number, terrain: TerrainOptions | null = null) {
+function farmMmo(cols: number, rows: number, density: number, wantPath: boolean, sea: boolean, detail: string, kit: StyleKit, seed: number, terrain: TerrainOptions | null = null, rich = false) {
   const T = kit.sizes.tile;
-  const plan = farmMmoPlan(cols, rows, seed, kit, { sea, density, wantPath, terrain: !!terrain });
+  const plan = farmMmoPlan(cols, rows, seed, kit, { sea, density, wantPath, terrain: !!terrain, rich });
   const tm: TileMap = emptyTileMap(cols, rows, T);
   paintGround(tm, plan.ground, kit, seed, rng(seed), { waterDepth: true, smooth: true });
   if (plan.bridge) paintBridge(tm, plan.bridge, kit);
@@ -1183,7 +1190,14 @@ function farmMmo(cols: number, rows: number, density: number, wantPath: boolean,
       tm.deco[i] = ensureTile(tm, `fence-${piece}`, sp, !gate);
     }
     for (const a of plan.animals) tm.deco[at(a.x, a.y)] = ensureTile(tm, `${a.species}${a.age === "baby" ? "-baby" : ""}-${a.dir}`, animalSprite(kit, a.species, a.age, a.dir), false);
-    plan.buildings.forEach((b, n) => { tm.deco[at(b.x, b.y)] = ensureTile(tm, `${b.style}-${n}`, farmBuildingSprite(kit, b.style, b.extra, plan.variant), true); });
+    plan.buildings.forEach((b, n) => {
+      if (b.rich) {
+        const rb = richBuilding(kit, b.style, b.extra as Extra, plan.variant);
+        const ti = ensureTile(tm, rb.name, rb.sprite, true);
+        tm.tiles[ti].lights = rb.lights;
+        tm.deco[at(b.x, b.y)] = ti;
+      } else tm.deco[at(b.x, b.y)] = ensureTile(tm, `${b.style}-${n}`, farmBuildingSprite(kit, b.style, b.extra, plan.variant), true);
+    });
     for (const t of plan.trees) tm.deco[at(t.x, t.y)] = treeTile(t);
   }
   const reserved = new Set<number>([...plan.canopy, ...plan.channels]);
@@ -1199,6 +1213,8 @@ function farmMmo(cols: number, rows: number, density: number, wantPath: boolean,
   const terrainInfo = terrain && plan.terrain ? applyTerrain(tm, kit, plan.terrain, seed, terrain) : null;
   const objects = mapObjects(tm);
   const ok = farmWalkable(plan, cols, rows, tm);
+  const richPlaced = (b: (typeof plan.buildings)[number]) => placedRich(kit, b.style, b.extra as Extra, plan.variant, b.x, b.y);
+  const richLights = plan.buildings.flatMap((b) => (b.rich ? richPlaced(b).lights : []));
   const meta = {
     biome: "farm-mmo",
     set: sea ? "sea" : "normal",
@@ -1209,7 +1225,8 @@ function farmMmo(cols: number, rows: number, density: number, wantPath: boolean,
     bridge: plan.bridge,
     /** fenced fields, pen, orchard and pond (cell boxes; gx = the gate column on the top fence) */
     lots: plan.lots,
-    buildings: plan.buildings.map((b) => ({ style: b.style, x: b.x, y: b.y, halfWidth: b.e, rowsUp: b.up })),
+    buildings: plan.buildings.map((b) => ({ style: b.style, x: b.x, y: b.y, halfWidth: b.e, rowsUp: b.up, ...(b.rich ? richPlaced(b) : {}) })),
+    ...(rich ? { buildingLook: "rich", lights: richLights } : {}),
     crops: plan.crops.length,
     /** irrigation channel cells inside the fields */
     irrigation: [...plan.channels].map((i) => ({ x: i % cols, y: Math.floor(i / cols) })),

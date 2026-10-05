@@ -87,7 +87,7 @@ export interface TileMap {
   rows: number;
   tile: number;
   /** Ordered tile set. Each entry is a sprite (copied in, so maps are self-contained). */
-  tiles: { name: string; sprite: Sprite; solid?: boolean }[];
+  tiles: { name: string; sprite: Sprite; solid?: boolean; /** light emitters in sprite px (a rich building's windows, lamps, forge) */ lights?: { x: number; y: number; r: number }[] }[];
   /** Ground layer: index into tiles, -1 empty. */
   ground: number[];
   /** Decoration layer drawn on top (trees, rocks...). */
