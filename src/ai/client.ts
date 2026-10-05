@@ -10,6 +10,8 @@ import type { Category, Sprite, StyleKit } from "../core/types";
 export interface AiStatus {
   enabled: boolean;
   model: string | null;
+  provider?: string;
+  visionModel?: string | null;
   reason?: string;
 }
 
@@ -71,7 +73,8 @@ async function request<T>(path: string, init: { method: "GET" | "POST"; body?: u
 export async function aiStatus(): Promise<AiStatus> {
   try {
     const s = await request<Partial<AiStatus>>("/api/health", { method: "GET", timeoutMs: STATUS_TIMEOUT_MS });
-    return { enabled: s.enabled === true, model: typeof s.model === "string" ? s.model : null, reason: typeof s.reason === "string" ? s.reason : undefined };
+    const st = s as { provider?: unknown; vision_model?: unknown };
+    return { enabled: s.enabled === true, model: typeof s.model === "string" ? s.model : null, provider: typeof st.provider === "string" ? st.provider : undefined, visionModel: typeof st.vision_model === "string" ? st.vision_model : null, reason: typeof s.reason === "string" ? s.reason : undefined };
   } catch (e) {
     return { enabled: false, model: null, reason: e instanceof Error ? e.message : "API server unreachable" };
   }

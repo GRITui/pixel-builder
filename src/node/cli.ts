@@ -8,6 +8,8 @@ import { DEFAULT_HTTP_PORT, VERSION, parseHostList, startHttp, startStdio } from
 import { CORE_TOOLS, TOOLS, ToolError, callToolAsync, inputJsonSchema, nearest, resolveProfile, savePreviews, toolsForProfile, type ToolDef, type ToolProfile, type ToolResult } from "./tools";
 import { DEFAULT_WORKSPACE } from "./workspace";
 import { openWorkspace } from "./remote-workspace";
+import { SETUP_CLIENTS, formatDoctor, runDoctor, setupSnippet, setupWrite, type SetupClient } from "./doctor";
+import { resolve } from "node:path";
 
 class UsageError extends Error {}
 
@@ -227,6 +229,8 @@ const EXAMPLES = [
   "pixel-builder export-asset <id> --format spritesheet --scale 4 --out-dir ./game/art",
   "pixel-builder mcp                 # MCP server on stdio",
   "pixel-builder mcp --http          # MCP over Streamable HTTP on 127.0.0.1:8788",
+  "pixel-builder doctor              # check Node, workspace, tools, a generate round-trip and the MCP handshake",
+  "pixel-builder setup qwen-code --write   # print (or merge into .qwen/settings.json) the MCP config",
 ];
 
 function mainHelp(profile: ToolProfile = "all"): string {
@@ -240,6 +244,8 @@ function mainHelp(profile: ToolProfile = "all"): string {
     `Commands (same names as the MCP tools, kebab-case)${profile === "core" ? `; profile core, ${listed.length} of ${TOOLS.length} (all commands still run, \`--tools all\` lists them` + ")" : ""}:`,
     ...listed.map((t) => `  ${kebab(t.name).padEnd(w)}${firstSentence(t.description)}`),
     `  ${"mcp".padEnd(w)}Run the MCP server (stdio; --http [--port ${DEFAULT_HTTP_PORT}] [--allowed-host h] [--token t] for Streamable HTTP; --tools core|all).`,
+    `  ${"doctor".padEnd(w)}Self-check: Node, workspace, tools, generate round-trip, MCP handshake, AI env (--json; exit 1 on failure).`,
+    `  ${"setup".padEnd(w)}Print the MCP config for a client (${SETUP_CLIENTS.join(", ")}); --write merges project-local files; --tools core.`,
     "",
     "Global options:",
     "  --workspace, -w <dir>  Workspace folder (default: $PIXEL_BUILDER_WORKSPACE, else ./" + DEFAULT_WORKSPACE + ").",
@@ -359,6 +365,53 @@ async function runMcp(tokens: string[], workspace: string | undefined, io: CliIO
   return 0;
 }
 
+const SETUP_USAGE = `Usage: pixel-builder setup <client> [--write] [--tools core] [--workspace <dir>] [--port 8788] [--json]
+Clients: ${SETUP_CLIENTS.join(", ")}
+Prints the MCP config for the client with this checkout's absolute path and an absolute workspace filled in.
+--write merges it into the project-local file of the client (.mcp.json, .cursor/mcp.json, .gemini/settings.json, .qwen/settings.json, opencode.json, .vscode/mcp.json) in the current folder, keeping other servers; other clients print where to paste it.`;
+
+function runSetup(tokens: string[], workspace: string | undefined, toolsFlag: string | undefined, json: boolean, io: CliIO): number {
+  let write = false;
+  let port: number | undefined;
+  const pos: string[] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    if (t === "--json") continue;
+    if (t === "--help" || t === "-h") { io.out(SETUP_USAGE); return 0; }
+    if (t === "--write") write = true;
+    else if (t === "--tools") i++;
+    else if (t.startsWith("--tools=")) continue;
+    else if (t === "--workspace" || t === "-w") workspace = tokens[++i];
+    else if (t.startsWith("--workspace=")) workspace = t.slice(12);
+    else if (t === "--port") port = Number(tokens[++i]);
+    else if (t.startsWith("-")) throw new UsageError(`Unknown option ${t} for setup.\n${SETUP_USAGE}`);
+    else pos.push(t);
+  }
+  const client = pos[0] as SetupClient | undefined;
+  if (!client) throw new UsageError(SETUP_USAGE);
+  if (!SETUP_CLIENTS.includes(client)) {
+    const near = nearest(client, [...SETUP_CLIENTS], 3);
+    throw new UsageError(`Unknown client '${client}'.${near.length ? ` Did you mean ${near.join(", ")}?` : ""}\nClients: ${SETUP_CLIENTS.join(", ")}`);
+  }
+  const ws = workspace && /^https?:\/\//i.test(workspace) ? workspace : resolve(workspace ?? process.env.PIXEL_BUILDER_WORKSPACE ?? DEFAULT_WORKSPACE);
+  const opts = { workspace: ws, profile: resolveProfile(toolsFlag), port };
+  const r = setupSnippet(client, opts);
+  const written = write && r.file ? setupWrite(client, opts) : undefined;
+  if (json) {
+    io.out(JSON.stringify({ ok: true, client, snippet: r.snippet, doc: r.doc, ...(r.file ? { file: r.file } : {}), ...(r.where ? { where: r.where } : {}), ...(written ? { written } : {}) }));
+    return 0;
+  }
+  const lines: string[] = [];
+  if (written) lines.push(`Wrote the pixel-builder server into ${written} (other servers kept).`, "");
+  else if (write) lines.push(`${client} has no project-local config file, so nothing was written. Paste this into ${r.where}:`, "");
+  else lines.push(r.file ? `Put this in ${r.file} in your project (or run again with --write to merge it):` : `Paste this into ${r.where}:`, "");
+  lines.push(r.snippet, "");
+  if (r.note) lines.push(r.note);
+  lines.push(`Docs: ${r.doc}`, "Check it works: npx tsx src/node/cli.ts doctor");
+  io.out(lines.join("\n"));
+  return 0;
+}
+
 /** Run the CLI; returns the process exit code (0 ok, 1 tool error, 2 usage error). `mcp` keeps running after it returns. */
 export async function main(argv: string[], io: CliIO = stdio): Promise<number> {
   let json = argv.includes("--json");
@@ -401,9 +454,17 @@ export async function main(argv: string[], io: CliIO = stdio): Promise<number> {
       }
       return await runMcp(rest.filter((t) => t !== "--json"), workspace, io, outDir, toolsFlag);
     }
+    if (command === "doctor") {
+      const wi = rest.findIndex((x) => x === "--workspace" || x === "-w" || x.startsWith("--workspace="));
+      if (wi >= 0) workspace = rest[wi].includes("=") ? rest[wi].slice(rest[wi].indexOf("=") + 1) : rest[wi + 1];
+      const report = await runDoctor({ workspace });
+      io.out(json ? JSON.stringify(report) : formatDoctor(report));
+      return report.ok ? 0 : 1;
+    }
+    if (command === "setup") return runSetup(rest, workspace, toolsFlag, json, io);
     const tool = TOOLS.find((t) => kebab(t.name) === command || t.name === command);
     if (!tool) {
-      const near = nearest(command, [...TOOLS.map((t) => kebab(t.name)), "mcp"], 3);
+      const near = nearest(command, [...TOOLS.map((t) => kebab(t.name)), "mcp", "doctor", "setup"], 3);
       throw new UsageError(`Unknown command '${command}'.` + (near.length ? ` Did you mean ${near.join(", ")}?` : "") + " Run `pixel-builder --help` for the list.");
     }
     const props = (inputJsonSchema(tool).properties ?? {}) as Record<string, Prop>;

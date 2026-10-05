@@ -7,8 +7,8 @@ const PREVIEW_MATS: Material[] = ["skin", "cloth", "cloth2", "foliage", "wood", 
 
 export function AiPill({ status, onRefresh }: { status: AiStatus | null; onRefresh: () => void }) {
   const state = !status ? "checking" : status.enabled ? "on" : "off";
-  const label = !status ? "AI: checking…" : status.enabled ? `AI: ${status.model ?? "on"}` : "AI: off";
-  const title = !status ? "Contacting the AI server…" : status.enabled ? "Claude is connected. Click to re-check." : `${status.reason ?? "Set ANTHROPIC_API_KEY on the server."} Click to re-check.`;
+  const label = !status ? "AI: checking…" : status.enabled ? `AI: ${status.provider && status.provider !== "anthropic" ? `${status.provider} / ` : ""}${status.model ?? "on"}` : "AI: off";
+  const title = !status ? "Contacting the AI server…" : status.enabled ? `${status.provider === "openai" ? "OpenAI-compatible" : "Claude"} provider${status.model ? `, model ${status.model}` : ""}${status.visionModel && status.visionModel !== status.model ? `, vision ${status.visionModel}` : ""}. Click to re-check.` : `${status.reason ?? "Set ANTHROPIC_API_KEY on the server."} Click to re-check.`;
   return (
     <button className={`pill ${state}`} onClick={onRefresh} title={title}>
       <span className="dot" /> {label}

@@ -295,6 +295,8 @@ optional unless marked *; `kit_id` defaults to the active kit.
 | `create_attachment` | attachment* (Attachment JSON), rig, kit_id | validated + stored; preview worn on `rig` if given |
 | `generate_pack` | pack (e.g. `farming-v1`) or manifest {entries}, only[], kit_id, replace (true), svg (true), dry_run | generated assets + files, failures, contact sheet |
 
+CLI-only helpers (not tools, no contract change; `src/node/doctor.ts`): `doctor` (Node, workspace, tools, generate round-trip, MCP stdio handshake, AI env; `--json`, exit 1 on failure) and `setup <client> [--tools core] [--write]` (MCP config snippets, `--write` merges project-local files).
+
 Robustness (#84): `parseInput` coerces input against the tool's JSON schema (`src/node/coerce.ts`: numeric strings, booleans, JSON strings, enum case, flat `frames`, camelCase keys; generator/kit/asset by id or name); unknown inputs and generator params come back as `warnings`; errors name the field, list valid values and show the tool's example (`src/node/examples.ts`, also the last line of every description). MCP serves tools/list + tools/call itself (not `registerTool`) so the SDK does not reject slips before coercion; advertised schemas are simplified (`simplifySchema`: no anyOf/$ref/tuples/type arrays). `--tools core|all` / `PIXEL_BUILDER_TOOLS` selects a profile (core = 12 tools). Results with images also carry saved preview paths (`previews`).
 
 MCP also exposes resources `pixel-builder://project` (the project JSON) and

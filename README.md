@@ -53,7 +53,7 @@ Model defaults to `claude-opus-5-5` (override with `PIXEL_MODEL`). The key never
 
 ## Use with AI agents
 
-An MCP server (stdio or Streamable HTTP) and a CLI expose the same 16 tools
+An MCP server (stdio or Streamable HTTP) and a CLI expose the same 33 tools
 (`get_style_guide`, `generate_asset`, `generate_variations`, `paint_asset`,
 `export_asset`, …). No API key is needed: the calling agent can be the artist,
 painting with the kit's palette legend, and every result goes through the same
