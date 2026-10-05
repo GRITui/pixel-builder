@@ -72,6 +72,20 @@ export function assetPackPrompt(game: string, count: number): string {
   ].join("\n");
 }
 
+export function matchReferencePrompt(reference: string, subject?: string): string {
+  return [
+    `Match a reference image: ${reference}${subject ? ` (make: ${subject})` : ""}`,
+    "",
+    "You see the reference yourself (no API key needed); the tools measure it and render on-style. The reference guides subject, shape and style only: every colour comes from the kit.",
+    "1. Call get_reference {id} to load the reference image and look at it: subject, silhouette, proportions, materials, roof/shape details, mood.",
+    "2. Call kit_from_reference {id} to derive a kit (palette, outline, light, ramp tweaks) from its measured colours; apply it with create_kit / update_kit, then get_style_guide for the material names.",
+    "3. Call list_generators, pick the generator that fits the subject, and read its params. Map what you see to params (e.g. a half-brick house: style half-brick, roof shape, material names, floor count). generate_variations to compare a few seeds.",
+    "4. generate_asset with the best params, look at the preview, then compare it with the reference (call compare_reference {id, asset} if available, otherwise look at both): silhouette, proportions, colour balance, details.",
+    "5. Adjust params (or paint_asset / edit_asset for details a generator cannot make) and regenerate until it reads as the same subject at 1x. Never paint colours that are not in the kit legend.",
+    "6. Finish by listing the exported files and what you matched / deliberately simplified.",
+  ].join("\n");
+}
+
 export function designCreaturePrompt(description: string, family?: string): string {
   const fam = family?.trim();
   return [
@@ -140,6 +154,18 @@ export function createMcpServer(ws: Workspace): McpServer {
       },
     },
     ({ description, family }) => ({ messages: [{ role: "user", content: { type: "text", text: designCreaturePrompt(description, family) } }] }),
+  );
+  server.registerPrompt(
+    "match_reference",
+    {
+      title: "Match a reference image",
+      description: "Recreate the subject and style of a reference image on-kit: get_reference, kit_from_reference, generators, compare. Works without an API key.",
+      argsSchema: {
+        reference: z.string().describe("Reference id (from the project's reference library) or a short description of the image."),
+        subject: z.string().optional().describe("What to make from it, e.g. 'the house as a game building'."),
+      },
+    },
+    ({ reference, subject }) => ({ messages: [{ role: "user", content: { type: "text", text: matchReferencePrompt(reference, subject) } }] }),
   );
   return server;
 }

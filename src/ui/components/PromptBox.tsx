@@ -1,6 +1,7 @@
 import type { AiStatus } from "../../ai/client";
 import type { Asset } from "../../core/types";
 import type { FlatPalette } from "../render";
+import { AttachReference } from "./AttachReference";
 import { aiOffReason } from "./common";
 import { SpriteCanvas, fitScale } from "./SpriteView";
 
@@ -16,6 +17,8 @@ export function PromptBox(props: {
   refs: Asset[];
   pal: FlatPalette;
   onRemoveRef: (id: string) => void;
+  attached?: string | null;
+  onAttach?: (dataUrl: string | null) => void;
   onVibe: () => void;
   onFreeform: () => void;
   /** Freeform painting makes no sense for maps. */
@@ -50,6 +53,7 @@ export function PromptBox(props: {
           {busy === "pixels" ? "Painting…" : "Freeform pixels"}
         </button>
       </div>
+      {props.onAttach && <AttachReference value={props.attached ?? null} onChange={props.onAttach} disabled={!!busy} />}
       {!enabled && <p className="hint">{status ? offWhy : "Checking the AI server…"}</p>}
       <div className="refs">
         <span className="dim">Style references ({props.refs.length}/2)</span>

@@ -275,7 +275,12 @@ go to a local folder (`--out-dir <dir>` or env `PIXEL_BUILDER_OUT_DIR`, default 
 See `docs/deploy.md`.
 Copy or point the game at those files. MCP also exposes the resources
 `pixel-builder://project` and `pixel-builder://style-guide`, and a prompt
-`asset_pack` (`game`, `count`) that walks through a starter pack, and `design_creature` (`description`, `family?`) for authoring a rigged creature.
+`asset_pack` (`game`, `count`) that walks through a starter pack, and `design_creature` (`description`, `family?`) for authoring a rigged creature,
+and `match_reference` (`reference`, `subject?`) that walks you from a reference image
+(`get_reference`, `kit_from_reference`, generators, compare) to an on-kit asset; no key needed.
+With a server key the web app's AI endpoints (`/api/vibe`, `/api/kit`, `/api/rig`, `/api/pixels`,
+`/api/inpaint`) also accept `images` (base64 / data URLs, max 4) and `reference_ids`; the image
+guides subject and style only, colours always come from the kit.
 
 ## No MCP? Use the CLI
 

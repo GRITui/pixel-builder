@@ -102,12 +102,13 @@ export function Workspace(props: {
   };
 
   const fail = (e: unknown) => setError(e instanceof Error ? e.message : String(e));
+  const [refImg, setRefImg] = useState<string | null>(null);
   const runVibe = async () => {
     setBusy("vibe");
     setError(null);
     const prompt = ws.prompt.trim();
     try {
-      const r = await vibeParams({ prompt, generator: g, kit, current: ws.params });
+      const r = await vibeParams({ prompt, generator: g, kit, current: ws.params, images: refImg ? [refImg] : undefined });
       props.update(category, (w) => ({ ...w, params: coerceParams(g, r.params as Record<string, unknown>), name: r.name || w.name, notes: r.notes, origin: { kind: "ai-vibe", prompt }, freeform: null }));
     } catch (e) {
       fail(e);
@@ -123,7 +124,7 @@ export function Workspace(props: {
     const size = kit.sizes[category];
     // `references` is a Lane C addition; passing a variable (not a literal) keeps
     // this compiling whether or not aiPixels' signature declares it yet.
-    const args = { prompt, category, w: size, h: size, kit, references: props.refs.map((a) => a.rows[0].frames[0]) };
+    const args = { prompt, category, w: size, h: size, kit, references: props.refs.map((a) => a.rows[0].frames[0]), images: refImg ? [refImg] : undefined };
     try {
       const r = await aiPixels(args);
       props.update(category, (w) => ({ ...w, name: r.name || w.name, notes: "", freeform: { sprite: r.sprite, prompt } }));
@@ -189,6 +190,8 @@ export function Workspace(props: {
           refs={props.refs}
           pal={pal}
           onRemoveRef={props.onRemoveRef}
+          attached={refImg}
+          onAttach={setRefImg}
           onVibe={runVibe}
           onFreeform={runFreeform}
           freeformDisabledReason={category === "map" ? "Freeform painting isn't available for maps — use Vibe, or paint in the map editor." : undefined}

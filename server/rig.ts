@@ -4,6 +4,7 @@
 // free-form. Output is untrusted: it is converted from the wire format,
 // validated (validateRig + shape checks + a test render), sent back once with
 // the error list for a repair round, then rejected with 422.
+import { collectImages, withReferenceRule } from "./images";
 import { callStructured, type StructuredCall } from "./claude";
 import { HttpError, normalizeKit, requirePrompt, LIGHT_TEXT, cleanText } from "./prompts";
 import { buildLegend, legendText } from "../src/core/legend";
@@ -126,10 +127,13 @@ export interface RigResponse {
 
 export async function rigRoute(body: Record<string, unknown>, signal: AbortSignal, call: ModelCall = callStructured): Promise<RigResponse> {
   const req = normalizeRigRequest(body);
+  const images = await collectImages(body);
   let repair: { previous: unknown; errors: string[] } | undefined;
   for (let attempt = 0; attempt < 2; attempt++) {
-    const { system, user, schema } = buildRigPrompt(req, repair);
-    const raw = await call({ system, user, schema, effort: "high", maxTokens: 32000, stream: true, signal });
+    const p = buildRigPrompt(req, repair);
+    const { user, schema } = p;
+    const system = withReferenceRule(p.system, images);
+    const raw = await call({ system, user, images, schema, effort: "high", maxTokens: 32000, stream: true, signal });
     const res = fromWire(raw);
     if (req.base) res.mode = "extend", res.baseRig = req.base;
     const base = res.mode === "extend" ? (res.baseRig ? rigById(res.baseRig) : undefined) : undefined;

@@ -1,4 +1,5 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { AttachReference } from "./AttachReference";
 import { vibeKit } from "../../ai/client";
 import { generatorById, coerceParams, type GenResult } from "../../core/generators";
 import { ALL_KIT_PRESETS as KIT_PRESETS, resolveRamps } from "../../core/kit";
@@ -72,6 +73,7 @@ export function KitEditor(props: {
   useEffect(() => setDraft(active), [active]);
   const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(active), [draft, active]);
   const [styleText, setStyleText] = useState("");
+  const [refImg, setRefImg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ text: string; error?: boolean } | null>(null);
 
@@ -104,7 +106,7 @@ export function KitEditor(props: {
     setBusy(true);
     setMsg(null);
     try {
-      const r = await vibeKit({ prompt: styleText.trim(), kit: draft });
+      const r = await vibeKit({ prompt: styleText.trim(), kit: draft, images: refImg ? [refImg] : undefined });
       setDraft((d) => {
         const k = r.kit;
         const paletteChanged = k.paletteId !== undefined && k.paletteId !== d.paletteId;
@@ -192,6 +194,7 @@ export function KitEditor(props: {
                 {busy ? "Thinking…" : "✦ Apply"}
               </button>
             </div>
+            <AttachReference value={refImg} onChange={setRefImg} disabled={busy} />
             {!aiOn && <p className="hint">{aiTitle}</p>}
             {msg && <p className={msg.error ? "error" : "notes"}>{msg.text}</p>}
           </fieldset>

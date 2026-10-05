@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { AttachReference } from "./AttachReference";
 import { aiRig, type AiStatus } from "../../ai/client";
 import { createAsset } from "../../core/asset";
 import { MATERIALS, type Material } from "../../core/palette";
@@ -114,6 +115,7 @@ export function RiggedWorkspace(props: {
   const customRig = family === "custom";
   const [editing, setEditing] = useState(false);
   const [desc, setDesc] = useState("");
+  const [refImg, setRefImg] = useState<string | null>(null);
   const [descBusy, setDescBusy] = useState(false);
   const [descNotes, setDescNotes] = useState("");
   const [keepRig, setKeepRig] = useState(false);
@@ -167,7 +169,7 @@ export function RiggedWorkspace(props: {
     setDescBusy(true);
     setDescNotes("");
     try {
-      const r = await aiRig({ prompt: desc.trim(), kit, base: keepRig ? rig.id : undefined });
+      const r = await aiRig({ prompt: desc.trim(), kit, base: keepRig ? rig.id : undefined, images: refImg ? [refImg] : undefined });
       // ids must not shadow built-ins: the registry wins on lookup, so authored clips/attachments get a prefix when they collide
       const att = r.attachments.map((a) => (ATTACHMENTS.some((x) => x.attachment.id === a.id) ? { ...a, id: `ai-${a.id}` } : a));
       const prefix = r.rig?.id ?? "ai";
@@ -209,6 +211,7 @@ export function RiggedWorkspace(props: {
             <input type="checkbox" checked={keepRig} onChange={(e) => setKeepRig(e.target.checked)} />
             Build on the selected rig
           </label>
+          <AttachReference value={refImg} onChange={setRefImg} disabled={descBusy} />
           <div className="btn-row">
             <button
               className="primary"
