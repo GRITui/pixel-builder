@@ -23,6 +23,14 @@ hand-write PNGs or invent colours.
 4. **You never bypass the kit.** When you paint, you use only legend characters
    (each = one kit palette entry).
 
+## If a call fails
+
+Read the error: it names the field, lists the valid values (or the nearest match) and ends with an example call. Fix that field and retry. Sloppy-but-clear input is repaired for you (numeric strings, "true", JSON in a string, a flat `frames` list, enum case, generator / kit / asset by name) and reported under `warnings`; unknown inputs are ignored with a warning. Colours still come only from legend characters.
+
+## Tool profiles (small models)
+
+`pixel-builder mcp --tools core` (or env `PIXEL_BUILDER_TOOLS=core`) exposes 12 tools: get_style_guide, list_kits, set_active_kit, list_generators, generate_asset, generate_variations, paint_asset, edit_asset, list_assets, get_asset, export_asset, import_image. Default is `all`. Every result that makes art includes the image and the saved preview path (`previews`) for clients that drop images.
+
 ## Tools (MCP tool names = CLI commands in kebab-case)
 
 | Tool | Use it to |

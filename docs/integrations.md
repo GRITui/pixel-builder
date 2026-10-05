@@ -58,6 +58,10 @@ Deployment and setup: [`deploy.md`](deploy.md).
   I ran the stdio server (dev and built), the HTTP server and the CLI examples in
   this guide against the current code: all 16 tools list over both transports.
 
+### Tool profiles
+
+`--tools core|all` (env `PIXEL_BUILDER_TOOLS`) on `mcp` (stdio and `--http`) and on `--help`. `core` exposes 12 tools (get_style_guide, list_kits, set_active_kit, list_generators, generate_asset, generate_variations, paint_asset, edit_asset, list_assets, get_asset, export_asset, import_image) for smaller models (Qwen, Gemini, local); default `all`. Tool input schemas avoid oneOf/anyOf/$ref/tuples so Gemini and Qwen function calling accept them.
+
 ## 1. Claude Code
 
 Docs: <https://code.claude.com/docs/en/mcp>, <https://code.claude.com/docs/en/skills> (**verified**)
