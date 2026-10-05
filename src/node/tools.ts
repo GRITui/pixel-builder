@@ -11,7 +11,7 @@ import { downscaleRGBA, finalize, materialsUsed, quantizeRGBA } from "../core/en
 import { GENERATORS, generatorById } from "../core/generators";
 import { coerceParams, defaults, randomParams, type Generator, type ParamSpec, type Params } from "../core/generators/types";
 import { newId, resolveRamps } from "../core/kit";
-import { analyzeReference, kitChangesFromAnalysis, type RefAnalysis } from "../core/refstyle";
+import { analyzeReference, kitChangesFromAnalysis, styleDistance, type RefAnalysis } from "../core/refstyle";
 import { cropToContentImage, detectGrid, downscaleGrid, hasOutline, imageToSprite, makeRampMapper, padToCommon, removeBackgroundFlood, splitSheet, type GridInfo } from "../core/pixelgrid";
 import { applyRegionEdit, cellsMask, checkRegionRows, maskBounds, rectMask, regionContext } from "../core/inpaint";
 import { buildLegend, decodeRows, encodeSprite, legendText, type Legend } from "../core/legend";
@@ -1705,10 +1705,70 @@ const kitFromReference = defineTool({
   },
 });
 
+// ---------- compare to reference (#67) ----------
+
+/** Nearest-neighbour resize to an exact size (the reference is shown at the asset's display height). */
+function resizeNearest(img: RgbaImage, w: number, h: number): RgbaImage {
+  const out = blankImage(w, h);
+  for (let y = 0; y < h; y++) {
+    const sy = Math.min(img.height - 1, Math.floor((y * img.height) / h));
+    for (let x = 0; x < w; x++) {
+      const so = (sy * img.width + Math.min(img.width - 1, Math.floor((x * img.width) / w))) * 4;
+      out.rgba.set(img.rgba.subarray(so, so + 4), (y * w + x) * 4);
+    }
+  }
+  return out;
+}
+
+const compareToReference = defineTool({
+  name: "compare_to_reference",
+  title: "Compare to reference",
+  description:
+    "Score how close an asset's style is to a stored reference image (0..100) with per-component scores (palette, shades, outline, light, detail, silhouette) and actionable notes (e.g. 'reference uses ~7 shades per hue, you use 4: try kit-hd-deep'). Returns a side-by-side preview (reference left, asset right, same display height) and stores referenceId + matchScore on the asset. Offline and deterministic. Re-run after changing the kit or params to see the score move.",
+  shape: {
+    asset_id: z.string().describe("Asset id (or exact name)."),
+    reference_id: z.string().describe("Stored reference id or name (see list_references)."),
+    row: z.union([z.string(), z.number().int().min(0)]).optional().describe("Animation row name or index. Default: the first row."),
+    frame: z.number().int().min(0).default(0).describe("Frame index within the row."),
+  },
+  run(ws, i) {
+    if (!referenceLoader) throw new ToolError("compare_to_reference needs the reference library, which is not available here.");
+    const project = ws.load();
+    const asset = findAsset(project, i.asset_id);
+    const kit = kitOf(project, asset);
+    const row = i.row === undefined ? asset.rows[0] : typeof i.row === "number" ? asset.rows[i.row] : asset.rows.find((r) => r.name === i.row);
+    if (!row) throw new ToolError(`Asset '${asset.name}' has no row '${i.row}'. Rows: ${asset.rows.map((r) => r.name).join(", ")}.`);
+    const sprite = row.frames[i.frame];
+    if (!sprite) throw new ToolError(`Row '${row.name}' has ${row.frames.length} frame(s); frame ${i.frame} does not exist.`);
+    const ref = findReference(project, i.reference_id);
+    const refImg = referenceLoader(ws, ref.id);
+    const assetImg = spriteImage(sprite, kit, 1);
+    const result = styleDistance({ w: assetImg.width, h: assetImg.height, data: assetImg.rgba }, { w: refImg.width, h: refImg.height, data: refImg.rgba });
+
+    const shown = spriteImage(sprite, kit, previewScale(sprite.w, sprite.h), "checker");
+    const left = resizeNearest(refImg, Math.max(1, Math.round((refImg.width * shown.height) / refImg.height)), shown.height);
+    const gap = 8;
+    const out = blankImage(left.width + gap + shown.width, shown.height, [40, 38, 52, 255]);
+    for (const [im, ox] of [[left, 0], [shown, left.width + gap]] as [RgbaImage, number][])
+      for (let y = 0; y < im.height; y++)
+        for (let x = 0; x < im.width; x++) {
+          const o = (y * im.width + x) * 4, a = im.rgba[o + 3] / 255, d = (y * out.width + ox + x) * 4;
+          for (let k = 0; k < 3; k++) out.rgba[d + k] = Math.round(im.rgba[o + k] * a + out.rgba[d + k] * (1 - a));
+        }
+
+    asset.meta = { ...asset.meta, referenceId: ref.id, matchScore: result.score };
+    ws.save(project);
+    return {
+      data: { asset_id: asset.id, reference_id: ref.id, row: row.name, frame: i.frame, score: result.score, components: Object.fromEntries(Object.entries(result.components).map(([k, v]) => [k, Math.round(v * 100)])), notes: result.notes, note: "Preview: reference left, asset right. Component scores are 0..100." },
+      images: [png(out, `${asset.name}-vs-${ref.name}`)],
+    };
+  },
+});
+
 export const TOOLS: ToolDef[] = [
   getStyleGuide, listGenerators, generateAsset, generateVariations, paintAsset, editAsset, editRegion, listAssets, getAsset,
   deleteAsset, exportAssetTool, importImage, listKits, createKit, updateKit, setActiveKit, rerenderAssets,
   listRigs, listClips, listAttachments, generateRigged, attach, createRig, createClip, createAttachment,
   generatePack, importSvg,
-  addReference, listReferences, getReference, deleteReference, kitFromReference,
+  addReference, listReferences, getReference, deleteReference, kitFromReference, compareToReference,
 ];

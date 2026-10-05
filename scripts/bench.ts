@@ -12,7 +12,7 @@ import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { BENCH_DIR, kitsFor, loadBriefs, metricsOf, validateBrief, type Brief, type Metrics } from "../bench/lib";
+import { BENCH_DIR, kitsFor, loadBriefs, metricsOf, referencePng, validateBrief, type Brief, type Metrics } from "../bench/lib";
 import { blankImage, decodePng, encodePng, type RgbaImage } from "../src/node/png";
 import { callToolAsync } from "../src/node/tools";
 import { Workspace } from "../src/node/workspace";
@@ -31,6 +31,8 @@ export interface RunResult {
   error?: string;
   metrics?: Metrics;
   sheet?: string;
+  /** Style-distance score 0..100 against the brief's reference (reference briefs only). */
+  match?: number;
 }
 
 /** Stack preview images vertically on the contact-sheet background. */
@@ -57,12 +59,23 @@ async function runBrief(b: Brief, kit: string): Promise<RunResult> {
       const r = await callToolAsync(ws, step.tool, { ...step.input, kit_id: kit });
       for (const im of r.images ?? []) images.push(decodePng(im.png));
     }
+    let match: number | undefined;
+    const refPng = referencePng(b);
+    if (refPng) {
+      const file = join(dir, "reference.png");
+      writeFileSync(file, refPng);
+      const added = await callToolAsync(ws, "add_reference", { path: file, name: b.id });
+      const last = ws.load().assets.at(-1)!;
+      const cmp = await callToolAsync(ws, "compare_to_reference", { asset_id: last.id, reference_id: (added.data as { reference: { id: string } }).reference.id });
+      match = (cmp.data as { score: number }).score;
+      for (const im of cmp.images ?? []) images.unshift(decodePng(im.png));
+    }
     const ms = performance.now() - t0;
     const assets = ws.load().assets;
     const dirOut = join(OUT, kit);
     mkdirSync(dirOut, { recursive: true });
     writeFileSync(join(dirOut, `${b.id}.png`), encodePng(stack(images)));
-    return { brief: b.id, kit, ms, metrics: metricsOf(assets, b.expect?.directions), sheet: `${kit}/${b.id}.png` };
+    return { brief: b.id, kit, ms, metrics: metricsOf(assets, b.expect?.directions), match, sheet: `${kit}/${b.id}.png` };
   } catch (e) {
     return { brief: b.id, kit, ms: performance.now() - t0, error: e instanceof Error ? e.message : String(e) };
   } finally {
@@ -79,7 +92,7 @@ function report(briefs: Brief[], results: RunResult[], commit: string): string {
     const ours = mine
       .map((r) =>
         r.sheet
-          ? `<figure><img src="${r.sheet}" loading="lazy"><figcaption>${r.kit} &middot; ${(r.ms / 1000).toFixed(2)}s${r.metrics ? ` &middot; ${r.metrics.frames} frames, ${r.metrics.paletteColors} colours` : ""}</figcaption></figure>`
+          ? `<figure><img src="${r.sheet}" loading="lazy"><figcaption>${r.kit} &middot; ${(r.ms / 1000).toFixed(2)}s${r.metrics ? ` &middot; ${r.metrics.frames} frames, ${r.metrics.paletteColors} colours` : ""}${r.match !== undefined ? ` &middot; match ${r.match}` : ""}</figcaption></figure>`
           : `<figure class="err"><figcaption>${r.kit}: FAILED<br>${esc(r.error ?? "")}</figcaption></figure>`,
       )
       .join("");
@@ -111,7 +124,7 @@ async function main() {
     for (const kit of kitsFor(b).filter((k) => !onlyKit || k === onlyKit)) {
       const r = await runBrief(b, kit);
       results.push(r);
-      console.log(`${r.error ? "FAIL" : "ok  "} ${b.id.padEnd(30)} ${kit.padEnd(12)} ${(r.ms / 1000).toFixed(2)}s${r.error ? "  " + r.error.slice(0, 120) : ""}`);
+      console.log(`${r.error ? "FAIL" : "ok  "} ${b.id.padEnd(30)} ${kit.padEnd(12)} ${(r.ms / 1000).toFixed(2)}s${r.match !== undefined ? `  match ${r.match}` : ""}${r.error ? "  " + r.error.slice(0, 120) : ""}`);
     }
   let commit = "unknown";
   try {

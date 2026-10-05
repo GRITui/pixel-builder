@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { generatorById } from "../../core/generators";
-import { CATEGORIES, type Asset, type StyleKit } from "../../core/types";
+import { CATEGORIES, type Asset, type Reference, type StyleKit } from "../../core/types";
 import type { FlatPalette } from "../render";
+import { CompareView } from "./CompareView";
 import { ExportMenu } from "./ExportMenu";
 import { AnimThumb } from "./SpriteView";
 
@@ -16,6 +17,8 @@ export interface AssetCardProps {
   kitName?: string;
   pal: FlatPalette;
   variant: "compact" | "full";
+  /** The reference this asset was compared with (meta.referenceId), when it still exists. */
+  reference?: Reference;
   isRef?: boolean;
   refFull?: boolean;
   onToggleRef?: () => void;
@@ -98,6 +101,8 @@ function TagEditor({ tags, onTags }: { tags: string[]; onTags: (t: string[]) => 
 export function AssetCard(p: AssetCardProps) {
   const { asset: a } = p;
   const [confirmDel, setConfirmDel] = useState(false);
+  const [comparing, setComparing] = useState(false);
+  const score = typeof a.meta?.matchScore === "number" ? a.meta.matchScore : undefined;
   const full = p.variant === "full";
   const rerender = canRerender(a);
   const otherKit = a.kitId !== p.kit.id;
@@ -115,6 +120,11 @@ export function AssetCard(p: AssetCardProps) {
         <div className="dim asset-meta">
           {full && <span>{cat} · </span>}
           {meta} · {srcLabel}
+          {score !== undefined && (
+            <span className="badge" title={`Style match against ${p.reference?.name ?? "its reference"} (0-100), from compare_to_reference`}>
+              match {Math.round(score)}
+            </span>
+          )}
           {otherKit && (
             <span className="badge" title={`Made with “${p.kitName ?? "another kit"}”. Shown re-coloured with the current kit; re-render to match its look.`}>
               other kit
@@ -147,6 +157,11 @@ export function AssetCard(p: AssetCardProps) {
               Re-render
             </button>
           )}
+          {p.reference && (
+            <button className={comparing ? "on" : ""} onClick={() => setComparing(!comparing)} title="Compare with the reference (split slider)">
+              Compare
+            </button>
+          )}
           <ExportMenu asset={a} kit={p.kit} onError={p.onError} label="Export" />
           {confirmDel ? (
             <>
@@ -163,6 +178,7 @@ export function AssetCard(p: AssetCardProps) {
             </button>
           )}
         </div>
+        {comparing && p.reference && <CompareView asset={a} reference={p.reference} pal={p.pal} />}
       </div>
     </article>
   );

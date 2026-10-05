@@ -1,11 +1,12 @@
 // Shared bits of the benchmark: brief loading, offline recipe validation, automated metrics.
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { GENERATORS } from "../src/core/generators";
 import { decodeIndex } from "../src/core/palette";
 import type { Asset, Sprite } from "../src/core/types";
 import { TOOLS, callTool, parseInput } from "../src/node/tools";
+import { blankImage, decodePng, encodePng } from "../src/node/png";
 import type { Workspace } from "../src/node/workspace";
 
 export interface RecipeStep {
@@ -24,6 +25,22 @@ export interface Brief {
   kits?: string[];
   /** Expected number of facing directions (side view: 2, left/right), for the coverage metric. */
   expect?: { directions?: number };
+  /** Reference image the output is scored against (compare_to_reference on the last asset the recipe makes). */
+  reference?: { file: string; crop?: [number, number, number, number] };
+}
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+
+/** PNG bytes of a brief's reference (repo-relative file, optionally cropped), or undefined. */
+export function referencePng(b: Brief): Buffer | undefined {
+  if (!b.reference) return undefined;
+  const buf = readFileSync(join(ROOT, b.reference.file));
+  if (!b.reference.crop) return buf;
+  const img = decodePng(buf);
+  const [cx, cy, cw, ch] = b.reference.crop;
+  const out = blankImage(cw, ch);
+  for (let y = 0; y < ch; y++) out.rgba.set(img.rgba.subarray(((cy + y) * img.width + cx) * 4, ((cy + y) * img.width + cx + cw) * 4), y * cw * 4);
+  return encodePng(out);
 }
 
 export const KITS = ["kit-default", "kit-gameboy", "kit-neon", "kit-hd-rich"];
@@ -45,6 +62,15 @@ export function validateBrief(b: Brief, ws: Workspace): string[] {
   const rigs = ids("list_rigs", "rigs"), clips = ids("list_clips", "clips"), atts = ids("list_attachments", "attachments");
   if (!b.id || !b.prompt || !b.category) errs.push("id, category and prompt are required");
   if (!b.recipe?.length) errs.push("recipe is empty");
+  if (b.reference) {
+    const f = join(ROOT, b.reference.file);
+    if (!existsSync(f)) errs.push(`${b.id}: reference file '${b.reference.file}' not found`);
+    else if (b.reference.crop) {
+      const { width, height } = decodePng(readFileSync(f));
+      const [x, y, w, h] = b.reference.crop;
+      if (x < 0 || y < 0 || w < 1 || h < 1 || x + w > width || y + h > height) errs.push(`${b.id}: reference crop is outside the ${width}x${height} image`);
+    }
+  }
   const checkEntry = (tool: string, input: any, where: string) => {
     if (tool === "generate_rigged") {
       if (!rigs.has(input.rig)) errs.push(`${where}: unknown rig '${input.rig}'`);

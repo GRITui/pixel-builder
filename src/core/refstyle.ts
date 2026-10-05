@@ -473,3 +473,120 @@ export function kitChangesFromAnalysis(
     vibe: `Matched to reference${o.label ? ` '${o.label}'` : ""}: ${a.outline.mode} outlines, light from ${a.light.dir}, ${a.shadeSteps} shades per colour${a.dither.enabled ? ", dithered" : ""}.`,
   };
 }
+
+// ===== BEGIN style distance (#67): how close is an asset to a reference? =====
+
+export interface StyleDistanceComponents {
+  /** Dominant-colour match in OKLab (weighted nearest-colour distance both ways), 0..1. */
+  palette: number;
+  /** Tones per hue (shade count) agreement, 0..1. */
+  shades: number;
+  /** Outline mode match (none / black / colored / selective), 0..1. */
+  outline: number;
+  /** Light direction agreement, 0..1. */
+  light: number;
+  /** Edge density per area, 0..1. */
+  detail: number;
+  /** Aspect ratio and fill of the opaque bounding box, 0..1. */
+  silhouette: number;
+}
+export interface StyleDistance {
+  components: StyleDistanceComponents;
+  /** 0..100, 100 = same style. */
+  score: number;
+  notes: string[];
+}
+
+const SD_WEIGHTS: Record<keyof StyleDistanceComponents, number> = { palette: 0.35, shades: 0.1, outline: 0.1, light: 0.1, detail: 0.2, silhouette: 0.15 };
+
+/** Edge density (share of neighbouring solid pixel pairs that differ clearly in OKLab) plus the opaque bounding box. */
+function sdShape(img: RefImage): { edge: number; aspect: number; fill: number; empty: boolean } {
+  const { w, h, data } = img;
+  const solid = (i: number) => data[i * 4 + 3] >= 128;
+  const lab = (i: number) => rgbToOklab([data[i * 4], data[i * 4 + 1], data[i * 4 + 2]]);
+  let x0 = w, y0 = h, x1 = -1, y1 = -1, count = 0, pairs = 0, edges = 0;
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      if (!solid(i)) continue;
+      count++;
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (y < y0) y0 = y;
+      if (y > y1) y1 = y;
+      const a = lab(i);
+      for (const j of [x + 1 < w ? i + 1 : -1, y + 1 < h ? i + w : -1]) {
+        if (j < 0 || !solid(j)) continue;
+        pairs++;
+        const b = lab(j);
+        if (Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) > 0.05) edges++;
+      }
+    }
+  if (!count) return { edge: 0, aspect: 1, fill: 0, empty: true };
+  const bw = x1 - x0 + 1, bh = y1 - y0 + 1;
+  return { edge: pairs ? edges / pairs : 0, aspect: bw / bh, fill: count / (bw * bh), empty: false };
+}
+
+const sdRatio = (a: number, b: number, eps = 0.01) => (Math.min(a, b) + eps) / (Math.max(a, b) + eps);
+const sdLab = (p: RefPaletteEntry) => rgbToOklab(hexToRgb(p.hex));
+
+/** Weighted nearest-colour distance from `from` to `to` (OKLab: hue and lightness both count). */
+function sdChamfer(from: RefPaletteEntry[], to: RefPaletteEntry[]): number {
+  const tl = to.map(sdLab);
+  let sum = 0, wsum = 0;
+  for (const p of from) {
+    const a = sdLab(p);
+    let best = Infinity;
+    for (const b of tl) best = Math.min(best, Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]));
+    sum += best * p.weight;
+    wsum += p.weight;
+  }
+  return wsum ? sum / wsum : 0;
+}
+
+/**
+ * Compare an asset render with a reference image: six components 0..1, a 0..100 score and actionable
+ * notes. Pure and deterministic. Identical images score 100; palette shift and blur only lower it.
+ * Pixel-art upscales are reduced first, so a 4x reference and a 1x asset compare fairly.
+ */
+export function styleDistance(assetImg: RefImage, refImg: RefImage): StyleDistance {
+  const A = reduceByScale(assetImg, estimatePixelScaleFast(assetImg)), R = reduceByScale(refImg, estimatePixelScaleFast(refImg));
+  const aa = analyzeReference(A, { paletteSize: 16 }), ra = analyzeReference(R, { paletteSize: 16 });
+  const as = sdShape(A), rs = sdShape(R);
+  const notes: string[] = [];
+
+  const d = (sdChamfer(aa.palette, ra.palette) + sdChamfer(ra.palette, aa.palette)) / 2;
+  const palette = Math.exp(-d / 0.07);
+  const shades = sdRatio(aa.shadeSteps, ra.shadeSteps, 0);
+  const outline = aa.outline.mode === ra.outline.mode ? 1 : (aa.outline.mode === "none") !== (ra.outline.mode === "none") ? 0 : 0.5;
+  const ma = Math.hypot(aa.light.lx, aa.light.ly), mr = Math.hypot(ra.light.lx, ra.light.ly);
+  const light = ma < 1e-6 || mr < 1e-6 ? (ma < 1e-6 && mr < 1e-6 ? 1 : 0.5) : (1 + (aa.light.lx * ra.light.lx + aa.light.ly * ra.light.ly) / (ma * mr)) / 2;
+  const detail = sdRatio(as.edge, rs.edge);
+  const silhouette = as.empty || rs.empty ? 0 : (sdRatio(as.aspect, rs.aspect, 0) + (1 - Math.abs(as.fill - rs.fill))) / 2;
+
+  const components: StyleDistanceComponents = { palette, shades, outline, light, detail, silhouette };
+  let score = 0;
+  for (const k of Object.keys(SD_WEIGHTS) as (keyof StyleDistanceComponents)[]) score += components[k] * SD_WEIGHTS[k];
+  score = Math.round(score * 1000) / 10;
+
+  if (palette < 0.75) {
+    const mean = (p: RefPaletteEntry[]) => p.reduce((s, e) => s + sdLab(e)[0] * e.weight, 0) / (p.reduce((s, e) => s + e.weight, 0) || 1);
+    const lA = mean(aa.palette), lR = mean(ra.palette);
+    notes.push(`Palette is off (${Math.round(palette * 100)}% match)${Math.abs(lA - lR) > 0.06 ? `; the asset is ${lA > lR ? "lighter" : "darker"} than the reference` : ""}: run kit_from_reference on this reference and regenerate with that kit.`);
+  }
+  if (shades < 0.75) {
+    const more = ra.shadeSteps > aa.shadeSteps;
+    notes.push(`Reference uses ~${ra.shadeSteps} shades per hue, you use ${aa.shadeSteps}: ${more ? "try kit-hd-deep (deeper ramps) or detail rich" : "use ramp depth 5 and detail standard (flatter shading)"}.`);
+  }
+  if (outline < 1) notes.push(`Reference outline is '${ra.outline.mode}', the asset's is '${aa.outline.mode}': set the kit outline to '${ra.outline.mode}'.`);
+  if (light < 0.7) notes.push(`Light comes from ${ra.light.dir} in the reference but ${aa.light.dir} in the asset: set the kit lightDir to '${ra.light.dir}'.`);
+  if (detail < 0.7) {
+    const smooth = as.edge < rs.edge;
+    notes.push(`The asset is ${smooth ? "smoother" : "busier"} than the reference (edge density ${(as.edge * 100).toFixed(0)}% vs ${(rs.edge * 100).toFixed(0)}%): ${smooth ? "use detail rich, or add texture and dither" : "use detail standard and fewer decorations"}.`);
+  }
+  if (silhouette < 0.7) notes.push(`Silhouette differs (aspect ${as.aspect.toFixed(2)} vs ${rs.aspect.toFixed(2)}, fill ${Math.round(as.fill * 100)}% vs ${Math.round(rs.fill * 100)}%): compare proportions or crop the reference to the subject.`);
+  if (!notes.length) notes.push("Close match: palette, shading and detail agree with the reference.");
+  return { components, score, notes };
+}
+
+// ===== END style distance (#67) =====

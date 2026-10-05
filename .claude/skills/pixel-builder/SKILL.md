@@ -79,7 +79,9 @@ look at it before moving on.
    later means `rerender_assets`. Have a reference image (screenshot, concept art, pixel art)?
    `kit_from_reference` (`path` PNG, optional `apply`, `strength`, `palette_size`) derives
    the kit offline: palette ramps, outline, light, shade steps and dither; look at its
-   preview sheet and fine-tune with `update_kit`.
+   preview sheet and fine-tune with `update_kit`. After generating, `compare_to_reference`
+   (`asset_id`, `reference_id`) scores the match 0..100 with per-component tips and a
+   side-by-side image; apply the tips (kit, ramp depth, outline) and re-run to watch it rise.
 2. **Pick a generator.** `list_generators` (optionally with `category`). Read the
    param specs; use real option values, materials come from the 18 names.
 3. **Generate.** `generate_asset` with `generator`, `params`, `seed`, `name`.
