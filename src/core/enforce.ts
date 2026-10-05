@@ -1,4 +1,4 @@
-import { colorIndex, decodeIndex, fineSlotIndex, makeQuantizer, MATERIALS, OUTLINE_INDEX, PALETTE_SIZE_CLASSIC, PALETTE_SIZE, normalizeDepth, type Material, type RGB } from "./palette";
+import { colorIndex, decodeIndex, fineSlotIndex, isFineIndex, makeQuantizer, MATERIALS, OUTLINE_INDEX, PALETTE_SIZE_ALL, normalizeDepth, type Material, type RGB } from "./palette";
 import { lightVector, resolveRamps } from "./kit";
 import { cloneSprite, createSprite, getPx } from "./sprite";
 import type { Sprite, StyleKit } from "./types";
@@ -132,13 +132,12 @@ export function removeOrphans(s: Sprite): Sprite {
 export function sanitize(s: Sprite, kit?: StyleKit): Sprite {
   // Fine (extra-shade) indices only exist in deep kits; elsewhere they fall back to their classic level.
   const deep = !kit || normalizeDepth(kit.rampDepth) > 5;
-  const max = deep ? PALETTE_SIZE : PALETTE_SIZE_CLASSIC;
   return {
     w: s.w,
     h: s.h,
     data: s.data.map((v) => {
-      if (!Number.isInteger(v) || v <= 0 || v >= PALETTE_SIZE) return 0;
-      if (v < max) return v;
+      if (!Number.isInteger(v) || v <= 0 || v >= PALETTE_SIZE_ALL) return 0;
+      if (deep || !isFineIndex(v)) return v;
       const d = decodeIndex(v);
       return d ? colorIndex(d.mat, d.level) : 0;
     }),

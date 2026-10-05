@@ -560,7 +560,7 @@ bottom-left `unityRect`, per-tile `ruleNeighbors` in the order NW N NE W E SW S 
 **Export.** `pixel-builder export-asset <id> --format aseprite` (MCP: `export_asset` with
 `format: "aseprite"`; web app: Export > "Aseprite (.aseprite)") writes `<slug>.aseprite` into the
 category folder. The file is INDEXED colour mode and its palette is the kit palette
-(entry 0 transparent, entries 1..90 = material x level, the same indices sprites store), so
+(entry 0 transparent, entries 1..90 = material x level; blossom levels sit at 163..167, see below, the same indices sprites store), so
 paint with the palette and the art stays on-kit. Layers: one per rig part for rigged assets
 (`core`, then attachments, same pixel ownership as the SVG export), one per material for
 everything else; the web app always uses per-material layers. Animation rows are laid out as
@@ -591,7 +591,7 @@ if a command fails the dialog shows the CLI's error text.
 
 ## Deep palette ramps
 
-`kit-hd-deep` (HD sizes, rich detail, `rampDepth` 9) shades volumes with 9 shades per material. `get_style_guide` then lists extra legend chars (non-ASCII, `level 0.5` ...) for the in-between shades; the 90 classic chars are unchanged. Aseprite export carries the full 163-entry palette.
+`kit-hd-deep` (HD sizes, rich detail, `rampDepth` 9) shades volumes with 9 shades per material. `get_style_guide` then lists extra legend chars (non-ASCII, `level 0.5` ...) for the in-between shades; the 90 classic chars are unchanged. Aseprite export carries the full 172-entry palette (<= 256): indices 1..90 classic, 91..162 deep shades, 163..167 blossom levels, 168..171 blossom deep shades. The `blossom` material (pink; foliage sakura, flowers `accent: "blossom"`, `create_kit` `rampOverrides.blossom`) was appended after the original 18 so no existing index or legend char moved.
 
 ## HD trees
 

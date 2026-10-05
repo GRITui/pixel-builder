@@ -5,7 +5,11 @@
 
 export const RAMP_LEN = 5;
 
-export const MATERIALS = [
+/**
+ * The original 18 materials. Their order is the index contract (classic 1..90, fine 91..162) and must
+ * never change. Materials added later live in EXTRA_MATERIALS and get indices appended after those.
+ */
+export const BASE_MATERIALS = [
   "ink",
   "skin",
   "hair",
@@ -25,6 +29,11 @@ export const MATERIALS = [
   "accent",
   "ui",
 ] as const;
+
+/** Materials appended after the original block (indices 163+): see colorIndex. */
+export const EXTRA_MATERIALS = ["blossom"] as const;
+
+export const MATERIALS = [...BASE_MATERIALS, ...EXTRA_MATERIALS] as const;
 
 export type Material = (typeof MATERIALS)[number];
 
@@ -55,6 +64,7 @@ const hearthwood: Ramps = {
   water: ["#0c1a3a", "#14306a", "#1e5aa0", "#3a8ccc", "#8ad0f0"],
   accent: ["#1e0f2e", "#3e1a5a", "#6a2e8e", "#a050c0", "#e090f0"],
   ui: ["#14101c", "#2a2236", "#4a3e5a", "#8a7a9a", "#e8e0f0"],
+  blossom: ["#4a1634", "#8e2e5a", "#d0568a", "#f090b4", "#ffd6e4"],
 };
 
 function mapRamps(base: Ramps, fn: (hex: string, mat: Material, level: number) => string): Ramps {
@@ -64,7 +74,8 @@ function mapRamps(base: Ramps, fn: (hex: string, mat: Material, level: number) =
 }
 
 const GB = ["#0f380f", "#306230", "#8bac0f", "#9bbc0f"];
-const gameboy = mapRamps(hearthwood, (_c, _m, i) => GB[Math.min(3, Math.max(0, i - 1))]);
+// Blossom reads as the light end of the handheld screen (blossom sits one tone lighter than foliage).
+const gameboy = mapRamps(hearthwood, (_c, m, i) => (m === "blossom" ? GB[[1, 2, 2, 3, 3][i]] : GB[Math.min(3, Math.max(0, i - 1))]));
 
 export const PALETTES: PaletteDef[] = [
   { id: "hearthwood", name: "Hearthwood (fantasy)", ramps: hearthwood },
@@ -72,7 +83,7 @@ export const PALETTES: PaletteDef[] = [
     id: "neon-dusk",
     name: "Neon Dusk",
     ramps: mapRamps(hearthwood, (c, m, i) =>
-      adjustColor(c, { hue: m === "ink" ? 0 : 40, saturation: 1.25, contrast: 1.1, warmShadows: i < 2 ? -20 : 0 }),
+      adjustColor(c, { hue: m === "ink" || m === "blossom" ? 0 : 40, saturation: 1.25, contrast: 1.1, warmShadows: i < 2 ? -20 : 0 }),
     ),
   },
   {
@@ -238,22 +249,37 @@ export function deepenRamp(ramp: string[], depth: RampDepth): string[] {
 }
 
 // ---------- flattened index table ----------
-// index 0 = transparent; ramp r level l -> 1 + r * RAMP_LEN + l   (the 5 classic levels, any kit)
-// index 91 + r * FINE_SLOTS + k = the extra shade between level k and k+1 (deep kits only)
+// index 0 = transparent
+// base material r, level l      -> 1 + r * RAMP_LEN + l                (1..90, any kit)
+// base material r, fine slot k  -> 91 + r * FINE_SLOTS + k             (91..162, deep kits: shade between level k and k+1)
+// extra material e, level l     -> 163 + e * RAMP_LEN + l              (blossom 163..167, any kit)
+// extra material e, fine slot k -> 168 + e * FINE_SLOTS + k            (blossom 168..171, deep kits)
+// Everything added after the first release is appended, so no earlier index ever moves.
 
 export const FINE_SLOTS = RAMP_LEN - 1;
-export const FINE_START = 1 + MATERIALS.length * RAMP_LEN;
+export const FINE_START = 1 + BASE_MATERIALS.length * RAMP_LEN;
+/** First index of the extra materials' classic levels (right after the base fine block). */
+export const EXTRA_START = FINE_START + BASE_MATERIALS.length * FINE_SLOTS;
+export const EXTRA_FINE_START = EXTRA_START + EXTRA_MATERIALS.length * RAMP_LEN;
+
+const baseSlot = (mat: Material) => (BASE_MATERIALS as readonly string[]).indexOf(mat);
+const extraSlot = (mat: Material) => (EXTRA_MATERIALS as readonly string[]).indexOf(mat);
 
 export function colorIndex(mat: Material, level: number): number {
-  const r = MATERIALS.indexOf(mat);
   const l = Math.max(0, Math.min(RAMP_LEN - 1, Math.round(level)));
-  return 1 + r * RAMP_LEN + l;
+  const r = baseSlot(mat);
+  return r >= 0 ? 1 + r * RAMP_LEN + l : EXTRA_START + extraSlot(mat) * RAMP_LEN + l;
 }
 
 /** Index of the extra shade between classic level k and k+1 (k 0..3). */
 export function fineSlotIndex(mat: Material, k: number): number {
-  return FINE_START + MATERIALS.indexOf(mat) * FINE_SLOTS + Math.max(0, Math.min(FINE_SLOTS - 1, k));
+  const kk = Math.max(0, Math.min(FINE_SLOTS - 1, k));
+  const r = baseSlot(mat);
+  return r >= 0 ? FINE_START + r * FINE_SLOTS + kk : EXTRA_FINE_START + extraSlot(mat) * FINE_SLOTS + kk;
 }
+
+/** True for the in-between shades that exist only in deep kits. */
+export const isFineIndex = (idx: number) => (idx >= FINE_START && idx < EXTRA_START) || idx >= EXTRA_FINE_START;
 
 /**
  * Index for a position t in [0,1] along the material's ramp (0 = darkest, 1 = lightest) in a kit of
@@ -271,49 +297,82 @@ export function colorIndexFine(mat: Material, t: number, depth: RampDepth = 9): 
 }
 
 export function decodeIndex(idx: number): { mat: Material; level: number; fine?: number } | null {
-  if (idx <= 0) return null;
-  if (idx >= FINE_START) {
+  if (!Number.isInteger(idx) || idx <= 0 || idx >= PALETTE_SIZE_ALL) return null;
+  if (idx < FINE_START) return { mat: BASE_MATERIALS[Math.floor((idx - 1) / RAMP_LEN)], level: (idx - 1) % RAMP_LEN };
+  if (idx < EXTRA_START) {
     const f = idx - FINE_START;
-    const r = Math.floor(f / FINE_SLOTS);
-    if (r >= MATERIALS.length) return null;
     // level = the next classic level up, so a fine shade is never mistaken for outline level 0
-    return { mat: MATERIALS[r], level: (f % FINE_SLOTS) + 1, fine: f % FINE_SLOTS };
+    return { mat: BASE_MATERIALS[Math.floor(f / FINE_SLOTS)], level: (f % FINE_SLOTS) + 1, fine: f % FINE_SLOTS };
   }
-  const r = Math.floor((idx - 1) / RAMP_LEN);
-  if (r >= MATERIALS.length) return null;
-  return { mat: MATERIALS[r], level: (idx - 1) % RAMP_LEN };
+  if (idx < EXTRA_FINE_START) {
+    const f = idx - EXTRA_START;
+    return { mat: EXTRA_MATERIALS[Math.floor(f / RAMP_LEN)], level: f % RAMP_LEN };
+  }
+  const f = idx - EXTRA_FINE_START;
+  return { mat: EXTRA_MATERIALS[Math.floor(f / FINE_SLOTS)], level: (f % FINE_SLOTS) + 1, fine: f % FINE_SLOTS };
 }
 
 export const OUTLINE_INDEX = colorIndex("ink", 0);
-/** Classic palette size (every kit). Deep kits use up to PALETTE_SIZE. */
-export const PALETTE_SIZE_CLASSIC = 1 + MATERIALS.length * RAMP_LEN;
-export const PALETTE_SIZE = FINE_START + MATERIALS.length * FINE_SLOTS;
+/** Classic palette size of the original materials (every kit). Deep kits use up to PALETTE_SIZE. */
+export const PALETTE_SIZE_CLASSIC = 1 + BASE_MATERIALS.length * RAMP_LEN;
+/** Original materials with fine shades (flattenRamps of a deep kit). */
+export const PALETTE_SIZE = EXTRA_START;
+/** Every valid sprite index + 1, extras included (<= 256 so it fits an 8-bit indexed palette). */
+export const PALETTE_SIZE_ALL = EXTRA_FINE_START + EXTRA_MATERIALS.length * FINE_SLOTS;
+
+const isDeepRamps = (ramps: Ramps) => MATERIALS.some((m) => ramps[m].length > RAMP_LEN);
+const rampPos = (ramps: Ramps, m: Material) => BASE_POS[ramps[m].length === 7 ? 7 : ramps[m].length === 9 ? 9 : 5];
+const rampAt = (ramps: Ramps, m: Material, p: number) => ramps[m][p] ?? ramps[m][ramps[m].length - 1];
 
 /**
- * Flatten ramps to a lookup table aligned with sprite indices (entry 0 = transparent). Ramps longer
- * than 5 (deep kits) append the extra shades after the classic 90 entries, so classic indices never move.
+ * Flatten the original materials' ramps to a lookup table aligned with sprite indices (entry 0 =
+ * transparent): 91 entries, or 163 for deep kits (extra shades appended after the classic 90). Extra
+ * materials such as blossom are not in this table; flattenPalette has them.
  */
 export function flattenRamps(ramps: Ramps): (string | null)[] {
-  const deep = MATERIALS.some((m) => ramps[m].length > RAMP_LEN);
+  const deep = isDeepRamps(ramps);
   const out: (string | null)[] = [null];
-  const at = (m: Material, p: number) => ramps[m][p] ?? ramps[m][ramps[m].length - 1];
-  const basePos = (m: Material) => BASE_POS[ramps[m].length === 7 ? 7 : ramps[m].length === 9 ? 9 : 5];
-  for (const m of MATERIALS) for (let i = 0; i < RAMP_LEN; i++) out.push(at(m, basePos(m)[i]));
+  for (const m of BASE_MATERIALS) for (let i = 0; i < RAMP_LEN; i++) out.push(rampAt(ramps, m, rampPos(ramps, m)[i]));
   if (deep)
-    for (const m of MATERIALS) {
-      const b = basePos(m);
-      for (let k = 0; k < FINE_SLOTS; k++) out.push(b[k + 1] - b[k] > 1 ? at(m, b[k] + 1) : at(m, b[k]));
+    for (const m of BASE_MATERIALS) {
+      const b = rampPos(ramps, m);
+      for (let k = 0; k < FINE_SLOTS; k++) out.push(b[k + 1] - b[k] > 1 ? rampAt(ramps, m, b[k] + 1) : rampAt(ramps, m, b[k]));
     }
+  return out;
+}
+
+/**
+ * The complete table for rendering/export: PALETTE_SIZE_ALL entries, so every valid sprite index has a
+ * colour. Fine slots of a classic kit hold the classic level they fold to (they never appear in a
+ * finalized sprite).
+ */
+export function flattenPalette(ramps: Ramps): (string | null)[] {
+  const deep = isDeepRamps(ramps);
+  const out = flattenRamps(ramps);
+  if (!deep) {
+    for (const m of BASE_MATERIALS) for (let k = 0; k < FINE_SLOTS; k++) out.push(out[colorIndex(m, k + 1)]);
+  }
+  for (const m of EXTRA_MATERIALS) {
+    const b = rampPos(ramps, m);
+    for (let i = 0; i < RAMP_LEN; i++) out.push(rampAt(ramps, m, b[i]));
+  }
+  for (const m of EXTRA_MATERIALS) {
+    const b = rampPos(ramps, m);
+    for (let k = 0; k < FINE_SLOTS; k++)
+      out.push(deep ? (b[k + 1] - b[k] > 1 ? rampAt(ramps, m, b[k] + 1) : rampAt(ramps, m, b[k])) : out[colorIndex(m, k + 1)]);
+  }
   return out;
 }
 
 /** Nearest palette index for an RGB colour (OKLab distance). */
 export function makeQuantizer(ramps: Ramps, allowed?: Material[]) {
-  const flat = flattenRamps(ramps);
+  const deep = isDeepRamps(ramps);
+  const flat = flattenPalette(ramps);
   const entries: { idx: number; lab: [number, number, number] }[] = [];
   flat.forEach((hex, idx) => {
     if (!hex) return;
     const d = decodeIndex(idx)!;
+    if (d.fine !== undefined && !deep) return; // classic kits have no in-between shades
     if (allowed && !allowed.includes(d.mat)) return;
     entries.push({ idx, lab: rgbToOklab(hexToRgb(hex)) });
   });

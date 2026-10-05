@@ -6,7 +6,7 @@
 import { writeFileSync } from "node:fs";
 import { deflateSync } from "node:zlib";
 import { KIT_PRESETS, resolveRamps } from "../src/core/kit";
-import { flattenRamps, hexToRgb } from "../src/core/palette";
+import { flattenPalette, hexToRgb } from "../src/core/palette";
 import { defaults } from "../src/core/generators/types";
 import { generatorById } from "../src/core/generators";
 import type { Sprite, StyleKit } from "../src/core/types";
@@ -52,7 +52,7 @@ const chunk = (type: string, data: Buffer) => {
 };
 
 const pairs = SUBJECTS.map(([id, p]) => [first(id, p, rich), first(id, p, deep)] as const);
-const flats = [rich, deep].map((k) => flattenRamps(resolveRamps(k)));
+const flats = [rich, deep].map((k) => flattenPalette(resolveRamps(k)));
 const gap = 4;
 const colW = pairs.map(([a]) => a.w);
 const rowH = Math.max(...pairs.map(([a]) => a.h));
