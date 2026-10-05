@@ -263,6 +263,39 @@ describe("import_image", () => {
     expect(noBg.notes[0]).toMatch(/fully opaque/);
   });
 
+  it("pixel-art mode recovers the true size from an upscaled, noisy image and reports the grid", () => {
+    // 10x10 art with a dark outline ring, 4x upscaled with a 2px offset and block noise
+    const art = blankImage(10, 10);
+    for (let y = 1; y < 9; y++) for (let x = 1; x < 9; x++) art.rgba.set(x === 1 || y === 1 || x === 8 || y === 8 ? [20, 20, 30, 255] : [(x + y) % 2 ? 200 : 150, 60, 60, 255], (y * 10 + x) * 4);
+    const k = 4, ox = 2, oy = 1, big = blankImage(10 * k + ox, 10 * k + oy);
+    for (let y = 0; y < 10 * k; y++)
+      for (let x = 0; x < 10 * k; x++) {
+        const n = ((x >> 3) * 7 + (y >> 3) * 3) % 9 - 4;
+        const c = art.rgba.subarray((Math.floor(y / k) * 10 + Math.floor(x / k)) * 4, (Math.floor(y / k) * 10 + Math.floor(x / k)) * 4 + 4);
+        big.rgba.set([c[0] + n, c[1] + n, c[2] + n, c[3]], ((y + oy) * big.width + x + ox) * 4);
+      }
+    const file = join(dir, "up.png");
+    writeFileSync(file, encodePng(big));
+    const d = data("import_image", { path: file, category: "object", name: "Up", mode: "pixel-art", crop: true });
+    expect(d.mode).toBe("pixel-art");
+    expect(d.grid).toMatchObject({ scale: 4, offset_x: ox, offset_y: oy });
+    expect(d.grid.confidence).toBeGreaterThan(0.6);
+    expect(d.asset).toMatchObject({ width: 8, height: 8 }); // cropped 8x8 art, existing outline kept (no extra margin)
+    const auto = data("import_image", { path: file, category: "object", name: "Up2", mode: "auto", crop: true, palette_mapping: "ramps" });
+    expect(auto.mode).toBe("pixel-art");
+    expect(() => call("import_image", { path: file, category: "object" })).toThrow(/width and height/);
+  });
+
+  it("split imports a sheet as one animation row", () => {
+    const sheet = blankImage(24, 10);
+    for (const x0 of [1, 9, 17]) for (let y = 2; y < 8; y++) for (let x = x0; x < x0 + 5; x++) sheet.rgba.set([200, 60, 60, 255], (y * 24 + x) * 4);
+    const file = join(dir, "sheet.png");
+    writeFileSync(file, encodePng(sheet));
+    const d = data("import_image", { path: file, category: "character", name: "Sheet", mode: "pixel-art", split: true, outline: false });
+    expect(d.asset.frames ?? 3).toBe(3);
+    expect(d.notes.join(" ")).toMatch(/split into 3 frame/);
+  });
+
   it("explains unreadable files", () => {
     expect(() => call("import_image", { path: join(dir, "missing.png"), width: 8, height: 8, category: "object" })).toThrow(/Cannot read/);
     const bad = join(dir, "bad.png");

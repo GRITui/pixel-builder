@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createAsset } from "../core/asset";
-import { downscaleRGBA } from "../core/enforce";
+import { downscaleRGBA, finalize, quantizeRGBA } from "../core/enforce";
+import { resolveRamps } from "../core/kit";
+import { cropToContentImage, detectGrid, downscaleGrid, hasOutline, imageToSprite, makeRampMapper, removeBackgroundFlood, type GridInfo } from "../core/pixelgrid";
+import { blit, createSprite } from "../core/sprite";
 import { CATEGORIES, type Asset, type Category, type StyleKit } from "../core/types";
 import { fitScale } from "./editor/canvasUtil";
 import { buildImportSprite, type ImportOptions } from "./editor/importPipeline";
@@ -52,6 +55,11 @@ export function ImportDialog({ kit, category, onImport, onClose }: ImportDialogP
   const [cat, setCat] = useState<ImportCategory>(initialCat);
   const [name, setName] = useState("");
   const [src, setSrc] = useState<RGBAImage | null>(null);
+  /** The uncapped source: grid detection and exact downscale need every pixel. */
+  const [full, setFull] = useState<RGBAImage | null>(null);
+  const [mode, setMode] = useState<"auto" | "pixel-art" | "resample">("auto");
+  const [mapping, setMapping] = useState<"nearest" | "ramps">("nearest");
+  const [showGrid, setShowGrid] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [over, setOver] = useState(false);
@@ -78,8 +86,9 @@ export function ImportDialog({ kit, category, onImport, onClose }: ImportDialogP
     setError(null);
     setLoading(true);
     try {
-      const img = capSource(await fileToRGBA(file));
-      setSrc(img);
+      const raw = await fileToRGBA(file);
+      setFull(raw);
+      setSrc(capSource(raw));
       setName((n) => n || nameFromFile(file));
     } catch {
       setError("Could not read that image.");
@@ -95,13 +104,40 @@ export function ImportDialog({ kit, category, onImport, onClose }: ImportDialogP
   }, [onClose]);
 
   // original preview: paint raw RGBA at its natural size, CSS does the fitting
+  // grid detection runs on the uncapped source
+  const grid: GridInfo | null = useMemo(
+    () => (full ? detectGrid({ width: full.w, height: full.h, rgba: full.data }) : null),
+    [full],
+  );
+  const isPixelArt = mode === "pixel-art" ? !!grid && grid.scale >= 1 : mode === "auto" && !!grid && grid.scale >= 2 && grid.confidence >= 0.6;
+  const exact: RGBAImage | null = useMemo(() => {
+    if (!full || !grid || !isPixelArt) return null;
+    const d = downscaleGrid({ width: full.w, height: full.h, rgba: full.data }, grid);
+    return { data: new Uint8ClampedArray(d.rgba), w: d.width, h: d.height };
+  }, [full, grid, isPixelArt]);
+
+  // an existing outline is kept: default the outline box from the recovered art
+  useEffect(() => {
+    if (exact) setOutline(!hasOutline({ width: exact.w, height: exact.h, rgba: exact.data }));
+  }, [exact]);
+
   useEffect(() => {
     const c = origCanvas.current;
     if (!c || !src) return;
     c.width = src.w;
     c.height = src.h;
-    c.getContext("2d")?.putImageData(new ImageData(new Uint8ClampedArray(src.data), src.w, src.h), 0, 0);
-  }, [src]);
+    const ctx = c.getContext("2d");
+    ctx?.putImageData(new ImageData(new Uint8ClampedArray(src.data), src.w, src.h), 0, 0);
+    if (ctx && showGrid && grid && grid.scale >= 2 && full) {
+      const f = src.w / full.w;
+      ctx.strokeStyle = "rgba(255,0,200,0.55)";
+      ctx.lineWidth = Math.max(1, src.w / 500);
+      ctx.beginPath();
+      for (let x = grid.offsetX; x <= full.w; x += grid.scale) { ctx.moveTo(x * f, 0); ctx.lineTo(x * f, src.h); }
+      for (let y = grid.offsetY; y <= full.h; y += grid.scale) { ctx.moveTo(0, y * f); ctx.lineTo(src.w, y * f); }
+      ctx.stroke();
+    }
+  }, [src, full, grid, showGrid]);
 
   const options: ImportOptions = useMemo(
     () => ({
@@ -118,7 +154,22 @@ export function ImportDialog({ kit, category, onImport, onClose }: ImportDialogP
     [width, height, crop, removeBg, bgTolerance, outline, cleanup, pad, cat],
   );
 
-  const result = useMemo(() => (src ? buildImportSprite(src, options, kit) : null), [src, options, kit]);
+  const result = useMemo(() => {
+    if (!src) return null;
+    if (!exact) {
+      // resample keeps the original behaviour (nearest only)
+      return buildImportSprite(src, options, kit);
+    }
+    let img = { width: exact.w, height: exact.h, rgba: exact.data as Uint8Array | Uint8ClampedArray };
+    if (removeBg) img = removeBackgroundFlood(img, { tolerance: bgTolerance });
+    if (crop) img = cropToContentImage(img);
+    const m = outline && kit.outline !== "none" ? 1 : 0;
+    const canvas = createSprite(img.width + 2 * m, img.height + 2 * m);
+    const q = mapping === "ramps" ? makeRampMapper([img], resolveRamps(kit)) : null;
+    const flat = { data: new Uint8ClampedArray(img.rgba), w: img.width, h: img.height };
+    blit(canvas, q ? imageToSprite(img, q) : quantizeRGBA(flat.data, flat.w, flat.h, kit), m, m);
+    return finalize(canvas, kit, { outline: m > 0, cleanup });
+  }, [src, exact, options, kit, removeBg, bgTolerance, crop, outline, cleanup, mapping]);
   const empty = result ? result.data.every((v) => v === 0) : false;
 
   const pickCategory = (c: ImportCategory) => {
@@ -189,7 +240,34 @@ export function ImportDialog({ kit, category, onImport, onClose }: ImportDialogP
               </div>
             </div>
 
-            <label className="id-check"><input type="checkbox" checked={pad} onChange={(e) => setPad(e.target.checked)} />Fill the exact canvas size (keeps proportions)</label>
+            <div className="id-field">
+              <span>Source type</span>
+              <div className="id-presets">
+                {([["auto", "Auto"], ["pixel-art", "Pixel art"], ["resample", "Photo / art"]] as const).map(([k, label]) => (
+                  <button key={k} type="button" className={mode === k ? "is-active" : ""} onClick={() => setMode(k)}>{label}</button>
+                ))}
+              </div>
+              {grid && (
+                <span className="id-dim" style={{ fontSize: 12 }}>
+                  {exact
+                    ? `Pixel grid ${grid.scale}x, offset ${grid.offsetX},${grid.offsetY}, confidence ${Math.round(grid.confidence * 100)}%. Recovered at true size ${exact.w} x ${exact.h}.`
+                    : mode === "pixel-art" ? "No pixel grid found." : grid.scale >= 2 ? `Possible grid ${grid.scale}x (confidence ${Math.round(grid.confidence * 100)}%), treated as a picture.` : "No pixel grid found: treated as a picture."}
+                </span>
+              )}
+            </div>
+            {exact && (
+              <>
+                <div className="id-field">
+                  <span>Palette mapping</span>
+                  <div className="id-presets">
+                    <button type="button" className={mapping === "nearest" ? "is-active" : ""} onClick={() => setMapping("nearest")} title="Closest kit colour">Nearest</button>
+                    <button type="button" className={mapping === "ramps" ? "is-active" : ""} onClick={() => setMapping("ramps")} title="Each source hue becomes one material ramp, so shading survives">Keep ramps</button>
+                  </div>
+                </div>
+                <label className="id-check"><input type="checkbox" checked={showGrid} onChange={(e) => setShowGrid(e.target.checked)} />Show detected grid</label>
+              </>
+            )}
+            {!exact && <label className="id-check"><input type="checkbox" checked={pad} onChange={(e) => setPad(e.target.checked)} />Fill the exact canvas size (keeps proportions)</label>}
             <label className="id-check"><input type="checkbox" checked={removeBg} onChange={(e) => setRemoveBg(e.target.checked)} />Remove background (corner colour)</label>
             {removeBg && (
               <label className="id-field">
@@ -211,7 +289,7 @@ export function ImportDialog({ kit, category, onImport, onClose }: ImportDialogP
               onDrop={(e) => { e.preventDefault(); setOver(false); void load(e.dataTransfer.files[0]); }}
             >
               <div className="id-pane">
-                <h3>Original {src.w} x {src.h}</h3>
+                <h3>Original {full?.w ?? src.w} x {full?.h ?? src.h}{exact ? ` (grid ${grid?.scale}x)` : ""}</h3>
                 <div className={"id-frame" + (over ? " is-over" : "")}>
                   <canvas ref={origCanvas} style={{ imageRendering: origScale }} />
                 </div>
