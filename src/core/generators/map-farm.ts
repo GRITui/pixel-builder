@@ -10,6 +10,7 @@ import type { Ground } from "./map";
 import { crownOf, treeSizesFor, type PropSpec, type TreeSpec } from "./map-forest";
 import { bandLayout, bandRampColumns, type TerrainLayout } from "./map-terrain";
 import { defaults } from "./types";
+import { richBuilding, richRect, type RichBuilding } from "./map-rich";
 
 /**
  * Layout of the `farm-mmo` biome: a planned, filled farmstead. Farmhouse, barn and coop in a row with
@@ -20,7 +21,11 @@ import { defaults } from "./types";
  */
 
 export const FARM_MMO_VERSION = 1;
-export interface FarmBuilding { x: number; y: number; style: string; extra: Record<string, string | number | boolean>; e: number; up: number }
+export interface FarmBuilding {
+  x: number; y: number; style: string; extra: Record<string, string | number | boolean>; e: number; up: number;
+  /** Rich (3/4) building: footprint cells, door column = x, entry tile below the front row y. */
+  rich?: { variant: number; fp: RichBuilding["fp"]; rect: { x0: number; y0: number; x1: number; y1: number }; entry: { x: number; y: number }; left: number; right: number };
+}
 export interface FarmLot { kind: "field" | "pen" | "orchard" | "pond"; x0: number; x1: number; y0: number; y1: number; gx: number }
 export interface FarmCrop { x: number; y: number; species: CropSpecies; stage: CropStage; variant: number }
 export interface FarmAnimalSpec { x: number; y: number; species: string; age: "adult" | "baby"; dir: string }
@@ -143,7 +148,7 @@ const MIN: Record<string, number> = { field: 7, pen: 6, orchard: 5, pond: 6 };
 const CAP: Record<string, number> = { field: 12, pen: 9, orchard: 9, pond: 10 };
 const FIELD_CROPS: CropSpecies[][] = [["wheat", "corn", "sunflower"], ["cabbage", "tomato", "pumpkin", "strawberry"], ["carrot", "wheat", "cabbage"]];
 
-export interface FarmOptions { sea: boolean; density: number; wantPath: boolean; terrain: boolean }
+export interface FarmOptions { sea: boolean; density: number; wantPath: boolean; terrain: boolean; /** `buildings: rich` */ rich?: boolean }
 
 export function farmMmoPlan(cols: number, rows: number, seed: number, kit: StyleKit, opts: FarmOptions): FarmMmoPlan {
   const { sea, density, wantPath } = opts;
@@ -178,25 +183,39 @@ export function farmMmoPlan(cols: number, rows: number, seed: number, kit: Style
 
   // --- buildings ---
   const houseStyle = sea ? (cols >= 34 ? "half-brick" : "stilt-house") : "farmhouse";
-  const make = (rung: [string, string, string]) => {
+  type Item = { style: string; extra: Extra; e: number; up: number; lE: number; rE: number };
+  const make = (rung: [string, string, string]): Item[] => {
     const barn: Extra = { ...(sea ? { wall: "wood", trim: "wood", roof: "metal", roof_style: "corrugated" } : { wall: "cloth2", trim: "sand" }), size: rung[1] };
     const house: Extra = sea ? (houseStyle === "stilt-house" ? { access: "stairs" } : {}) : { size: rung[0] };
     return [
       { style: houseStyle, extra: house },
       { style: "barn", extra: barn },
       { style: "coop", extra: { size: rung[2] } },
-    ].map((b) => ({ ...b, ...ext(farmBuildingSprite(kit, b.style, b.extra, variant), T) }));
+    ].map((b) => { const x = ext(farmBuildingSprite(kit, b.style, b.extra, variant), T); return { ...b, ...x, lE: x.e, rE: x.e }; });
   };
-  const span = (l: { e: number }[], g = 3) => l.reduce((a, b) => a + 2 * b.e + 1, 0) + g * (l.length - 1);
+  // rich: whole footprints, tiers instead of sizes (tier 3 houses are two storeys, only on tall maps)
+  const RICH_LADDER: [number, number, number][] = rows >= 34 ? [[3, 3, 3], [2, 2, 2], [2, 2, 1], [1, 1, 1]] : [[2, 2, 2], [2, 2, 1], [2, 1, 1], [1, 1, 1]];
+  const makeRich = (rung: [number, number, number]): Item[] => [
+    { style: houseStyle, extra: (sea ? (houseStyle === "stilt-house" ? { access: "stairs" } : {}) : { tier: rung[0] }) as Extra },
+    { style: "barn", extra: { ...(sea ? { wall: "wood", trim: "wood", roof: "metal", roof_style: "corrugated" } : {}), tier: rung[1] } as Extra },
+    { style: "coop", extra: { tier: rung[2] } as Extra },
+  ].map((b) => { const rb = richBuilding(kit, b.style, b.extra, variant); return { ...b, e: Math.max(rb.left, rb.right), up: rb.up, lE: rb.left, rE: rb.right }; });
+  const span = (l: { lE: number; rE: number }[], g = 3) => l.reduce((a, b) => a + b.lE + b.rE + 1, 0) + g * (l.length - 1);
   const avail = westEnd - 2 + 1;
-  let items = make(LADDER[LADDER.length - 1]);
-  for (const rung of LADDER) { const m = make(rung); if (span(m) <= avail) { items = m; break; } }
-  if (span(items) > avail) for (const rung of LADDER) { const m = make(rung); if (span(m, 2) <= avail) { items = m; break; } }
+  const rungs: unknown[] = opts.rich ? RICH_LADDER : LADDER;
+  const build = (rung: unknown): Item[] => (opts.rich ? makeRich(rung as [number, number, number]) : make(rung as [string, string, string]));
+  let items = build(rungs[rungs.length - 1]);
+  for (const rung of rungs) { const m = build(rung); if (span(m) <= avail) { items = m; break; } }
+  if (span(items) > avail) for (const rung of rungs) { const m = build(rung); if (span(m, 2) <= avail) { items = m; break; } }
   while (items.length > 1 && span(items, 2) > avail) items = items.slice(0, -1);
   for (let k = items.length - 1; k > 0; k--) { const j = r.int(0, k); [items[k], items[j]] = [items[j], items[k]]; }
+  const richInfo = (style: string, extra: Extra, doorX: number, frontY: number): NonNullable<FarmBuilding["rich"]> => {
+    const rb = richBuilding(kit, style, extra, variant);
+    return { variant, fp: rb.fp, rect: richRect(rb, doorX, frontY), entry: { x: doorX, y: frontY + 1 }, left: rb.left, right: rb.right };
+  };
   const upMax = Math.max(...items.map((b) => b.up));
   const yb0 = off ? off + upMax : upMax + 2;
-  const free = avail - items.reduce((a, b) => a + 2 * b.e + 1, 0);
+  const free = avail - items.reduce((a, b) => a + b.lE + b.rE + 1, 0);
   const minGap = span(items) <= avail ? 3 : 2;
   const gap = clamp(Math.floor(free / Math.max(1, items.length)), minGap, 6);
   let cx = 2 + Math.max(0, Math.floor((free - gap * (items.length - 1)) / 2));
@@ -204,12 +223,17 @@ export function farmMmoPlan(cols: number, rows: number, seed: number, kit: Style
   let maxYb = 0;
   const gaps: { x0: number; x1: number }[] = [];
   items.forEach((b, k) => {
-    cx += b.e;
+    cx += b.lE;
     const yb = Math.min(rows - 6, b.style === "coop" ? yb0 + 1 : yb0);
-    buildings.push({ x: cx, y: yb, style: b.style, extra: b.extra, e: b.e, up: b.up });
-    reserve(cx - b.e, yb - b.up, cx + b.e, yb);
+    buildings.push({ x: cx, y: yb, style: b.style, extra: b.extra, e: b.e, up: b.up, ...(opts.rich ? { rich: richInfo(b.style, b.extra, cx, yb) } : {}) });
+    reserve(cx - b.lE, yb - b.up, cx + b.rE, yb);
+    if (opts.rich) { // footprints and the tile in front of the door are never stood on by props, animals or trees
+      const rc = richInfo(b.style, b.extra, cx, yb);
+      for (let y = rc.rect.y0; y <= rc.rect.y1; y++) for (let x = rc.rect.x0; x <= rc.rect.x1; x++) taken.add(at(x, y));
+      taken.add(at(cx, yb + 1));
+    }
     maxYb = Math.max(maxYb, yb);
-    cx += b.e;
+    cx += b.rE;
     if (k < items.length - 1) { gaps.push({ x0: cx + 1, x1: cx + gap }); cx += gap + 1; }
     else if (cx + 1 <= westEnd) gaps.push({ x0: cx + 1, x1: Math.min(westEnd, cx + gap) });
   });
@@ -376,12 +400,14 @@ export function farmMmoPlan(cols: number, rows: number, seed: number, kit: Style
   // --- yard: hay by the barn first, then well, garden bed, flower beds and mailbox in the gaps between the buildings ---
   const barn0 = buildings.find((b) => b.style === "barn");
   if (barn0) {
-    const side = barn0.x + barn0.e + 3 <= westEnd ? 1 : -1;
-    for (const [dx, dy] of [[1, 0], [1, 1], [2, 1], [2, 0]]) if (r.next() < 0.85 || dy === 0) put(barn0.x + side * (barn0.e + dx), barn0.y + dy, "hay-bale", true);
-    put(barn0.x - side * (barn0.e + 1), barn0.y, "barrel", true);
+    const eR = barn0.rich?.right ?? barn0.e, eL = barn0.rich?.left ?? barn0.e;
+    const side = barn0.x + eR + 3 <= westEnd ? 1 : -1;
+    const eS = side > 0 ? eR : eL, eO = side > 0 ? eL : eR;
+    for (const [dx, dy] of [[1, 0], [1, 1], [2, 1], [2, 0]]) if (r.next() < 0.85 || dy === 0) put(barn0.x + side * (eS + dx), barn0.y + dy, "hay-bale", true);
+    put(barn0.x - side * (eO + 1), barn0.y, "barrel", true);
   }
   // flower beds under the windows (props only: a one-row soil strip would be eaten by the grass blend), door clear
-  for (const b of buildings) for (let x = b.x - b.e + (b.style === "coop" ? 1 : 0); x <= b.x + b.e - (b.style === "coop" ? 1 : 0); x++) {
+  for (const b of buildings) for (let x = b.x - (b.rich?.left ?? b.e) + (b.style === "coop" ? 1 : 0); x <= b.x + (b.rich?.right ?? b.e) - (b.style === "coop" ? 1 : 0); x++) {
     if (Math.abs(x - b.x) <= 1 || (x + b.x) % 2) continue;
     put(x, b.y + 1, (x + b.x) % 3 ? "flowers-blossom" : "flowers", true);
   }
@@ -404,20 +430,34 @@ export function farmMmoPlan(cols: number, rows: number, seed: number, kit: Style
         crops.push({ x, y, species: gardenCrops[(x + y) % gardenCrops.length], stage: CROP_STAGES[1 + ((x + seed) % 3)], variant: (x * 3 + y) % 4 });
       }
       spawns.push({ x: mid, y: gy + 3, role: "gardener", face: "up" });
+    } else if (kind === "well" && opts.rich && w >= 3) {
+      // the well becomes a well-house: 2x2 footprint, door column = its left cell, a path down to the road
+      const doorX = g.x0 + Math.floor((w - 2) / 2);
+      const info = richInfo("well-house", {}, doorX, maxYb);
+      const rb = richBuilding(kit, "well-house", {}, variant);
+      buildings.push({ x: doorX, y: maxYb, style: "well-house", extra: {}, e: Math.max(rb.left, rb.right), up: rb.up, rich: info });
+      reserve(doorX - rb.left - 1, maxYb - rb.up, doorX + rb.right + 1, maxYb);
+      // props laid earlier (hay by the barn) make way for the footprint and the path to its entry
+      for (let k = props.length - 1; k >= 0; k--) {
+        const o = props[k];
+        if ((o.x >= info.rect.x0 && o.x <= info.rect.x1 && o.y >= info.rect.y0 && o.y <= info.rect.y1) || (o.x === doorX && o.y > maxYb && o.y < sy)) { props.splice(k, 1); taken.delete(at(o.x, o.y)); }
+      }
+      for (let y = info.rect.y0; y <= info.rect.y1; y++) for (let x = info.rect.x0; x <= info.rect.x1; x++) taken.add(at(x, y));
+      for (let y = maxYb + 1; y < sy; y++) { dirt(doorX, y); reserved.add(at(doorX, y)); }
     } else if (kind === "well" || kind === "mailbox") put(mid, kind === "well" ? maxYb : yardRows[0], kind === "well" ? "well" : "mailbox", true);
     for (const y of [maxYb + 1, maxYb + 2, maxYb])
       for (let x = g.x0; x <= g.x1; x++) if (!taken.has(at(x, y)) && !path.has(at(x, y)) && x >= 1 && r.next() < 0.55) put(x, y, r.next() < 0.5 ? "flowers-blossom" : "flowers", true);
   }
   // the mailbox stands by the road at the house; a sign points down it
-  const house = buildings.find((b) => b.style !== "barn" && b.style !== "coop");
-  if (house) put(house.x + house.e + 1, sy - 1, "mailbox", true);
+  const house = buildings.find((b) => b.style !== "barn" && b.style !== "coop" && b.style !== "well-house");
+  if (house) put(house.x + (house.rich?.right ?? house.e) + 1, sy - 1, "mailbox", true);
   put(2, sy - 1, "sign", true);
 
   // yard animals: hens and a chick by the coop, dog and cat by the house
   const putYard = (b: FarmBuilding | undefined, species: string, age: "adult" | "baby") => {
     if (!b) return;
     const cell: number[] = [];
-    for (let y = b.y + 1; y <= sy - 1; y++) for (let x = b.x - b.e; x <= b.x + b.e; x++) if (x >= 1 && x < cols - 1 && x !== b.x && !taken.has(at(x, y)) && !animals.some((a) => Math.abs(a.x - x) < 2 && a.y === y)) cell.push(at(x, y));
+    for (let y = b.y + 1; y <= sy - 1; y++) for (let x = b.x - (b.rich?.left ?? b.e); x <= b.x + (b.rich?.right ?? b.e); x++) if (x >= 1 && x < cols - 1 && x !== b.x && !taken.has(at(x, y)) && !animals.some((a) => Math.abs(a.x - x) < 2 && a.y === y)) cell.push(at(x, y));
     if (!cell.length) return;
     const i = cell[r.int(0, cell.length - 1)];
     animals.push({ x: i % cols, y: Math.floor(i / cols), species, age, dir: ["down", "left", "right"][r.int(0, 2)] });
@@ -427,7 +467,7 @@ export function farmMmoPlan(cols: number, rows: number, seed: number, kit: Style
   putYard(coop, "chicken", "adult"); putYard(coop, "chicken", "adult"); putYard(coop, "chicken", "baby");
   putYard(house, "dog", "adult"); putYard(house, "cat", "adult");
   // crates at the coop
-  if (coop) put(coop.x - coop.e - 1, coop.y + 1, "crate", true);
+  if (coop) put(coop.x - (coop.rich?.left ?? coop.e) - 1, coop.y + 1, "crate", true);
 
   // stream-bank / pond-side detail uses decorateWater in map.ts; here: orchard trees first (they rank above woodland)
   const keep = new Set<number>([...path, ...reserved, ...fences.keys(), ...channels]);
@@ -450,7 +490,7 @@ export function farmMmoPlan(cols: number, rows: number, seed: number, kit: Style
   let layout: TerrainLayout | undefined;
   const cliffKeep = new Set<number>();
   if (band0) {
-    const foot = (x: number) => buildings.some((b) => x >= b.x - b.e && x <= b.x + b.e) || (hasStream && x >= streamLeft - 3);
+    const foot = (x: number) => buildings.some((b) => x >= b.x - (b.rich?.left ?? b.e) && x <= b.x + (b.rich?.right ?? b.e)) || (hasStream && x >= streamLeft - 3);
     let cands = bandRampColumns(band0.edge, foot).filter((x) => x >= 1 && x <= cols - 3);
     if (!cands.length) {
       // flatten the band's edge over the west margin so a ramp always fits
@@ -578,7 +618,14 @@ export function farmWalkable(plan: FarmMmoPlan, cols: number, rows: number, tm?:
     if (tm && tm.tiles[tm.ground[i]]?.solid && !onBridge) ok[i] = false;
   }
   for (const [i, gate] of plan.fences) if (!gate) ok[i] = false;
-  for (const b of plan.buildings) for (let y = b.y - 1; y <= b.y; y++) for (let x = b.x - b.e; x <= b.x + b.e; x++) if (x >= 0 && x < cols && y >= 0 && !(y === b.y && x === b.x)) ok[y * cols + x] = false;
+  for (const b of plan.buildings) {
+    if (b.rich) {
+      // the whole footprint blocks; the entry tile below the door stays free
+      for (let y = b.rich.rect.y0; y <= b.rich.rect.y1; y++) for (let x = b.rich.rect.x0; x <= b.rich.rect.x1; x++) if (x >= 0 && x < cols && y >= 0) ok[y * cols + x] = false;
+      continue;
+    }
+    for (let y = b.y - 1; y <= b.y; y++) for (let x = b.x - b.e; x <= b.x + b.e; x++) if (x >= 0 && x < cols && y >= 0 && !(y === b.y && x === b.x)) ok[y * cols + x] = false;
+  }
   for (const t of plan.trees) ok[t.y * cols + t.x] = false;
   for (const p of plan.props) if (FARM_SOLID.has(p.kind) || ["rock", "boulder", "stump", "barrel", "crate", "sign"].includes(p.kind)) ok[p.y * cols + p.x] = false;
   for (const a of plan.animals) ok[a.y * cols + a.x] = false;

@@ -311,11 +311,18 @@ function tiledExport(tm: TileMap, slug: string, kit: StyleKit, dir: string, meta
       })),
     });
   }
-  const spawns = Array.isArray(meta?.spawns) ? (meta!.spawns as { x: number; y: number; monster: string }[]) : [];
+  // rich buildings: the footprint cells are the collision, one rectangle per building
+  const solids = !iso && Array.isArray(meta?.buildings) ? (meta!.buildings as { style?: string; solid?: { x0: number; y0: number; x1: number; y1: number } }[]).filter((b) => b.solid) : [];
+  if (solids.length)
+    layers.push({
+      id: nextLayer++, name: "collision", type: "objectgroup", x: 0, y: 0, opacity: 1, visible: false, draworder: "topdown",
+      objects: solids.map((b) => ({ id: nextObject++, name: b.style ?? "building", type: "solid", x: b.solid!.x0 * tm.tile, y: b.solid!.y0 * tm.tile, width: (b.solid!.x1 - b.solid!.x0 + 1) * tm.tile, height: (b.solid!.y1 - b.solid!.y0 + 1) * tm.tile, rotation: 0, visible: true })),
+    });
+  const spawns = Array.isArray(meta?.spawns) ? (meta!.spawns as { x: number; y: number; monster?: string; role?: string }[]) : [];
   if (spawns.length)
     layers.push({
       id: nextLayer++, name: "spawns", type: "objectgroup", x: 0, y: 0, opacity: 1, visible: true, draworder: "topdown",
-      objects: spawns.map((sp) => ({ id: nextObject++, name: sp.monster, type: "spawn", point: true, x: sp.x * tm.tile + tm.tile / 2, y: sp.y * tm.tile + tm.tile / 2, rotation: 0, visible: true })),
+      objects: spawns.map((sp) => ({ id: nextObject++, name: sp.monster ?? sp.role ?? "spawn", type: "spawn", point: true, x: sp.x * tm.tile + tm.tile / 2, y: sp.y * tm.tile + tm.tile / 2, rotation: 0, visible: true })),
     });
   const map = {
     type: "map", version: "1.10", tiledversion: "1.10.2", orientation: iso ? "isometric" : "orthogonal", renderorder: "right-down", infinite: false,

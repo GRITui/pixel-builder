@@ -18,13 +18,13 @@ import { attachmentById, CLIPS, rigById, withHumanoidDefaults } from "../src/cor
 import { blit, bounds, cloneSprite, createSprite } from "../src/core/sprite";
 import { renderTileMap } from "../src/core/tilemap";
 import { mapAnimator, renderMapFrames } from "../src/core/mapanim";
-import { castLight, grade, mapLitObjects, type TimeOfDay } from "../src/core/lighting";
+import { castLight, findLights, grade, mapLitObjects, type TimeOfDay } from "../src/core/lighting";
 import { encodeGif } from "../src/node/gif";
 import { kitColors } from "../src/node/png";
 import type { Sprite, StyleKit, TileMap } from "../src/core/types";
 import { savePng } from "./sheet";
 
-const COLS = 42, ROWS = 26;
+const COLS = 42, ROWS = 28;
 const SCALE = Number(process.env.SCALE ?? 2);
 
 const trim = (s: Sprite): Sprite => cropBox(s, bounds(s)!);
@@ -60,7 +60,7 @@ export function renderSceneFrames(kit: StyleKit, seed: number, n: number, time?:
   };
   const ui = (kind: string, p: object = {}) => trim(gen("ui", { kind, material: "wood", ...p }).rows[0].frames[0]);
   const T = kit.sizes.tile;
-  const map = gen("map", { biome: "farm-mmo", cols: COLS, rows: ROWS, detail: "medium", density: 0.55 }, seed);
+  const map = gen("map", { biome: "farm-mmo", cols: COLS, rows: ROWS, detail: "medium", density: 0.55, buildings: "rich" }, seed);
   const tm = map.tilemap as TileMap;
   const meta = map.meta as { spawns: { x: number; y: number; role: string }[]; blocked: { x: number; y: number }[] };
   const blocked = new Set(meta.blocked.map((b) => b.y * tm.cols + b.x));
@@ -166,7 +166,7 @@ export function renderSceneFrames(kit: StyleKit, seed: number, n: number, time?:
       blit(world, it.sprite, it.x, it.y);
     }
     // warm window glow at dusk comes from the lighting pass; people carry a lantern-ish light nearby
-    if (time) world = grade(world, kit, time, crew.map((c) => ({ x: c.item.x + c.item.sprite.w / 2 + 4, y: c.item.y + c.item.sprite.h - 12, r: 26 })), seed, keepHue);
+    if (time) world = grade(world, kit, time, findLights(mapLitObjects(tm), crew.map((c) => ({ x: c.item.x + c.item.sprite.w / 2 + 4, y: c.item.y + c.item.sprite.h - 12, r: 26 }))), seed, keepHue);
     for (const h of hud) blit(world, h.s, h.x, h.y);
     return world;
   };

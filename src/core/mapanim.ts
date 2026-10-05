@@ -9,6 +9,7 @@ import { environmentGenerator } from "./generators/environment";
 import { foliageGenerator } from "./generators/foliage";
 import { defaults } from "./generators/types";
 import { waterfallFrame } from "./generators/map-terrain";
+import { richLoopFrames } from "./generators/map-rich";
 import type { Sprite, StyleKit, TileMap } from "./types";
 
 export const MAP_FRAMES_DEFAULT = 8;
@@ -26,6 +27,7 @@ function loopOf(rows: { name: string; frames: Sprite[] }[], idle: Sprite): Sprit
 
 /** Ambient animation loop for a deco tile, or null when it has none (or its origin cannot be matched). */
 function propLoop(name: string, idle: Sprite, kit: StyleKit, seed: number): Sprite[] | null {
+  if (name.startsWith("rich:")) return richLoopFrames(name, idle, kit);
   const tree = /^tree-(.+)-(small|medium|large)-([a-z]+)-(\d+)$/.exec(name);
   if (tree) {
     const [, species, size, season, v] = tree;
