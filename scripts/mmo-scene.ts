@@ -120,12 +120,18 @@ export function renderScene(kit: StyleKit, seed: number, time?: TimeOfDay): Spri
 
   // y-sort: base line = sprite bottom (shadows sit under the sprite, drawn with it)
   items.sort((a, b) => a.y + a.sprite.h - (b.y + b.sprite.h) || a.x - b.x);
+  // characters keep their hues under the night grade
+  const keepHue = new Uint8Array(world.w * world.h);
   for (const it of items) {
+    for (let y = 0; y < it.sprite.h; y++) for (let x = 0; x < it.sprite.w; x++) {
+      const X = it.x + x, Y = it.y + y;
+      if (it.sprite.data[y * it.sprite.w + x] && X >= 0 && Y >= 0 && X < world.w && Y < world.h) keepHue[Y * world.w + X] = it.shadow ? 1 : 0;
+    }
     if (it.shadow) shadowUnder(world, it.x + it.sprite.w / 2, it.y + it.sprite.h - 1, it.shadow);
     blit(world, it.sprite, it.x, it.y);
   }
 
-  if (time) world = grade(world, kit, time, [{ x: hp.cx + 6, y: hp.base - 14, r: 34 }], seed);
+  if (time) world = grade(world, kit, time, [{ x: hp.cx + 6, y: hp.base - 14, r: 34 }], seed, keepHue);
 
   // floating text and nameplates are UI: above everything
   const put = (s: Sprite, x: number, y: number) => blit(world, s, Math.round(x), Math.round(y));
