@@ -8,6 +8,8 @@ export interface Footprint {
   d: number;
   storeys: number;
   door: number;
+  /** Upgrade tier 1..3 for tiered styles (farmhouse, barn, coop); 2 elsewhere. */
+  tier?: number;
 }
 
 export interface TileRect { x: number; y: number; w: number; h: number }
@@ -43,6 +45,13 @@ const TABLE: Record<string, Partial<Record<string, Dim>> & { medium: Dim }> = {
   "well-house": { medium: [2, 2, 1] },
 };
 
+/** Upgrade tiers: shack, house, manor. Footprints grow with the tier. */
+const TIERS: Record<string, [Dim, Dim, Dim]> = {
+  farmhouse: [[4, 3, 1], [6, 4, 1], [7, 5, 2]],
+  barn: [[5, 4, 1], [7, 5, 1], [8, 5, 2]],
+  coop: [[2, 2, 1], [3, 2, 1], [4, 3, 1]],
+};
+
 export const FOOTPRINT_STYLES = Object.keys(TABLE);
 
 /** A doorway: clearly taller than a person. */
@@ -50,16 +59,20 @@ export const doorHeightPx = (kit: StyleKit): number => Math.ceil(kit.sizes.chara
 /** One storey: a bit taller than the door. */
 export const storeyHeightPx = (kit: StyleKit): number => Math.round(kit.sizes.character * 1.6);
 
-export function buildingFootprint(style: string, size: string, kit: StyleKit): BuildingFootprint {
+/** `tier` 1..3 overrides `size` for tiered styles; 0 (default) keeps the size-based footprint. */
+export function buildingFootprint(style: string, size: string, kit: StyleKit, tier = 0): BuildingFootprint {
   const row = TABLE[style] ?? TABLE.cottage;
+  const tiers = TIERS[style];
+  const t = tiers && tier >= 1 && tier <= 3 ? Math.round(tier) : 0;
   // barn "large" shares the medium footprint; unknown sizes fall back to medium
-  const [w, d, storeys] = row[size] ?? row.medium;
+  const [w, d, storeys] = t ? tiers[t - 1] : (row[size] ?? row.medium);
+  const derived = style === "farmhouse" ? (size === "small" ? 1 : size === "large" ? 3 : 2) : 2;
   const tile = kit.sizes.tile;
   const door = Math.floor((w - 1) / 2);
   const margin = 2; // px each side for overhang and the outline
   const roof = Math.round(storeyHeightPx(kit) * 0.7);
   return {
-    w, d, storeys, door,
+    w, d, storeys, door, tier: t || derived,
     entry: { dx: door, dy: d },
     solid: { x: 0, y: 0, w, h: d },
     canvas: { w: w * tile + margin * 2, h: storeys * storeyHeightPx(kit) + roof + Math.round(tile / 2) + margin },
