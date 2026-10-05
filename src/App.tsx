@@ -136,7 +136,7 @@ export default function App() {
     }
   };
 
-  const listProps = { assets: library.assets, kit, kits: kits.kits, pal, actions, refIds };
+  const listProps = { assets: library.assets, kit, kits: kits.kits, pal, actions, refIds, references };
   const importCategory: Category = view === "library" ? "character" : view;
 
   return (
