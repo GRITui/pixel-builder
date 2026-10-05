@@ -277,18 +277,31 @@ function bat(m: Maker): { joints: Joint[]; parts: PartDef[] } {
 
 const BLOB_SKIP = /^(shadow|puddle|mound)$/;
 
-function blob(spec: BlobSpec, make: (m: Maker) => { joints: Joint[]; parts: PartDef[] }, centre: V2): RigDef {
+/** Species prefixes: each blob species owns copies of the shared joints so one clip can move every species differently. */
+export const SPECIES_PREFIX = { slime: "s_", mushroom: "m_", plant: "p_", bat: "b_" } as const;
+type Species = keyof typeof SPECIES_PREFIX;
+const keepName = (j: string) => j === "base";
+
+function blob(spec: BlobSpec, make: (m: Maker) => { joints: Joint[]; parts: PartDef[] }, centre: V2, species: Species): RigDef {
   const s = spec.scale ?? 1;
   const m = maker(s);
-  const { joints, parts } = make(m);
+  const made = make(m);
+  const pre = SPECIES_PREFIX[species];
+  const rn = (j: string) => (keepName(j) ? j : pre + j);
+  const joints = made.joints.map((j) => ({ ...j, id: rn(j.id), parent: j.parent === null ? null : rn(j.parent) }));
+  const parts = made.parts.map((p): PartDef => {
+    if (p.kind === "limb") return { ...p, from: rn(p.from), to: rn(p.to) };
+    if (p.kind === "ellipse" || p.kind === "box") return { ...p, joint: rn(p.joint) };
+    return p;
+  });
   const base: RigDef = { id: spec.id, name: spec.name, grid: 32, joints, parts, slots: { ink: "ink", ...spec.slots } };
   return withFx(base, [m.X(centre[0]), m.Y(centre[1])], BLOB_SKIP, spec.slots.fxMat ?? "ui");
 }
 
 const MUSH = (id: string, name: string, slots: Slots, king = false) =>
-  blob({ id, name, scale: king ? 1.2 : 1, slots }, (m) => mushroom(m, king), [16, 19]);
+  blob({ id, name, scale: king ? 1.2 : 1, slots }, (m) => mushroom(m, king), [16, 19], "mushroom");
 const SLIME = (id: string, name: string, body: Material, shine: Material, tuft: Material = body) =>
-  blob({ id, name, slots: { body, shine, tuft, fx: body } as Slots }, slime, [16, 21]);
+  blob({ id, name, slots: { body, shine, tuft, fx: body } as Slots }, slime, [16, 21], "slime");
 
 export const MONSTER_RIGS: RigDef[] = [
   MUSH("monster-mushroom-red", "Mushroom (red)", { cap: "cloth2", spots: "sand", stalk: "sand" }),
@@ -299,8 +312,8 @@ export const MONSTER_RIGS: RigDef[] = [
   SLIME("monster-slime-blue", "Slime (blue)", "water", "ui"),
   SLIME("monster-slime-fire", "Slime (fire)", "cloth2", "gold", "gold"),
   SLIME("monster-slime-metal", "Slime (metal)", "metal", "ui"),
-  blob({ id: "monster-plant", name: "Snapping plant", slots: { bulb: "cloth2", leaf: "foliage", spots: "sand", soil: "dirt", mouth: "roof", teeth: "ui" } }, plant, [16, 18]),
-  blob({ id: "monster-bat", name: "Bat", slots: { fur: "accent", wing: "accent", ear: "skin", eye: "gold", teeth: "ui", shadow: "ink" } }, bat, [16, 15]),
+  blob({ id: "monster-plant", name: "Snapping plant", slots: { bulb: "cloth2", leaf: "foliage", spots: "sand", soil: "dirt", mouth: "roof", teeth: "ui" } }, plant, [16, 18], "plant"),
+  blob({ id: "monster-bat", name: "Bat", slots: { fur: "accent", wing: "accent", ear: "skin", eye: "gold", teeth: "ui", shadow: "ink" } }, bat, [16, 15], "bat"),
 ];
 
 // ---------------------------------------------------------------- beast (wolf) and undead (skeleton)
@@ -321,42 +334,76 @@ function scaleRig(rig: RigDef, k: number): RigDef {
 /** Quadruped skeleton re-dressed: grey coat, pointed ears, ruff, bushy tail, fangs. */
 function wolfRig(): RigDef {
   const dog = quadrupedRig("dog");
-  const keep = dog.parts.filter((p) => !/^(ear|tail|eye|nose)/.test(p.id));
+  // the dog's front/back head, neck and tail are replaced below; side-view parts stay
+  const keep = dog.parts.filter((p) => !/^(ear|tail|eye|nose|headFront|snoutF|neckD|neckU|maneD)/.test(p.id)).map((p): PartDef => {
+    if (p.id === "head") return { ...p, views: ["side", "down-side", "up-side"] as PartDef["views"] };
+    if (p.kind === "ellipse" && p.id === "chestD") return { ...p, rx: p.rx * 0.78, ry: p.ry * 0.85, dy: (p.dy ?? 0) - 0.8 };
+    if (p.kind === "ellipse" && p.id === "humpD") return { ...p, rx: p.rx * 0.8 };
+    if (p.kind === "ellipse" && p.id === "chestU") return { ...p, rx: p.rx * 0.72 };
+    return p;
+  });
   const E = (id: string, joint: string, dx: number, dy: number, rx: number, ry: number, slot: string, z: PartDef["z"], o: Partial<PartDef> = {}): PartDef =>
     ({ id, kind: "ellipse", joint, dx, dy, rx, ry, slot, z, ...o }) as PartDef;
   const B = (id: string, joint: string, dx: number, dy: number, w: number, h: number, slot: string, z: PartDef["z"], o: Partial<PartDef> = {}): PartDef =>
     ({ id, kind: "box", joint, dx, dy, w, h, slot, z, ...o }) as PartDef;
+  // front view: lift the head clear of the chest so skull, snout and ruff read separately
+  const joints = dog.joints.map((j): Joint => {
+    const r = j.rest as Record<string, V2>;
+    if (j.id === "head") return { ...j, rest: { ...r, down: [16, r.down[1] - 2.6] } };
+    if (j.id === "jaw") return { ...j, rest: { ...r, down: [16, r.down[1] - 2.2] } };
+    if (j.id === "neck") return { ...j, rest: { ...r, down: [16, r.down[1] - 1.4] } };
+    return j;
+  });
   const parts: PartDef[] = [
     ...keep,
-    // chunky pointed ears
+    // front: broad skull, cheek ruff, short foreshortened muzzle (lighter, narrower), pointed ears, slanted eyes
+    E("neckF", "neck", 0, 1.2, 4.2, 3, "coat", 3, { tone: -1, views: ["down"] }),
+    E("ruffF", "neck", 0, -0.2, 6.6, 2.6, "coat", 3.4, { tone: 1, views: ["down"] }),
+    E("ruffFL", "neck", -5.4, 0.8, 1.6, 2.6, "coat", 3.5, { tone: 1, views: ["down"] }),
+    E("ruffFR", "neck", 5.4, 0.8, 1.6, 2.6, "coat", 3.5, { tone: 1, views: ["down"] }),
+    E("skullF", "head", 0, 0, 4.6, 3.3, "coat", 4, { views: ["down"] }),
+    E("cheekFL", "head", -4.2, 1.6, 1.7, 1.8, "coat", 4.1, { tone: 1, views: ["down"] }),
+    E("cheekFR", "head", 4.2, 1.6, 1.7, 1.8, "coat", 4.1, { tone: 1, views: ["down"] }),
+    E("browF", "head", 0, -2.2, 2.4, 1, "coat", 4.2, { tone: -1, views: ["down"] }),
+    E("muzzleF", "jaw", 0, -0.2, 2.3, 2.2, "muzzle", 5, { tone: 1, views: ["down"] }),
+    E("muzzleFB", "jaw", 0, 0.9, 1.6, 0.8, "muzzle", 5.1, { tone: 2, views: ["down"] }),
+    B("noseF", "jaw", -0.8, -0.6, 1.6, 1, "ink", 9, { tone: -4, views: ["down"] }),
+    B("fangFL", "jaw", -1.3, 1.7, 0.8, 1.2, "teeth", 9, { tone: 2, views: ["down"] }),
+    B("fangFR", "jaw", 0.5, 1.7, 0.8, 1.2, "teeth", 9, { tone: 2, views: ["down"] }),
+    B("eyeFL", "head", -3.2, -0.9, 1.6, 1, "eye", 9, { tone: 1, views: ["down"] }),
+    B("eyeFR", "head", 1.6, -0.9, 1.6, 1, "eye", 9, { tone: 1, views: ["down"] }),
+    // ears: tall points, inner skin on the front only
     E("earNear", "head", -1.4, -3.6, 1.3, 2.6, "coat", 6, { tone: -1, views: ["side"] }),
     E("earNearIn", "head", -1.2, -3.2, 0.6, 1.4, "inner", 6.1, { views: ["side"] }),
     E("earFar", "head", 0.8, -3.7, 1.2, 2.4, "coat", 3.9, { tone: -2, views: ["side"] }),
     E("earFarD", "head", 1.4, -3.4, 1.2, 2.4, "coat", 3.9, { tone: -2, views: ["down-side"] }),
-    E("earL", "head", -2.8, -3.8, 1.4, 2.6, "coat", 6, { tone: -1, views: ["down", "up"] }),
-    E("earR", "head", 2.8, -3.8, 1.4, 2.6, "coat", 6, { tone: -1, views: ["down", "up"] }),
-    E("earLIn", "head", -2.8, -3.4, 0.6, 1.4, "inner", 6.1, { views: ["down"] }),
-    E("earRIn", "head", 2.8, -3.4, 0.6, 1.4, "inner", 6.1, { views: ["down"] }),
-    // ruff around the neck and a bushy tail hanging low
+    E("earL", "head", -3.6, -3.4, 1.8, 2.2, "coat", 6, { tone: -1, views: ["down", "up"] }),
+    E("earR", "head", 3.6, -3.4, 1.8, 2.2, "coat", 6, { tone: -1, views: ["down", "up"] }),
+    E("earLTip", "head", -3.9, -5.4, 0.9, 1.4, "coat", 6, { tone: -1, views: ["down", "up"] }),
+    E("earRTip", "head", 3.9, -5.4, 0.9, 1.4, "coat", 6, { tone: -1, views: ["down", "up"] }),
+    E("earLIn", "head", -3.6, -3.2, 0.7, 1.4, "inner", 6.1, { views: ["down"] }),
+    E("earRIn", "head", 3.6, -3.2, 0.7, 1.4, "inner", 6.1, { views: ["down"] }),
+    // back: nape, thick ruff, dark saddle stripe along the spine
+    E("napeU", "head", 0, 0.4, 4.6, 3.4, "coat", 4, { views: ["up"] }),
+    E("ruffU", "neck", 0, 0.6, 6.4, 2.8, "coat", 3.4, { tone: 1, views: ["up"] }),
+    E("neckU2", "neck", 0, 0.4, 4.2, 2.6, "coat", 3, { tone: -1, views: ["up"] }),
+    E("saddleU", "body", 0, -0.4, 2, 3.4, "coat", 2.6, { tone: -1, views: ["up"] }),
+    E("saddleD", "body", 0, -2.4, 2.4, 2, "coat", 2.6, { tone: -1, views: ["down"] }),
+    // ruff and tail in profile
     E("ruff", "neck", -1.2, 1.2, 2.4, 3.6, "coat", 3.2, { tone: 1, views: ["side"] }),
-    E("ruffD", "neck", 0, 1.4, 4.6, 2, "coat", 3.2, { tone: 1, views: ["down"] }),
     E("tail", "tail", -2.4, 1.4, 1.9, 4.2, "coat", 1, { views: ["side"] }),
     E("tailTip", "tail", -2.8, 4.8, 1.5, 1.8, "tip", 1.1, { views: ["side"] }),
-    E("tailB", "tail", 0, 0.8, 1.9, 3.8, "coat", 5, { tone: -1, views: ["up"] }),
-    E("tailBTip", "tail", 0, 3.8, 1.5, 1.6, "tip", 5.1, { views: ["up"] }),
-    // fangs and eyes (narrow, fierce)
+    // back view: a real bushy tail hanging over the rump, tip colour at the end
+    E("tailB", "tail", 0, 2.4, 2.3, 4.6, "coat", 5, { tone: -2, views: ["up"] }),
+    E("tailBMid", "tail", 0, 3.8, 2.5, 2.6, "coat", 5.05, { tone: -1, views: ["up"] }),
+    E("tailBTip", "tail", 0, 5.8, 1.9, 1.8, "tip", 5.1, { tone: 1, views: ["up"] }),
+    // fangs and eyes in profile
     B("fang", "jaw", 1.4, 0.8, 1, 1.4, "teeth", 6.5, { tone: 2, views: ["side"] }),
-    B("fangL", "jaw", -1.6, 0.4, 1, 1.4, "teeth", 6.5, { tone: 2, views: ["down"] }),
-    B("fangR", "jaw", 0.7, 0.4, 1, 1.4, "teeth", 6.5, { tone: 2, views: ["down"] }),
     B("eye", "head", 1.2, -1.3, 2, 1, "eye", 9, { tone: 1, views: ["side"] }),
     B("eyeD", "head", 2.2, -1.2, 2, 1, "eye", 9, { tone: 1, views: ["down-side"] }),
-    B("eyeL", "head", -2.6, -1.2, 2, 1, "eye", 9, { tone: 1, views: ["down"] }),
-    B("eyeR", "head", 0.8, -1.2, 2, 1, "eye", 9, { tone: 1, views: ["down"] }),
     B("nose", "jaw", 1.9, -1.2, 1, 1, "ink", 9, { tone: -4, views: ["side"] }),
-    B("noseL", "jaw", -1.4, -1, 1, 1, "ink", 9, { tone: -4, views: ["down"] }),
-    B("noseR", "jaw", 0.5, -1, 1, 1, "ink", 9, { tone: -4, views: ["down"] }),
   ];
-  const rig: RigDef = { id: "monster-wolf", name: "Wolf", grid: 32, joints: dog.joints, parts, slots: { coat: "stone", accent: "metal", hoof: "ink", mane: "stone", muzzle: "metal", ink: "ink", inner: "skin", tip: "metal", teeth: "ui", eye: "gold" } };
+  const rig: RigDef = { id: "monster-wolf", name: "Wolf", grid: 32, joints, parts, slots: { coat: "stone", accent: "metal", hoof: "ink", mane: "stone", muzzle: "metal", ink: "ink", inner: "skin", tip: "metal", teeth: "ui", eye: "gold" } };
   return withFx(scaleRig(rig, 1.3), [14, 22], /^(shadow)$/, "ui");
 }
 
@@ -374,27 +421,60 @@ function skeletonRig(): RigDef {
     if (p.id.startsWith("hand")) return { ...q, slot: "bone", rx: 1.1, ry: 1.1 };
     if (p.id.startsWith("torso")) return { ...q, slot: "bone", rx: q.rx * 0.62, ry: q.ry * 0.9, tone: -1 };
     if (p.id.startsWith("belt")) return { ...p, slot: "bone", tone: -1 };
-    if (p.id === "head") return { ...q, slot: "bone", rx: 6.4, ry: 5.6 };
+    if (p.id === "head") return { ...q, slot: "bone", rx: 6.4, ry: 5.6, views: ["down", "up", "down-side", "up-side"] };
     return p;
   };
+  // weapon: a rusty sword in the right hand and a small shield on the left, pinned to joints so the
+  // humanoid attack clip swings the blade (`toolTip`) and the shield arm
+  const hand = base.joints.find((j) => j.id === "handR")!.rest as Record<string, V2>;
+  const at = (dx: number, dy: number, sdx = dx): Joint["rest"] => ({ down: [hand.down[0] + dx, hand.down[1] + dy], side: [hand.side[0] + sdx, hand.side[1] + dy], up: [hand.up[0] + dx, hand.up[1] + dy] });
+  const HELD = 4;
+  const HZ: PartDef["z"] = { down: HELD, side: HELD, up: 1.6 };
+  const HZ2: PartDef["z"] = { down: HELD + 0.1, side: HELD + 0.1, up: 1.7 };
+  const joints: Joint[] = [
+    ...base.joints,
+    { id: "toolTip", parent: "handR", rest: at(1.5, -13, 2.5) },
+    { id: "toolButt", parent: "handR", rest: at(0, 2.5, 0) },
+  ];
+  const weapon: PartDef[] = [
+    { id: "sword-grip", kind: "limb", from: "toolButt", to: "handR", r: 0.8, slot: "leather", z: HZ },
+    { id: "sword-guard", kind: "ellipse", joint: "handR", dy: -1.6, rx: 2.2, ry: 0.8, slot: "metal", tone: -2, z: HZ2 },
+    { id: "sword-blade", kind: "limb", from: "handR", to: "toolTip", r: 1.2, slot: "rust", tone: -1, z: HZ },
+    { id: "sword-edge", kind: "limb", from: "handR", to: "toolTip", r: 0.4, slot: "rust", tone: 1, z: HZ2, views: ["down", "up"] },
+    { id: "sword-tip", kind: "box", joint: "toolTip", dx: -0.4, dy: -1, w: 1.2, h: 1.5, slot: "rust", tone: 1, z: HZ2 },
+    { id: "sword-nick", kind: "box", joint: "toolTip", dx: 0.4, dy: 4, w: 1, h: 1.2, slot: "ink", tone: -2, z: HZ2, views: ["down", "up"] },
+    // small shield on the left forearm
+    { id: "shield-face", kind: "ellipse", joint: "handL", dy: -1.4, rx: 3.6, ry: 4.2, slot: "wood", z: HELD, views: ["down", "up"] },
+    { id: "shield-rim", kind: "ellipse", joint: "handL", dy: -1.4, rx: 3.9, ry: 4.5, slot: "metal", tone: -1, z: HELD - 0.1, views: ["down", "up"] },
+    { id: "shield-boss", kind: "ellipse", joint: "handL", dy: -1.4, rx: 1.2, ry: 1.2, slot: "metal", tone: 1, z: HELD + 0.1, views: ["down"] },
+    { id: "shield-side", kind: "ellipse", joint: "handL", dy: -1.4, rx: 1.6, ry: 4.2, slot: "wood", z: HELD, views: ["side"] },
+    { id: "shield-side-rim", kind: "ellipse", joint: "handL", dy: -1.4, rx: 1.9, ry: 4.5, slot: "metal", tone: -1, z: HELD - 0.1, views: ["side"] },
+  ];
   const parts: PartDef[] = [
     ...base.parts.map(thin),
+    ...weapon,
+    // side-view skull: round cranium, cheekbone and a distinct brow/face step, ear hole, nose hole
+    E("headS", "head", -0.6, -0.4, 5.4, 5.4, "bone", 4, { views: ["side"] }),
+    E("cheekS", "head", 2.8, 2.6, 2.8, 2.6, "bone", 4.1, { tone: -1, views: ["side"] }),
+    E("browS", "head", 3.6, -2.8, 2, 1, "bone", 4.2, { tone: 1, views: ["side"] }),
+    B("earHoleS", "head", -1.6, 0.4, 1, 1.4, "ink", 9, { tone: -2, views: ["side"] }),
+    B("noseS", "head", 5.2, 1, 1, 1.4, "ink", 9, { tone: -3, views: ["side"] }),
     E("jawbone", "head", 0, 4.6, 4, 1.7, "bone", 4.2, { tone: -1, views: ["down", "down-side"] }),
-    E("jawboneS", "head", 1.6, 4.4, 3.4, 1.6, "bone", 4.2, { tone: -1, views: ["side"] }),
+    E("jawboneS", "head", 1.4, 5, 3.4, 1.5, "bone", 4.2, { tone: -1, views: ["side"] }),
     E("pelvis", "hip", 0, -0.4, 3.4, 1.6, "bone", 2.4, { tone: -1, views: ["down", "up"] }),
     // eye sockets, nose hole, teeth
     B("socketL", "head", -3.8, -1.8, 3, 3, "ink", 9, { tone: -3, views: ["down"] }),
     B("socketR", "head", 0.8, -1.8, 3, 3, "ink", 9, { tone: -3, views: ["down"] }),
     B("socketDa", "head", -2.4, -1.8, 3, 3, "ink", 9, { tone: -3, views: ["down-side"] }),
     B("socketDb", "head", 2.8, -1.8, 2, 3, "ink", 9, { tone: -3, views: ["down-side"] }),
-    B("socketS", "head", 2.2, -1.8, 3, 3, "ink", 9, { tone: -3, views: ["side"] }),
+    B("socketS", "head", 2, -1.8, 3.4, 3.4, "ink", 9, { tone: -3, views: ["side"] }),
     B("glowL", "head", -2.8, -0.8, 1, 1, "eye", 9.5, { tone: 2, views: ["down"] }),
     B("glowR", "head", 1.8, -0.8, 1, 1, "eye", 9.5, { tone: 2, views: ["down"] }),
     B("glowD", "head", -1.4, -0.8, 1, 1, "eye", 9.5, { tone: 2, views: ["down-side"] }),
-    B("glowS", "head", 3.2, -0.8, 1, 1, "eye", 9.5, { tone: 2, views: ["side"] }),
+    B("glowS", "head", 3.6, -0.8, 1, 1, "eye", 9.5, { tone: 2, views: ["side"] }),
     B("nose", "head", -0.5, 1.8, 1, 1.4, "ink", 9, { tone: -3, views: ["down"] }),
     B("teeth", "head", -2.5, 3.6, 5, 1, "ink", 9, { tone: 0, views: ["down"] }),
-    B("teethS", "head", 3, 3.6, 3, 1, "ink", 9, { tone: 0, views: ["side"] }),
+    B("teethS", "head", 2.4, 4.3, 3.4, 1, "ink", 9, { tone: 0, views: ["side"] }),
     // ribs: dark bars across the chest, spine in the middle (front view), spine edge (side)
     B("rib1", "chest", -2.6, 0.8, 5, 1, "ink", 3.5, { tone: -1, views: ["down"] }),
     B("rib2", "chest", -2.6, 2.6, 5, 1, "ink", 3.5, { tone: -1, views: ["down"] }),
@@ -404,7 +484,7 @@ function skeletonRig(): RigDef {
     B("ribS3", "chest", -1, 4.4, 3, 1, "ink", 3.5, { tone: -1, views: ["side"] }),
     B("spine", "chest", -0.5, 0, 1, 7, "bone", 3.4, { tone: 1, views: ["down", "up"] }),
   ];
-  const rig: RigDef = { id: "monster-skeleton", name: "Skeleton", grid: 32, joints: base.joints, parts, slots: { ...base.slots, bone: "sand", eye: "accent", ink: "ink" } };
+  const rig: RigDef = { id: "monster-skeleton", name: "Skeleton", grid: 32, joints, parts, slots: { ...base.slots, bone: "sand", eye: "accent", ink: "ink", rust: "metal", wood: "wood", metal: "metal", leather: "leather" } };
   return withFx(rig, [16, 17], /^(shadow)$/, "ui");
 }
 
@@ -491,7 +571,120 @@ const mDie: Clip = {
     gone("base", BJ),
   ]),
 };
-export const MONSTER_CLIPS: Clip[] = [mIdle, mWalk, mAttack, mHurt, mDie];
+
+// ---- per-species motion: the generic clips above move generic joints; every species also owns
+// prefixed copies (s_ slime, m_ mushroom, p_ plant, b_ bat) that only its own rig has, so one clip
+// per id still animates each species its own way. Hurt and die just copy the generic pose to all.
+const SP = Object.values(SPECIES_PREFIX);
+const keyFor = (pre: string, k: string) => (k.startsWith("f_") ? `f_${pre}${k.slice(2)}` : pre + k);
+function dup(p: Pose): Pose {
+  const out: Pose = { ...p };
+  for (const [k, v] of Object.entries(p)) {
+    if (k === "base" || k.startsWith("puff")) continue;
+    for (const pre of SP) out[keyFor(pre, k)] = v;
+  }
+  return out;
+}
+type PerView = { down: Pose[]; side: Pose[]; up: Pose[] };
+const dupClip = (c: Clip): Clip => {
+  const fr = c.frames as PerView;
+  return { ...c, frames: { down: fr.down.map(dup), side: fr.side.map(dup), up: fr.up.map(dup) } };
+};
+/** Species pose from a spec keyed by unprefixed joint names. */
+const sp = (pre: string, v: View3, spec: Spec): Pose => pose(v, Object.fromEntries(Object.entries(spec).map(([k, a]) => [pre + k, a])), [`${pre}wingL`, `${pre}footL`]);
+/** Raw grid offsets (same in every view): sways. */
+const rw = (pre: string, d: Record<string, V2>): Pose => Object.fromEntries(Object.entries(d).map(([k, a]) => [pre + k, a]));
+const withSpecies = (c: Clip, ...fs: ((v: View3) => Pose[])[]): Clip => {
+  const fr = c.frames as PerView;
+  const one = (v: View3) => fr[v].map((g, i) => merge(g, ...fs.map((f) => f(v)[i])));
+  return { ...c, frames: { down: one("down"), side: one("side"), up: one("up") } };
+};
+
+// slime: squash and stretch
+const S_ = SPECIES_PREFIX.slime;
+const sq = (k: number): Spec => ({ head: [0, -1.5 * k], wingL: [0, -0.4 * k, 1.4 * k], wingR: [0, -0.4 * k, 1.4 * k] });
+const st = (k: number): Spec => ({ head: [0, 1.8 * k], wingL: [0, 0.3 * k, -1.2 * k], wingR: [0, 0.3 * k, -1.2 * k] });
+const slimeIdle = (v: View3) => [sq(0.4), {}, st(0.4), {}].map((s) => sp(S_, v, s));
+const slimeWalk = (v: View3) => [
+  sp(S_, v, sq(1.3)),
+  sp(S_, v, { ...st(1), body: [0.8, 2.5] }),
+  sp(S_, v, { ...st(0.6), body: [1.5, 3.8] }),
+  sp(S_, v, { ...sq(1.7), body: [0.5, 0] }),
+];
+const slimeAttack = (v: View3) => [
+  sp(S_, v, { ...sq(1.4), body: [-1, 0] }),
+  sp(S_, v, { ...sq(2.3), body: [-1.5, -0.5] }),
+  sp(S_, v, { ...st(1.8), body: [4, 2], head: [1, 3.2], jaw: [2, -1] }),
+  sp(S_, v, { ...sq(2), body: [4, 0], jaw: [2, -1] }),
+  sp(S_, v, { ...st(0.4), body: [1, 0] }),
+];
+
+// mushroom: waddle (weight rocks from foot to foot), cap headbutt
+const M_ = SPECIES_PREFIX.mushroom;
+const mushIdle = (_v: View3) => [{}, { head: [0, 1] }, {}, { body: [0, -0.5], head: [0, -1] }].map((d) => rw(M_, d as Record<string, V2>));
+const mushWalk = (_v: View3) => [
+  rw(M_, { body: [-1, 0.8], head: [2, -0.3], wingL: [0, -1], wingR: [0, 1], footR: [0, -1.4] }),
+  rw(M_, { body: [0, -0.5], head: [0, -0.6] }),
+  rw(M_, { body: [1, 0.8], head: [-2, -0.3], wingL: [0, 1], wingR: [0, -1], footL: [0, -1.4] }),
+  rw(M_, { body: [0, -0.5], head: [0, -0.6] }),
+];
+const mushAttack = (v: View3) => [
+  sp(M_, v, { head: [-1, 1.5], wingL: [-1, 2, 1.5], wingR: [-1, 2, 1.5] }),
+  sp(M_, v, { body: [-1, -1], head: [-2, 2.5], wingL: [-1, 3, 2], wingR: [-1, 3, 2] }),
+  sp(M_, v, { body: [2, 0.5], head: [4, -2], jaw: [3, -2], wingL: [2, 0, -1], wingR: [2, 0, -1] }),
+  sp(M_, v, { body: [2, 0.5], head: [3, -2], jaw: [3, -2] }),
+  sp(M_, v, { body: [0.5, 0], head: [1, 0] }),
+];
+
+// bat: wing flap with a bob, tuck-and-dive bite
+const B_ = SPECIES_PREFIX.bat;
+const flap = (u: number, l: number): Spec => ({ wingL: [0, u, l], wingR: [0, u, l] });
+const batIdle = (v: View3) => ([
+  { ...flap(1.5, 0.5), body: [0, 0] }, { ...flap(0, 1), body: [0, -0.5] }, { ...flap(-1.5, 0.5), body: [0, -1] }, { ...flap(0, 1), body: [0, -0.5] },
+] as Spec[]).map((s) => sp(B_, v, s));
+const batWalk = (v: View3) => ([
+  { ...flap(4, 1), body: [0, 0.5], footL: [0, 0.6], footR: [0, 0.6] },
+  { ...flap(0.5, 2), body: [0.5, -1] },
+  { ...flap(-3.5, 0.5), body: [0, -2], footL: [0, 0.6], footR: [0, 0.6] },
+  { ...flap(0, 2), body: [0.5, -0.5] },
+] as Spec[]).map((s) => sp(B_, v, s));
+const batAttack = (v: View3) => ([
+  { ...flap(4, 1), body: [-1, -2] },
+  { ...flap(5, 1.5), body: [-2, -3], head: [-1, 0] },
+  { ...flap(-2, -1), body: [3, 1], head: [3, 0], jaw: [3, -2], footL: [1, 1], footR: [1, 1] },
+  { ...flap(-2.5, -1), body: [3, 0], head: [3, 0], jaw: [3, -1] },
+  { ...flap(1, 1), body: [1, 0] },
+] as Spec[]).map((s) => sp(B_, v, s));
+
+// plant: rooted, sways on the spot; lunges from the stem
+const P_ = SPECIES_PREFIX.plant;
+const plantIdle = (_v: View3) => [
+  rw(P_, { body: [-0.5, 0], head: [-1, 0], wingL: [0, -0.5], wingR: [0, 0.5] }),
+  rw(P_, { head: [0, -0.5] }),
+  rw(P_, { body: [0.5, 0], head: [1, 0], wingL: [0, 0.5], wingR: [0, -0.5] }),
+  rw(P_, { head: [0, -0.5] }),
+];
+const plantWalk = (_v: View3) => [
+  rw(P_, { body: [-1, 0.5], head: [-1.6, 0], wingL: [0, -1.2], wingR: [0, 1.2] }),
+  rw(P_, { body: [0, 1], head: [0, 0.5], wingL: [0, 0.8], wingR: [0, 0.8] }),
+  rw(P_, { body: [1, 0.5], head: [1.6, 0], wingL: [0, 1.2], wingR: [0, -1.2] }),
+  rw(P_, { body: [0, 1], head: [0, 0.5], wingL: [0, 0.8], wingR: [0, 0.8] }),
+];
+const plantAttack = (v: View3) => [
+  sp(P_, v, { body: [-1, -0.5], head: [-1.5, 1], wingL: [0, 1, 1], wingR: [0, 1, 1] }),
+  sp(P_, v, { body: [-1.5, -1], head: [-2.5, 1.5], jaw: [-1, 1], wingL: [0, 2, 1.5], wingR: [0, 2, 1.5] }),
+  sp(P_, v, { body: [3, 0], head: [4, -1], jaw: [2, -3], wingL: [1, 0, -1], wingR: [1, 0, -1] }),
+  sp(P_, v, { body: [3, 0], head: [3.5, -1], jaw: [2, 0] }),
+  sp(P_, v, { body: [1, 0], head: [1, 0] }),
+];
+
+export const MONSTER_CLIPS: Clip[] = [
+  withSpecies(mIdle, slimeIdle, mushIdle, batIdle, plantIdle),
+  withSpecies(mWalk, slimeWalk, mushWalk, batWalk, plantWalk),
+  withSpecies(mAttack, slimeAttack, mushAttack, batAttack, plantAttack),
+  dupClip(mHurt),
+  dupClip(mDie),
+];
 
 // ---- beast family (quadruped joints)
 const QJ = ["body", "neck", "head", "jaw", "tail", "shoulderFL", "kneeFL", "footFL", "shoulderFR", "kneeFR", "footFR", "hipBL", "kneeBL", "footBL", "hipBR", "kneeBR", "footBR"];
@@ -503,12 +696,13 @@ const fwd = (v: View3, f: number, u: number): V2 => (v === "side" ? [f, -u] : [0
 const qAttack: Clip = {
   id: "attack", fps: 9,
   frames: perView((v) => {
-    const b0 = fwd(v, -1, -1), b1 = fwd(v, -2.5, -2), b2 = fwd(v, 3, 1);
+    const k = v === "up" ? 0.4 : 1; // lunging away from the camera would leave the canvas
+    const b0 = fwd(v, -1, -1), b1 = fwd(v, -2.5, -2), b2 = fwd(v, 3 * k, 1);
     return [
       merge(bq(v, { body: [-1, -1], neck: [-1, 0], head: [-1, 0], tail: [-1, 1] }), plant4(b0)),
       merge(bq(v, { body: [-2.5, -2], neck: [-1.5, 0], head: [-2, 0], tail: [-2, 2] }), plant4(b1)),
-      merge(bq(v, { body: [3, 1], neck: [2, 0], head: [2, 0], jaw: [1, -2], tail: [-2, 1] }), plant4(b2, [["footBL", "kneeBL"], ["footBR", "kneeBR"]])),
-      merge(bq(v, { body: [3, 0], neck: [2, 0], head: [2, 0], jaw: [1, -2], tail: [-1, 0] }), plant4(fwd(v, 3, 0), [["footBL", "kneeBL"], ["footBR", "kneeBR"], ["footFL", "kneeFL"], ["footFR", "kneeFR"]]), v === "side" ? { footFL: [2, 0], footFR: [2, 0] } : {}),
+      merge(bq(v, { body: [3 * k, 1], neck: [2 * k, 0], head: [2 * k, 0], jaw: [1, -2], tail: [-2, 1] }), plant4(b2, [["footBL", "kneeBL"], ["footBR", "kneeBR"]])),
+      merge(bq(v, { body: [3 * k, 0], neck: [2 * k, 0], head: [2 * k, 0], jaw: [1, -2], tail: [-1, 0] }), plant4(fwd(v, 3 * k, 0), [["footBL", "kneeBL"], ["footBR", "kneeBR"], ["footFL", "kneeFL"], ["footFR", "kneeFR"]]), v === "side" ? { footFL: [2, 0], footFR: [2, 0] } : {}),
       merge(bq(v, { body: [1, 0], neck: [1, 0], head: [1, 0] }), plant4(fwd(v, 1, 0))),
     ];
   }),
@@ -534,10 +728,32 @@ const qDie: Clip = {
   ]),
 };
 const asBeast = (c: Clip): Clip => ({ ...c });
-export const BEAST_CLIPS: Clip[] = [asBeast(QUADRUPED_CLIPS[0]), asBeast(QUADRUPED_CLIPS[1]), qAttack, qHurt, qDie];
+// wolf walk: side keeps the diagonal-pair gait with a body bob and tail swing; front/back get a real
+// stride (diagonal pairs swap between forward and back, the swinging pair lifts) plus bob and head sway
+const gait = (sgn: number, swap: boolean): Pose => {
+  const f = (swap ? -1 : 1) * 1.4 * sgn;
+  const swing = (j: string): [string, V2] => [j, [0, f - 1]];
+  const stance = (j: string): [string, V2] => [j, [0, -f]];
+  return Object.fromEntries([swing("footFL"), swing("footBR"), stance("footFR"), stance("footBL")]);
+};
+const strideFrames = (sgn: number): Pose[] => [
+  merge(gait(sgn, false), { body: [0, 0.3], head: [0.6, 0] }),
+  { body: [0, -0.8], head: [0, -0.3] },
+  merge(gait(sgn, true), { body: [0, 0.3], head: [-0.6, 0] }),
+  { body: [0, -0.8], head: [0, -0.3] },
+];
+const qWalk: Clip = {
+  id: "walk", fps: 7,
+  frames: {
+    side: (QUADRUPED_CLIPS[1].frames as { side: Pose[] }).side.map((p, i) => merge(p, { body: [0, i % 2 ? -0.8 : 0.4], tail: [i % 2 ? -1 : 0, p.tail?.[1] ?? 0] })),
+    down: strideFrames(1),
+    up: strideFrames(-1),
+  },
+};
+export const BEAST_CLIPS: Clip[] = [asBeast(QUADRUPED_CLIPS[0]), qWalk, qAttack, qHurt, qDie];
 
 // ---- undead family (humanoid joints)
-const HJ = ["hip", "chest", "neck", "head", "shoulderL", "elbowL", "handL", "shoulderR", "elbowR", "handR", "kneeL", "footL", "kneeR", "footR"];
+const HJ = ["toolTip", "toolButt", "hip", "chest", "neck", "head", "shoulderL", "elbowL", "handL", "shoulderR", "elbowR", "handR", "kneeL", "footL", "kneeR", "footR"];
 const hp = (v: View3, s: Spec) => pose(v, s, ["shoulderL", "elbowL", "handL", "kneeL", "footL"]);
 const LEGS: [string, string][] = [["footL", "kneeL"], ["footR", "kneeR"]];
 const plantH = (b: V2): Pose => Object.fromEntries(LEGS.flatMap(([f, k]) => [[f, [-b[0], -b[1]]], [k, [-b[0] / 2, -b[1] / 2]]]));

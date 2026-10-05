@@ -19,6 +19,7 @@ import { renderRig } from "../src/core/rig";
 import { CLIPS, rigById } from "../src/core/rigs";
 import { blit, bounds, cloneSprite, createSprite } from "../src/core/sprite";
 import type { Sprite, StyleKit, TileMap } from "../src/core/types";
+import { castLight, grade, mapLitObjects, type TimeOfDay } from "../src/core/lighting";
 import { savePng } from "./sheet";
 
 const COLS = 21, ROWS = 14;
@@ -39,10 +40,10 @@ const cropBox = (s: Sprite, b: { x0: number; y0: number; x1: number; y1: number 
   return o;
 };
 
-export const renderScene = (kit: StyleKit, seed: number): Sprite => renderSceneFrames(kit, seed, 1)[0];
+export const renderScene = (kit: StyleKit, seed: number, time?: TimeOfDay): Sprite => renderSceneFrames(kit, seed, 1, time)[0];
 
 /** n = 1: the still scene. n > 1 (even): a living loop; hero walks the path and back, monsters idle, water flows, trees sway. */
-export function renderSceneFrames(kit: StyleKit, seed: number, n: number): Sprite[] {
+export function renderSceneFrames(kit: StyleKit, seed: number, n: number, time?: TimeOfDay): Sprite[] {
   const gen = (id: string, p: object, s = 1) => {
     const g = GENERATORS.find((x) => x.id === id)!;
     return g.generate({ ...defaults(g), ...p } as never, kit, s);
@@ -150,7 +151,7 @@ export function renderSceneFrames(kit: StyleKit, seed: number, n: number): Sprit
   const reach = (() => { let k = 0; while (k < 7 && walkable({ x: heroAt.x + k + 1, y: heroAt.y })) k++; return k; })();
 
   const compose = (f: number): Sprite => {
-    const world = cloneSprite(groundFrames[f % groundFrames.length]);
+    let world = cloneSprite(groundFrames[f % groundFrames.length]);
     let hpNow = hp;
     if (animated) {
       for (const it of items) if (it.tile) it.sprite = anim!.deco(it.tile.i, it.tile.col, it.tile.row, f);
@@ -167,11 +168,20 @@ export function renderSceneFrames(kit: StyleKit, seed: number, n: number): Sprit
         m.top = c.y - msp.h;
       });
     }
+    // lighting (opt-in): shadows and reflections go under the y-sorted items, the grade over them
+    if (time) world = castLight(world, mapLitObjects(tm), kit, { seed });
     const sorted = [...items].sort((a, b) => a.y + a.sprite.h - (b.y + b.sprite.h) || a.x - b.x);
+    // characters keep their hues under the night grade
+    const keepHue = new Uint8Array(world.w * world.h);
     for (const it of sorted) {
+      for (let y = 0; y < it.sprite.h; y++) for (let x = 0; x < it.sprite.w; x++) {
+        const X = it.x + x, Y = it.y + y;
+        if (it.sprite.data[y * it.sprite.w + x] && X >= 0 && Y >= 0 && X < world.w && Y < world.h) keepHue[Y * world.w + X] = it.shadow ? 1 : 0;
+      }
       if (it.shadow) shadowUnder(world, it.x + it.sprite.w / 2, it.y + it.sprite.h - 1, it.shadow);
       blit(world, it.sprite, it.x, it.y);
     }
+    if (time) world = grade(world, kit, time, [{ x: hpNow.cx + 6, y: hpNow.base - 14, r: 34 }], seed, keepHue);
     // floating text and nameplates are UI: above everything
     const put = (s: Sprite, x: number, y: number) => blit(world, s, Math.round(x), Math.round(y));
     const plate = (m: { cx: number; top: number }, p: object) => { const s = ui("nameplate", p); put(s, m.cx - s.w / 2, m.top - s.h - 1); };
@@ -226,11 +236,12 @@ function fillMinimap(mm: Sprite, r: { x: number; y: number; w: number; h: number
 if (process.argv[1]?.endsWith("mmo-scene.ts")) {
   const args = process.argv.slice(2), gif = args.includes("--gif");
   const [out, kitId, seedArg] = args.filter((x) => x !== "--gif");
+  const time = (process.env.TIME ?? "") as TimeOfDay | "";
   if (gif) {
     // living loop: docs/img/mmo-scene.gif (kit-hd-rich, 16 frames @ 8 fps, 2x pixels, ~1 MB)
     const kit = KIT_PRESETS.find((k) => k.id === (kitId ?? "kit-hd-rich"))!;
     const file = out ?? "docs/img/mmo-scene.gif";
-    const frames = renderSceneFrames(kit, Number(seedArg ?? process.env.SEED ?? 7), Number(process.env.FRAMES ?? 16));
+    const frames = renderSceneFrames(kit, Number(seedArg ?? process.env.SEED ?? 7), Number(process.env.FRAMES ?? 16), time || undefined);
     const bytes = encodeGif(frames, { colors: kitColors(kit), fps: Number(process.env.FPS ?? 8), scale: Number(process.env.GIF_SCALE ?? 2) });
     writeFileSync(file, bytes);
     console.log(`wrote ${file} (${frames.length} frames, ${(bytes.length / 1024).toFixed(0)} KB)`);
@@ -239,7 +250,7 @@ if (process.argv[1]?.endsWith("mmo-scene.ts")) {
     for (const [file, id] of jobs) {
       const kit = KIT_PRESETS.find((k) => k.id === id);
       if (!kit) throw new Error(`unknown kit ${id}`);
-      savePng(file, [[renderScene(kit, Number(seedArg ?? process.env.SEED ?? 7))]], kit, SCALE);
+      savePng(file, [[renderScene(kit, Number(seedArg ?? process.env.SEED ?? 7), time || undefined)]], kit, SCALE);
       console.log(`wrote ${file}`);
     }
   }
