@@ -49,7 +49,7 @@ describe("iso buildings", () => {
       const k = { ...kit, camera: "iso" as const };
       expect(hash(gen("building", { style: "shop" }, k, 3))).toBe(hash(gen("building", { style: "shop" }, k, 3)));
     }
-    expect(gen("building", {}, DEFAULT_KIT).meta).toBeUndefined();
+    expect(gen("building", {}, DEFAULT_KIT).meta).toMatchObject({ door: expect.any(Number) }); // footprint meta only, no iso camera
   });
 });
 
