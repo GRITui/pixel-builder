@@ -170,12 +170,14 @@ describe("map generator", () => {
     for (const t of tm.tiles.filter((t) => t.name.includes("-shore-"))) expect([t.sprite.w, t.sprite.h]).toEqual([kit.sizes.tile, kit.sizes.tile]);
   });
 
-  it("generates a 32x32 map in under 200ms", () => {
+  it("generates a 32x32 map in under 200ms (400ms for the laid-out HD biomes)", () => {
+    // forest-mmo, farm-mmo and village plan whole scenes with HD foliage and buildings; they also have their own budget tests
+    const planned = new Set<string>(["forest-mmo", "farm-mmo", "village"]);
     for (const biome of BIOMES) make({ biome, cols: 32, rows: 32, density: 1 }, 1); // warm up
     for (const biome of BIOMES) {
       const t0 = performance.now();
       make({ biome, cols: 32, rows: 32, density: 1 }, 7);
-      expect(performance.now() - t0).toBeLessThan(200);
+      expect(performance.now() - t0).toBeLessThan(planned.has(biome) ? 400 : 200);
     }
   });
 

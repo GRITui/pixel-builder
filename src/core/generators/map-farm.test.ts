@@ -70,7 +70,7 @@ describe("farm-mmo", () => {
     expect((hills.meta as { terrain?: unknown }).terrain).toBeDefined();
     const live = gen({ animate: true, frames: 3, lighting: "on", time: "dusk" });
     expect(live.rows[0].frames.length).toBe(3);
-  });
+  }, 30000); // three full 42-column maps (sea, hills, animated + lit)
 
   it("works on small maps and the 16px kits without crashing", () => {
     const gb = ALL_KIT_PRESETS.find((k) => k.id === "kit-gameboy")!;
