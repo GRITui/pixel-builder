@@ -1,0 +1,106 @@
+{
+ "model": "hand-written-sloppy",
+ "tasks": [
+  {
+   "id": "forest-pack",
+   "messages": [
+    {
+     "role": "assistant",
+     "content": "Making a tree.",
+     "tool_calls": [
+      {
+       "id": "c24",
+       "type": "function",
+       "function": {
+        "name": "generate_asset",
+        "arguments": "{\"generator\":\"environment\",\"params\":{\"kind\":\"tree\"},\"name\":\"tree\"}"
+       }
+      }
+     ]
+    },
+    {
+     "role": "assistant",
+     "content": null,
+     "tool_calls": [
+      {
+       "id": "c25",
+       "type": "function",
+       "function": {
+        "name": "generate_asset",
+        "arguments": "{\"generator\":\"environment\",\"params\":{\"kind\":\"oak\"},\"name\":\"oak-tree\",\"seed\":11}"
+       }
+      }
+     ]
+    },
+    {
+     "role": "assistant",
+     "content": null,
+     "tool_calls": [
+      {
+       "id": "c26",
+       "type": "function",
+       "function": {
+        "name": "generate_asset",
+        "arguments": "{\"generator\":\"environment\",\"params\":{\"kind\":\"bush\"},\"name\":\"bush\",\"seed\":13}"
+       }
+      }
+     ]
+    },
+    {
+     "role": "assistant",
+     "content": "Here is your forest pack: a tree and a bush."
+    }
+   ]
+  },
+  {
+   "id": "ui-kit",
+   "messages": [
+    {
+     "role": "assistant",
+     "content": "<tool_call>{\"name\": \"generate_asset\", \"arguments\": {\"generator\": \"ui\", \"params\": {\"kind\": \"button\"}}}</tool_call>"
+    },
+    {
+     "role": "assistant",
+     "content": null,
+     "tool_calls": [
+      {
+       "id": "c27",
+       "type": "function",
+       "function": {
+        "name": "generate_asset",
+        "arguments": "{\"generator\":\"ui\",\"params\":{\"kind\":\"button\"},\"name\":\"ui-button\",\"seed\":31}"
+       }
+      }
+     ]
+    },
+    {
+     "role": "assistant",
+     "content": "The button is done."
+    }
+   ]
+  },
+  {
+   "id": "paint-sign",
+   "messages": [
+    {
+     "role": "assistant",
+     "content": null,
+     "tool_calls": [
+      {
+       "id": "c28",
+       "type": "function",
+       "function": {
+        "name": "paint_asset",
+        "arguments": "{\"name\":\"bakery-sign\",\"category\":\"object\",\"width\":16,\"height\":16,\"frames\":[[\"!!!!\",\"????\"]],\"outline\":true}"
+       }
+      }
+     ]
+    },
+    {
+     "role": "assistant",
+     "content": "I could not paint the sign."
+    }
+   ]
+  }
+ ]
+}
