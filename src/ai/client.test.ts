@@ -9,6 +9,20 @@ const mockFetch = (fn: (url: string, init?: RequestInit) => Response | Promise<R
 
 afterEach(() => vi.unstubAllGlobals());
 
+describe("reference inputs", () => {
+  it("passes images, reference ids and analysis through to the kit endpoint", async () => {
+    let sent: Record<string, unknown> = {};
+    mockFetch((_u, init) => {
+      sent = JSON.parse(String(init?.body));
+      return json({ kit: {}, notes: "" });
+    });
+    await vibeKit({ prompt: "x", kit: DEFAULT_KIT, images: ["data:image/png;base64,AAAA"], referenceIds: ["r1"], project: "p", analysis: { a: 1 } });
+    expect(sent).toMatchObject({ images: ["data:image/png;base64,AAAA"], reference_ids: ["r1"], project: "p", analysis: { a: 1 } });
+    await vibeKit({ prompt: "x", kit: DEFAULT_KIT });
+    expect(sent).not.toHaveProperty("images");
+  });
+});
+
 describe("ai client", () => {
   it("aiStatus never throws", async () => {
     mockFetch(() => {

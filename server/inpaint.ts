@@ -3,6 +3,7 @@
 // for the mask's bounding box (structured output). One repair round on bad
 // chars/sizes, then an error. The client applies the rows with applyRegionEdit.
 import { callStructured, type StructuredCall } from "./claude";
+import { collectImages, withReferenceRule } from "./images";
 import { HttpError, LIGHT_TEXT, OUTLINE_TEXT, normalizeKit, requirePrompt, type JsonSchema } from "./prompts";
 import { cellsMask, checkRegionRows, maskBounds, rectMask, type Mask, type Rect } from "../src/core/inpaint";
 import { buildLegend, legendText, type Legend } from "../src/core/legend";
@@ -102,11 +103,14 @@ export type ModelCall = (c: StructuredCall) => Promise<unknown>;
 
 export async function inpaint(body: Record<string, unknown>, signal: AbortSignal, call: ModelCall = callStructured) {
   const req = normalizeInpaint(body);
+  const images = await collectImages(body);
   const legend = buildLegend(req.kit);
   let repair: { previous: unknown; errors: string[] } | undefined;
   for (let attempt = 0; attempt < 2; attempt++) {
-    const { system, user, schema } = buildInpaintPrompt(req, legend, repair);
-    const raw = await call({ system, user, schema, effort: "medium", maxTokens: 8000, signal });
+    const p = buildInpaintPrompt(req, legend, repair);
+    const { user, schema } = p;
+    const system = withReferenceRule(p.system, images);
+    const raw = await call({ system, user, images, schema, effort: "medium", maxTokens: 8000, signal });
     const rows = isObj(raw) ? raw.rows : undefined;
     const errors = checkRegionRows(rows, req.bbox, legend, req.mask, req.w);
     if (!errors.length) return { rect: req.bbox, rows: rows as string[] };

@@ -2,6 +2,7 @@
 // error mapping. The API key never leaves the server.
 import Anthropic from "@anthropic-ai/sdk";
 import { HttpError, type JsonSchema } from "./prompts";
+import { checkImageCaps, type ImageInput } from "./images";
 
 export const DEFAULT_MODEL = "claude-opus-5-5";
 export const getModel = () => process.env.PIXEL_MODEL || DEFAULT_MODEL;
@@ -13,6 +14,8 @@ const getClient = () => (client ??= new Anthropic());
 export interface StructuredCall {
   system: string;
   user: string;
+  /** Reference images, sent as image blocks before the text. */
+  images?: ImageInput[];
   schema: JsonSchema;
   effort: "low" | "medium" | "high";
   maxTokens?: number;
@@ -37,6 +40,16 @@ export function mapError(e: unknown): HttpError {
   return new HttpError(500, "Unexpected server error.");
 }
 
+/** User message content: image blocks first, then the text. */
+export function buildUserContent(user: string, images?: ImageInput[]) {
+  if (!images?.length) return user;
+  checkImageCaps(images);
+  return [
+    ...images.map((i) => ({ type: "image" as const, source: { type: "base64" as const, media_type: i.media_type, data: i.data } })),
+    { type: "text" as const, text: user },
+  ];
+}
+
 /** Run one structured-output request and return the parsed JSON (untrusted). */
 export async function callStructured(c: StructuredCall): Promise<unknown> {
   if (!hasKey()) throw new HttpError(503, "AI is disabled: ANTHROPIC_API_KEY is not set on the server.");
@@ -47,7 +60,7 @@ export async function callStructured(c: StructuredCall): Promise<unknown> {
     fallbacks: "default" as const,
     output_config: { format: { type: "json_schema" as const, schema: c.schema }, effort: c.effort },
     system: c.system,
-    messages: [{ role: "user" as const, content: c.user }],
+    messages: [{ role: "user" as const, content: buildUserContent(c.user, c.images) }],
   };
   try {
     const msg = c.stream

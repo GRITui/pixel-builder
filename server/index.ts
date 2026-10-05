@@ -9,6 +9,7 @@ import { callStructured, getModel, hasKey } from "./claude";
 import { buildLegend, decodeRows } from "../src/core/legend";
 import { inpaint } from "./inpaint";
 import { clipRoute } from "./clip";
+import { collectImages, withReferenceRule } from "./images";
 import { rigRoute } from "./rig";
 import * as P from "./prompts";
 import { createAuth, isOpenPath } from "./auth";
@@ -21,7 +22,7 @@ try {
   /* no .env file */
 }
 
-const MAX_BODY = 1024 * 1024; // 1 MB
+const MAX_BODY = 10 * 1024 * 1024; // 10 MB (reference images arrive base64-encoded)
 const DIST = fileURLToPath(new URL("../dist", import.meta.url));
 
 function send(res: ServerResponse, status: number, body: unknown) {
@@ -32,7 +33,7 @@ function send(res: ServerResponse, status: number, body: unknown) {
 
 async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
   const declared = Number(req.headers["content-length"] ?? 0);
-  if (declared > MAX_BODY) throw new P.HttpError(413, "Request body too large (max 1 MB).");
+  if (declared > MAX_BODY) throw new P.HttpError(413, "Request body too large (max 10 MB).");
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of req) {
@@ -59,8 +60,11 @@ async function vibe(body: Record<string, unknown>, signal: AbortSignal) {
   const generator = P.normalizeGenerator(body.generator);
   if (!generator.params.length) throw new P.HttpError(400, "`generator.params` must list at least one parameter.");
   const kit = P.normalizeKit(body.kit);
-  const { system, user, schema } = P.buildVibePrompt({ prompt, generator, kit, current: P.normalizeCurrent(body.current) });
-  const raw = await callStructured({ system, user, schema, effort: "low", maxTokens: 4000, signal });
+  const images = await collectImages(body);
+  const p = P.buildVibePrompt({ prompt, generator, kit, current: P.normalizeCurrent(body.current) });
+  const { user, schema } = p;
+  const system = withReferenceRule(p.system, images);
+  const raw = await callStructured({ system, user, images, schema, effort: "low", maxTokens: 4000, signal });
   return P.parseVibe(raw, generator);
 }
 
@@ -72,8 +76,11 @@ async function pixels(body: Record<string, unknown>, signal: AbortSignal) {
   const w = P.clampDim(body.w, fallback);
   const h = P.clampDim(body.h, fallback);
   const references = P.normalizeReferences(body.references);
-  const { system, user, schema } = P.buildPixelsPrompt({ prompt, category, w, h, kit, references });
-  const raw = (await callStructured({ system, user, schema, effort: "high", maxTokens: 32000, stream: true, signal })) as Record<string, unknown> | null;
+  const images = await collectImages(body);
+  const p = P.buildPixelsPrompt({ prompt, category, w, h, kit, references });
+  const { user, schema } = p;
+  const system = withReferenceRule(p.system, images);
+  const raw = (await callStructured({ system, user, images, schema, effort: "high", maxTokens: 32000, stream: true, signal })) as Record<string, unknown> | null;
   const sprite = decodeRows(Array.isArray(raw?.rows) ? (raw.rows as string[]) : [], w, h, buildLegend(kit));
   if (!sprite.data.some((v) => v > 0)) throw new P.HttpError(502, "The model returned an empty image. Try again.");
   return { name: P.cleanText(raw?.name, 60) || "AI sprite", sprite };
@@ -82,8 +89,12 @@ async function pixels(body: Record<string, unknown>, signal: AbortSignal) {
 async function kitRoute(body: Record<string, unknown>, signal: AbortSignal) {
   const prompt = P.requirePrompt(body.prompt);
   const kit = P.normalizeKit(body.kit);
-  const { system, user, schema } = P.buildKitPrompt({ prompt, kit });
-  const raw = await callStructured({ system, user, schema, effort: "low", maxTokens: 4000, signal });
+  const images = await collectImages(body);
+  const p = P.buildKitPrompt({ prompt, kit });
+  const { schema } = p;
+  const system = withReferenceRule(p.system, images);
+  const user = P.withAnalysis(p.user, body.analysis);
+  const raw = await callStructured({ system, user, images, schema, effort: "low", maxTokens: 4000, signal });
   return P.parseKit(raw);
 }
 
