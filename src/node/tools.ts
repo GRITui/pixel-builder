@@ -3,7 +3,7 @@
 // (mcp.ts) and the CLI (cli.ts) are thin adapters over TOOLS, so tool names and
 // input fields are identical in both.
 import { fitRigToWorld } from "../core/rigs/fit";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { z } from "zod";
 import { createAsset } from "../core/asset";
@@ -19,8 +19,9 @@ import { rigSvgInfo, svgToSprites } from "../core/svg";
 import { renderRig, renderRigFrame, validateRig, type Attachment, type Clip, type RigDef, type RigRecipe } from "../core/rig";
 import { ATTACHMENTS, CLIPS, RIGS, withHumanoidDefaults } from "../core/rigs";
 import { randomSeed, rng } from "../core/rng";
-import { CATEGORIES, type Asset, type Category, type Sprite, type StyleKit } from "../core/types";
+import { CATEGORIES, type Asset, type Category, type Reference, type Sprite, type StyleKit } from "../core/types";
 import { decodePng, contactSheet, encodePng, previewScale, sheetImage, spriteImage, type RgbaImage } from "./png";
+import { decodeBase64Image, fetchImage, findReference, referenceFile, referencePreviewPng, removeReferenceFile, safeInputPath, storeReference } from "./refs";
 import { isRigged, packById, PACKS, type PackEntry } from "./packs";
 import {
   ToolError, Workspace, assetFiles, exportAsset as exportAssetRaw, findAsset, getKit, isAnimated, kitOf, removeAssetFiles,
@@ -1454,9 +1455,101 @@ const generatePack = defineTool({
   },
 });
 
+// ---------- reference library ----------
+
+const refSummary = (r: Reference) => ({ id: r.id, name: r.name, tags: r.tags, width: r.width, height: r.height, source: r.source });
+
+const addReference = defineTool({
+  name: "add_reference",
+  title: "Add reference image",
+  description:
+    "Add a reference image (mood board / style target) to the project's reference library. Give exactly one of path (PNG/JPEG file), url (http/https, max 10 MB, 15 s) or base64 (PNG/JPEG, optionally a data: URI). Max 4096px per side; WebP/GIF only work in the web app. The full PNG is saved to <workspace>/references/<id>.png and a <=512px preview syncs with the project. Look at it with get_reference.",
+  shape: {
+    path: z.string().optional().describe("Path to a .png/.jpg/.jpeg file (relative to the current directory; '..' segments are rejected)."),
+    url: z.string().optional().describe("http(s) URL of a PNG or JPEG."),
+    base64: z.string().optional().describe("Base64 of a PNG or JPEG (data: URIs accepted)."),
+    name: z.string().min(1).max(80).optional().describe("Default: the file/URL name."),
+    tags: z.array(z.string().min(1).max(40)).max(20).default([]).describe("Free tags, e.g. ['palette','character','mood']."),
+  },
+  positional: "path",
+  async: true,
+  async run(ws, i) {
+    const given = [i.path, i.url, i.base64].filter((x) => x !== undefined).length;
+    if (given !== 1) throw new ToolError("Give exactly one of path, url or base64.");
+    let buf: Buffer, source: Reference["source"], stem: string;
+    if (i.path !== undefined) {
+      const file = safeInputPath(i.path);
+      try {
+        buf = readFileSync(file);
+      } catch (e) {
+        throw new ToolError(`Cannot read '${file}': ${(e as Error).message}`);
+      }
+      source = { kind: "path", value: i.path };
+      stem = file.split(/[\\/]/).pop()!.replace(/\.[^.]+$/, "");
+    } else if (i.url !== undefined) {
+      buf = await fetchImage(i.url);
+      source = { kind: "url", value: i.url };
+      stem = (new URL(i.url).pathname.split("/").pop() || "reference").replace(/\.[^.]+$/, "");
+    } else {
+      buf = decodeBase64Image(i.base64!);
+      source = { kind: "paste", value: "" };
+      stem = "reference";
+    }
+    const project = ws.load();
+    const ref = storeReference(ws, project, buf, { name: i.name ?? (stem || "reference"), tags: i.tags, source });
+    ws.save(project);
+    return { data: { reference: refSummary(ref), file: ws.rel(referenceFile(ws, ref.id)) }, images: [{ png: referencePreviewPng(ref), label: ref.id }] };
+  },
+});
+
+const listReferences = defineTool({
+  name: "list_references",
+  title: "List reference images",
+  description: "List the project's reference images (id, name, tags, size, source). Optionally filter by tag.",
+  shape: { tag: z.string().optional().describe("Only references with this tag.") },
+  positional: "tag",
+  readOnly: true,
+  run(ws, i) {
+    const refs = (ws.load().references ?? []).filter((r) => !i.tag || r.tags.includes(i.tag));
+    return { data: { count: refs.length, references: refs.map(refSummary) } };
+  },
+});
+
+const getReference = defineTool({
+  name: "get_reference",
+  title: "Get reference image",
+  description: "Show one reference image (returns the <=512px preview as an image) with its metadata and file path.",
+  shape: { id: z.string().describe("Reference id (or exact name).") },
+  positional: "id",
+  readOnly: true,
+  run(ws, i) {
+    const ref = findReference(ws.load(), i.id);
+    const file = referenceFile(ws, ref.id);
+    return { data: { ...refSummary(ref), createdAt: ref.createdAt, file: existsSync(file) ? ws.rel(file) : null }, images: [{ png: referencePreviewPng(ref), label: ref.id }] };
+  },
+});
+
+const deleteReference = defineTool({
+  name: "delete_reference",
+  title: "Delete reference image",
+  description: "Remove a reference image from the project and delete its stored file.",
+  shape: { id: z.string().describe("Reference id (or exact name).") },
+  positional: "id",
+  destructive: true,
+  run(ws, i) {
+    const project = ws.load();
+    const ref = findReference(project, i.id);
+    removeReferenceFile(ws, ref.id);
+    project.references = (project.references ?? []).filter((r) => r.id !== ref.id);
+    ws.save(project);
+    return { data: { ok: true, deleted: { id: ref.id, name: ref.name } } };
+  },
+});
+
 export const TOOLS: ToolDef[] = [
   getStyleGuide, listGenerators, generateAsset, generateVariations, paintAsset, editAsset, editRegion, listAssets, getAsset,
   deleteAsset, exportAssetTool, importImage, listKits, createKit, updateKit, setActiveKit, rerenderAssets,
   listRigs, listClips, listAttachments, generateRigged, attach, createRig, createClip, createAttachment,
   generatePack, importSvg,
+  addReference, listReferences, getReference, deleteReference,
 ];

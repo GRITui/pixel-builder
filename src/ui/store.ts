@@ -2,9 +2,9 @@
 // Every storage access is wrapped in try/catch and tolerates missing / corrupt data.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DEFAULT_KIT, forkKit, newId } from "../core/kit";
-import { emptyProject, mergeProjects, PROJECT_FORMAT, PROJECT_VERSION, type ProjectFile } from "../core/project";
+import { emptyProject, isReference, mergeProjects, PROJECT_FORMAT, PROJECT_VERSION, type ProjectFile } from "../core/project";
 import type { Attachment, Clip, RigDef } from "../core/rig";
-import type { Asset, Sprite, StyleKit } from "../core/types";
+import type { Asset, Reference, Sprite, StyleKit } from "../core/types";
 
 const PREFIX = "pixel-builder:v1:";
 export const STORAGE_ERROR_EVENT = "pixel-builder:storage-error";
@@ -177,6 +177,11 @@ export interface ProjectApi {
   addClip: (c: Clip) => void;
   /** Store an AI-authored rig, attachments and clips on the project (same id replaces). */
   addAuthored: (a: { rig?: RigDef; attachments?: Attachment[]; clips?: Clip[] }) => void;
+  /** Reference images (ProjectFile.references). */
+  references: Reference[];
+  addReference: (r: Reference) => void;
+  updateReference: (id: string, patch: Partial<Pick<Reference, "name" | "tags">>) => void;
+  removeReference: (id: string) => void;
   replaceProject: (p: ProjectFile) => void;
   mergeProject: (p: ProjectFile) => void;
 }
@@ -193,6 +198,7 @@ function revive(raw: any): ProjectFile | undefined {
   if (Array.isArray(raw.clips)) extra.clips = raw.clips.filter((c: any) => c && typeof c.id === "string" && Number.isFinite(c.fps) && c.frames);
   if (Array.isArray(raw.rigs)) extra.rigs = raw.rigs;
   if (Array.isArray(raw.attachments)) extra.attachments = raw.attachments;
+  if (Array.isArray(raw.references)) extra.references = raw.references.filter(isReference);
   return out;
 }
 
@@ -275,6 +281,10 @@ export function useProject(): ProjectApi {
     customAttachments,
     addClip,
     addAuthored,
+    references: project.references ?? [],
+    addReference: (r) => setProject((p) => ({ ...p, references: [...(p.references ?? []).filter((x) => x.id !== r.id), r] })),
+    updateReference: (id, patch) => setProject((p) => ({ ...p, references: (p.references ?? []).map((x) => (x.id === id ? { ...x, ...patch } : x)) })),
+    removeReference: (id) => setProject((p) => ({ ...p, references: (p.references ?? []).filter((x) => x.id !== id) })),
     replaceProject: setProject,
     mergeProject: (incoming) => setProject((p) => mergeProjects(p, incoming)),
   };

@@ -99,3 +99,20 @@ export interface TileMap {
 }
 
 export type MaterialMap = Partial<Record<string, Material>>;
+
+/** A reference image (mood board entry). The inline `preview` (base64 PNG, longest side <= 512) syncs with the project; the full image lives in `references/<slug>.png` in a local workspace. */
+export interface Reference {
+  id: string;
+  name: string;
+  tags: string[];
+  source: { kind: "path" | "url" | "paste"; value: string };
+  /** Dimensions of the original image. */
+  width: number;
+  height: number;
+  /** Base64 PNG, longest side <= REFERENCE_PREVIEW_MAX. */
+  preview: string;
+  createdAt: number;
+}
+
+export const REFERENCE_PREVIEW_MAX = 512;
+export const REFERENCE_MAX_DIM = 4096;
