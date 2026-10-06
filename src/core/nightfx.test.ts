@@ -53,7 +53,6 @@ describe("night fx ramps and rich grade", () => {
     const kit = kitOf("kit-hd-rich");
     const { img, tm } = build(kit);
     const flat = flattenPaletteFx(resolveRamps(kit));
-    const classic = lightMap(img, tm, kit, { time: "night", seed: 3 });
     const rich = lightMap(img, tm, kit, { time: "night", seed: 3, fx: "rich" });
     expect(lightMap(img, tm, kit, { time: "night", seed: 3, fx: "rich" }).data).toEqual(rich.data);
     const r = stats(rich, flat);
