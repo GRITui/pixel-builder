@@ -377,6 +377,28 @@ Cline also reads a root `AGENTS.md` (reported).
 
 **Check:** the server shows a green dot in the MCP Servers panel and lists its tools.
 
+### Cline CLI (`npm i -g cline`) (**verified**: run with Cline CLI 3.0.68)
+
+```bash
+cline mcp add pixel-builder --yes -- node <ABS>/node_modules/tsx/dist/cli.mjs <ABS>/src/node/cli.ts mcp --tools core --workspace <GAME>/pixel-assets
+cline auth -p openai -b <base-url> -k <key> -m <model>   # any OpenAI-compatible endpoint, e.g. a free OpenRouter model
+cd <GAME> && cline "Make an oak tree and a chest for my RPG using pixel-builder."
+```
+
+`cline mcp add` writes `~/.cline/data/settings/cline_mcp_settings.json` as
+`{"mcpServers": {"pixel-builder": {"transport": {"type": "stdio", "command": ..., "args": [...]}}}}`;
+the CLI also accepts the flat `command`/`args`/`env` form above (both checked).
+Tools appear to the model as `pixel-builder__<tool>` next to about 25 of Cline's own
+tools, so keep `--tools core` for small and free models. `cline --json` prints the run
+as JSON lines; `-t <seconds>` sets a timeout.
+
+What was tested: Cline CLI ran against a scripted local OpenAI-compatible endpoint
+(no real model was reachable from the test machine). It listed the 12 core tools,
+called `get_style_guide`, then `generate_asset` with deliberately sloppy arguments
+(`"Environment"`, `seed: "42"`, params as a JSON string, `"OAK"`), and the PNGs landed
+in the workspace. This proves the wiring, not a model's judgement; for that, run the
+prompts in [`agent-testing.md`](agent-testing.md) with a real model.
+
 ## 10. Zed
 
 Docs: <https://github.com/zed-industries/zed/blob/main/docs/src/ai/mcp.md> (**verified**)

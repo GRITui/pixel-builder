@@ -50,6 +50,20 @@ set `AI_PROVIDER=openai`, `OPENAI_BASE_URL=https://dashscope-intl.aliyuncs.com/c
 `AI_MODEL=qwen-max` and `AI_VISION_MODEL=qwen-vl-max` in `.env`, then `npm run dev`. The AI pill in the top bar shows the provider and model it is using.
 Full details and the Ollama variant: [`deploy.md`](deploy.md#ai-provider).
 
+## Test with a free model through Cline CLI
+
+Same idea as the Qwen test, with any free OpenAI-compatible model (for example an
+OpenRouter model whose id ends in `:free`, which needs a free OpenRouter account key).
+
+1. `npm install -g cline`
+2. `cline mcp add pixel-builder --yes -- node "$PWD/node_modules/tsx/dist/cli.mjs" "$PWD/src/node/cli.ts" mcp --tools core --workspace "$PWD/pixel-assets"`
+3. `cline auth -p openai -b https://openrouter.ai/api/v1 -k <your OpenRouter key> -m <model id>`
+   (pick a free model that lists **tools** support; models without tool calling only write the call as text)
+4. Run the 5 prompts from the Qwen test, one per run: `cline "Make a starter forest pack: ..."`
+5. Score it: `OPENAI_BASE_URL=https://openrouter.ai/api/v1 OPENAI_API_KEY=<key> npx tsx bench/agents/run.ts --model <model id> --tools core`
+
+Report back the same way as the Qwen test.
+
 ## Run the eval with Qwen
 
 `bench/agents/run.ts` measures whether a model can drive pixel-builder: it gives
