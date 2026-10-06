@@ -21,8 +21,8 @@ interface KindSpec { color: V3; reach: number; gain: number; ground: boolean; em
 /** Colour (linear), glow radius as a multiple of `r`, intensity, whether it pools on the ground, self-illum radius. */
 const KINDS: Record<LightKind, KindSpec> = {
   point: { color: srgbLin(1, 0.85, 0.6), reach: 2, gain: 2.6, ground: false, emit: 0 },
-  lamp: { color: srgbLin(0.85, 0.92, 1), reach: 2, gain: 1.7, ground: true, emit: 2.6 },
-  window: { color: srgbLin(1, 0.76, 0.4), reach: 1.5, gain: 1.5, ground: false, emit: 0 },
+  lamp: { color: srgbLin(0.8, 0.88, 1), reach: 1.7, gain: 1.15, ground: true, emit: 2.6 },
+  window: { color: srgbLin(1, 0.76, 0.4), reach: 1, gain: 1.5, ground: false, emit: 0 },
   lantern: { color: srgbLin(1, 0.33, 0.18), reach: 2, gain: 2, ground: true, emit: 2.4 },
   vending: { color: srgbLin(0.6, 0.9, 1), reach: 2.3, gain: 2.6, ground: true, emit: 0 },
   fire: { color: srgbLin(1, 0.5, 0.14), reach: 2, gain: 2.2, ground: true, emit: 3 },
@@ -32,7 +32,7 @@ const KINDS: Record<LightKind, KindSpec> = {
 
 interface Ambient { mul: V3; floor: V3; desat: number; lights: number }
 const AMBIENT: Partial<Record<TimeOfDay, Ambient>> = {
-  night: { mul: [0.1, 0.12, 0.24], floor: [0.002, 0.004, 0.012], desat: 0.08, lights: 1 },
+  night: { mul: [0.08, 0.11, 0.24], floor: [0.002, 0.004, 0.012], desat: 0.08, lights: 1 },
   dusk: { mul: [0.46, 0.34, 0.52], floor: [0.004, 0.003, 0.008], desat: 0.1, lights: 0.55 },
   dawn: { mul: [0.55, 0.5, 0.66], floor: [0.006, 0.005, 0.01], desat: 0.1, lights: 0.3 },
 };
@@ -180,11 +180,14 @@ export function lightScene(img: Sprite, objects: LitObject[], kit: StyleKit, opt
     if (d) { ground[i] = GROUND.has(d.mat) ? 1 : 0; lvl[i] = d.level; ink[i] = d.mat === "ink" ? 1 : 0; }
     else lvl[i] = 3;
     const y = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+    // greens sink to deep blue-green so the lights carry the scene
+    const green = d && (d.mat === "grass" || d.mat === "foliage") && opts.time === "night";
+    const dim = green ? 0.85 : 1, ds = green ? amb.desat + 0.12 : amb.desat;
     for (let k = 0; k < 3; k++) {
       // mild desaturation so very saturated materials do not scream at night, hue identity survives
-      const a = c[k] + (y - c[k]) * amb.desat;
-      alb[i * 3 + k] = a;
-      buf[i * 3 + k] = a * amb.mul[k] + amb.floor[k];
+      const a = c[k] + (y - c[k]) * ds;
+      alb[i * 3 + k] = c[k] + (y - c[k]) * 0.25;
+      buf[i * 3 + k] = a * amb.mul[k] * dim + amb.floor[k];
     }
   }
 
@@ -206,16 +209,19 @@ export function lightScene(img: Sprite, objects: LitObject[], kit: StyleKit, opt
         let d: number;
         const onGround = ground[i] === 1 && y >= l.y + 2;
         // pools are flattened ellipses centred between the lamp head and its foot; one shape for ground and walls
+        let Re = R;
         if (spec.ground) d = Math.hypot(x - l.x, (y - (l.y + gy) / 2) * 1.5);
+        else if (area && onGround) { d = Math.hypot(x - l.x, (y - (l.base + 2)) * 2.2); Re = Math.max(10, (l.r ?? 8) * 2.4); }
         else if (area) d = Math.hypot(Math.max(0, Math.abs(x - l.x) - hw), Math.max(0, Math.abs(y - l.y) - hh) * (y > l.y ? 1.3 : 2.2));
         else d = Math.hypot(x - l.x, (y - l.y) * 1.2);
-        const f = band(Math.pow(falloff(d / R), 1.25), STEPS);
+        // the outer band is cut so the pool fades into the ambient instead of ending in a ring
+        const f = band(Math.max(0, Math.pow(falloff(d / Re), 1.25) - 0.14) / 0.86, STEPS);
         if (f <= 0) continue;
         // cheap normal: surfaces that are lighter on their ramp face up; light from above favours them
         const up = lvl[i] / 4, above = y > l.y;
         const facing = onGround ? 1 : above ? 0.62 + 0.38 * up : 0.62 + 0.38 * (1 - up);
         const k = f * facing * gain * (ink[i] ? 0.5 : 1);
-        for (let c = 0; c < 3; c++) buf[i * 3 + c] += (alb[i * 3 + c] * 0.85 + 0.035) * color[c] * k;
+        for (let c = 0; c < 3; c++) buf[i * 3 + c] += (alb[i * 3 + c] * 0.8 + 0.03) * color[c] * k;
         lit[i] += f;
       }
     // self-illumination: the lamp head / lantern / pane glows in its own colour
@@ -244,7 +250,7 @@ export function lightScene(img: Sprite, objects: LitObject[], kit: StyleKit, opt
   // wet ground: long vertical streaks of every light, strongest in puddles
   const f = opts.field;
   if (f) {
-    const streakLen = Math.round(tile * 3.5);
+    const streakLen = Math.round(tile * 4);
     for (const l of lights) {
       const spec = KINDS[l.kind];
       if (l.kind === "moon") continue;
@@ -252,27 +258,27 @@ export function lightScene(img: Sprite, objects: LitObject[], kit: StyleKit, opt
       const gain = (l.intensity ?? 1) * amb.lights;
       const drop = Math.min(10, Math.max(0, l.base - l.y) * 0.3);
       const y0 = Math.round(l.base + 1 + drop), ph = hash(Math.round(l.x), Math.round(l.y), seed) * 6.28;
-      const wide = (l.r ?? 8) >= 10 ? 2 : 1;
-      for (let t = 0; t < streakLen; t++) {
+      const ripple = Math.round(ph * 3);
+      for (let t = 0; t < streakLen * 1.4; t++) {
         const y = y0 + t;
         if (y >= h) break;
         const fade = band(Math.exp(-t / (streakLen * 0.5)), 5);
-        const cx = l.x + Math.sin(t * 0.8 + ph) * (0.5 + t / 9);
-        const spread = wide + t / 10;
-        for (let x = Math.floor(cx - spread - 1); x <= Math.ceil(cx + spread + 1); x++) {
+        // +-1 px jitter that changes every few rows, never a wave
+        const jit = Math.round(hash(Math.floor((t + ripple) / 4), Math.round(l.x), seed + 3) * 2 - 1);
+        const cx = Math.round(l.x) + jit;
+        const width = t < streakLen * 0.35 && (l.r ?? 8) >= 10 ? 2 : 1;
+        for (let x = cx; x < cx + width; x++) {
           if (x < 0 || x >= w) continue;
           const i = y * w + x;
           if (!f.wet[i]) continue;
           const inP = f.puddle[i] > 0;
-          const dx = Math.abs(x - cx);
-          if (dx > spread) continue;
-          // horizontal dashes with ripple gaps; the centre column stays most continuous
-          const gap = inP ? (t + Math.round(ph)) % 7 === 6 : (t + Math.round(ph)) % 3 === 2;
-          const edge = dx > spread * 0.55 && (x + t * 2) % 3 === 0;
-          if (gap || edge) continue;
-          const s = fade * gain * (inP ? 1.15 : 0.55) * (1 - dx / (spread + 1) * 0.5);
-          if (s < 0.1) continue;
-          for (let c = 0; c < 3; c++) buf[i * 3 + c] += color[c] * s * 0.9;
+          if (!inP && t > streakLen) continue;
+          // dashes of 1-3 px with a 1 px gap
+          const seg = Math.floor((t + ripple) / 4), dash = 1 + Math.floor(hash(seg, Math.round(l.x), seed + 5) * 3);
+          if ((t + ripple) % 4 >= dash + (inP ? 0 : 0)) continue;
+          const sv = fade * gain * (inP ? 1.4 : 0.9);
+          if (sv < 0.12) continue;
+          for (let c = 0; c < 3; c++) buf[i * 3 + c] += color[c] * sv * 1.3;
           lit[i] += 0.5;
         }
       }
