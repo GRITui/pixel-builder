@@ -19,6 +19,7 @@ import { blit, bounds, cloneSprite, createSprite } from "../src/core/sprite";
 import { renderTileMap } from "../src/core/tilemap";
 import { addRain, mapAnimator, renderMapFrames } from "../src/core/mapanim";
 import { castLight, findLights, grade, mapLitObjects, type GradeFx, type TimeOfDay } from "../src/core/lighting";
+import { lightScene } from "../src/core/lightbuf";
 import { wetField, wetGlow, wetGround, type Wet } from "../src/core/wet";
 import { encodeGif } from "../src/node/gif";
 import { kitColorsFx as kitColors } from "../src/node/png";
@@ -135,9 +136,10 @@ export function renderSceneFrames(kit: StyleKit, seed: number, n: number, time?:
     }
     if (time) {
       const carried = crew.map((c) => ({ x: c.item.x + c.item.sprite.w / 2, y: c.item.y + c.item.sprite.h * 0.6, r: 22 }));
-      world = grade(world, kit, time, findLights(mapLitObjects(tm), carried), seed, keepHue, fx);
+      if (fx === "rich") world = lightScene(world, mapLitObjects(tm), kit, { time, lights: carried.map((c) => ({ ...c, kind: "point" as const, intensity: 0.7 })), seed, field });
+      else world = grade(world, kit, time, findLights(mapLitObjects(tm), carried), seed, keepHue, fx);
     }
-    if (field) world = wetGlow(world, field, time ?? "day");
+    if (field && !(fx === "rich" && time && time !== "day")) world = wetGlow(world, field, time ?? "day");
     return world;
   };
   const out = Array.from({ length: animated ? n : 1 }, (_, f) => compose(f));
