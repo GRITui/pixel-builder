@@ -162,9 +162,9 @@ export function urbanBuilding(kit: StyleKit, p: Partial<UrbanBuildingOpts> | Par
     }
     fix(f, a - 0.4, a + 0.6, z, z + h, trim, 2); // mullion
     if (sill) lit_(f, a - w / 2 - 1.5, a + w / 2 + 1.5, z - 2, z - 1, "stone", 1);
-    if (state === "warm" || (state === "tv" && (a | 0) % 2 === 0)) { const c = scr(f, a, z + h / 2); pushLight(c, state === "tv" ? 8 : 9, "window", state === "tv" ? "cloth" : "gold"); }
+    if (state === "warm" || (state === "tv" && (a | 0) % 2 === 0)) { const c = scr(f, a, z + h / 2); pushLight(c, 4, "window", state === "tv" ? "cloth" : "gold"); }
   };
-  const pickState = (): "warm" | "tv" | "dim" | "dark" => { const x = r.next(); return !lit ? "dark" : x < 0.5 ? "warm" : x < 0.62 ? "tv" : x < 0.72 ? "dim" : "dark"; };
+  const pickState = (): "warm" | "tv" | "dim" | "dark" => { const x = r.next(); return !lit ? "dark" : x < 0.22 ? "warm" : x < 0.27 ? "tv" : x < 0.36 ? "dim" : "dark"; };
   const acUnit = (f: Face, a: number, z: number, w = 9) => {
     bx(f, a, a + w, 4, z, z + 7, "metal", { tone: 1 });
     fix(f, a + 1.2, a + w - 1.2, z + 1, z + 6, "ink", 2, 4);
@@ -241,13 +241,13 @@ export function urbanBuilding(kit: StyleKit, p: Partial<UrbanBuildingOpts> | Par
         fix(f, w0 + 0.8, w1 - 0.8, 8.8, gh - 8.8, "gold", 3, 0.2, true); fix(f, w0 + 0.8, w1 - 0.8, gh - 15, gh - 8.8, "gold", 4, 0.2, true);
         for (let a = w0 + 0.8; a < w1; a += 2.5) fix(f, a, a + 0.8, 8, gh - 8, "wood", 2, 0.4);
         for (let z = 11; z < gh - 8; z += 3.6) fix(f, w0, w1, z, z + 0.8, "wood", 2, 0.4);
-        pushLight(scr(f, (w0 + w1) / 2, 17, 0.2), 14, "window", "gold");
+        pushLight(scr(f, (w0 + w1) / 2, 17, 0.2), 9, "window", "gold");
         const d0 = L * 0.58, d1 = L - 4;
         fix(f, d0, d1, 2, gh - 4, "wood", 0, 0.1);
         fix(f, d0 + 1, d1 - 1, 4, gh - 6, "gold", 3, 0.3, true);
         for (let a = d0 + 1; a < d1 - 1; a += 3) fix(f, a, a + 0.7, 4, gh - 6, "wood", 2, 0.5);
         for (let z = 6; z < gh - 6; z += 4) fix(f, d0 + 1, d1 - 1, z, z + 0.7, "wood", 2, 0.5);
-        pushLight(scr(f, (d0 + d1) / 2, 14, 0.3), 12, "window", "gold");
+        pushLight(scr(f, (d0 + d1) / 2, 14, 0.3), 8, "window", "gold");
         // noren: three cloth strips with a gap, dark blue with a pale mark
         for (const [na, nb] of [[d0 - 0.5, d0 + (d1 - d0) / 3], [d0 + (d1 - d0) / 3 + 1, d0 + (2 * (d1 - d0)) / 3], [d0 + (2 * (d1 - d0)) / 3 + 1, d1 + 0.5]] as [number, number][]) {
           fix(f, na, nb, 16, 27, "cloth", 2, 1.2); fix(f, na, nb, 16, 17, "cloth", 1, 1.2);
@@ -432,7 +432,7 @@ export function planStreet(cols: number, rows: number): StreetPlan {
 export interface StreetMeta { cc: number; rc: number; lights: { x: number; y: number; r: number; kind: string; color?: string }[]; buildings: { style: string; c: number; r: number; size: number }[] }
 
 /** Offset of the rendered iso map image relative to the tile grid (props that poke out of the diamond grow the canvas). */
-function mapOffset(tm: TileMap): [number, number] {
+export function mapOffset(tm: TileMap): [number, number] {
   let minX = 0, minY = 0;
   const T = tm.tile;
   for (let r = 0; r < tm.rows; r++) for (let c = 0; c < tm.cols; c++) {
@@ -524,8 +524,7 @@ export function buildStreet(kit: StyleKit, cols: number, rows: number, seed: num
   building("izakaya", cc + 3, s - 4, 2, { front: "sw", floors: 2 }, 8);
   building("house", w - 2, rc + 3, 2, { front: "se", floors: 2 }, 9);
   building("apartment", w - 2, rc + 5, 2, { front: "se", floors: 3, wall: "sand" }, 10);
-  building("house", cc + 4, rc + 4, 2, { front: "sw", floors: 1 }, 11);
-  building("izakaya", cc + 6, rc + 4, 2, { front: "sw", floors: 1 }, 12);
+  building("izakaya", Math.min(cc + 8, cols - 3), rc + 4, 2, { front: "sw", floors: 1 }, 12);
   building("house", w - 2, rc + 7, 2, { front: "se", floors: 1 }, 13);
   // ---- sidewalk dressing along the two back sidewalks
   const rowN = rc - 1, colW = cc - 1, rowS = rc + 2, colE = cc + 2;

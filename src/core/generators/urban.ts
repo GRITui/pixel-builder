@@ -23,7 +23,9 @@ export interface UrbanResult { sprite: Sprite; lights: UrbanLight[] }
 
 /** Palette hex of a material's glow shade (level 3) in this kit. */
 export function glowHex(kit: StyleKit, m: Material): string { return resolveRamps(kit)[m][3]; }
-export const light = (kit: StyleKit, x: number, y: number, r: number, kind: LightKind, m: Material = "gold"): UrbanLight => ({ x: Math.round(x), y: Math.round(y), r, kind, color: glowHex(kit, m), material: m });
+/** `color` is only set where it really differs from the engine's per-kind default: signs (neon hue, warm shop signs) and tinted vending fronts. */
+export const light = (kit: StyleKit, x: number, y: number, r: number, kind: LightKind, m: Material = "gold"): UrbanLight =>
+  ({ x: Math.round(x), y: Math.round(y), r, kind, ...(kind === "sign" ? { color: glowHex(kit, m) } : {}), material: m });
 
 /** World-pixel drawing helper: u runs SE, v runs SW, z up; inputs are authored for a 32px tile and scaled by `k`. */
 export class IsoDraw {
@@ -125,6 +127,7 @@ function vending(kit: StyleKit, seed: number, variant: number): UrbanResult {
   for (let i = 0; i < 3; i++) D.fse(8, -3 + i * 2.2, -2.2 + i * 2.2, 4, 9, "ink", 1);
   const c = D.at(-2.5, 5, 17);
   L.push(light(kit, c[0], c[1], Math.round(14 * k), "vending", "gold"));
+  if (variant === 1) L[0].color = glowHex(kit, "cloth"); // blue machines glow cool; red/white ones are sampled by the engine
   const s = D.at(0, 5, 29);
   L.push(light(kit, s[0], s[1], Math.round(8 * k), "sign", variant === 1 ? "cloth" : "gold"));
   return done(P, kit, L);
