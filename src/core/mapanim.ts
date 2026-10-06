@@ -3,7 +3,9 @@
 // regenerating the prop with the same parameters and accepting it only if its idle frame matches
 // the stored sprite pixel for pixel (otherwise the tile simply stays still). Deterministic: phases
 // come from the cell position, never from Math.random.
-import { colorIndex, decodeIndex } from "./palette";
+import { colorIndex, decodeIndex, normalizeDepth } from "./palette";
+import { rng } from "./rng";
+import { reflectionColor } from "./wet";
 import { blit, createSprite } from "./sprite";
 import { environmentGenerator } from "./generators/environment";
 import { foliageGenerator } from "./generators/foliage";
@@ -119,4 +121,47 @@ export function renderMapFrames(tm: TileMap, kit: StyleKit, n = MAP_FRAMES_DEFAU
     frames.push(out);
   }
   return frames;
+}
+
+const RAIN_W = 96, RAIN_H = 64;
+
+/**
+ * Rain over finished frames: diagonal 1x2-1x3 streaks falling down-left plus splashes on puddles.
+ * Drops live on a RAIN_W x RAIN_H period that repeats across the image and travel a whole number of
+ * periods per loop, so frame n-1 flows straight into frame 0. `puddle` (WetField.puddle) enables splashes.
+ */
+export function addRain(frames: Sprite[], kit: StyleKit, seed = 0, puddle?: Uint8Array, intensity = 1): Sprite[] {
+  const n = frames.length;
+  if (!n) return frames;
+  const { w, h } = frames[0];
+  const depth = normalizeDepth(kit.rampDepth);
+  const r = rng((seed >>> 0) ^ 0x7a1d);
+  const drops = Array.from({ length: Math.round(34 * intensity) }, () => ({ x: r.int(0, RAIN_W - 1), y: r.int(0, RAIN_H - 1), len: r.chance(0.5) ? 3 : 2, bright: r.chance(0.35) }));
+  const splashes: { x: number; y: number; at: number }[] = [];
+  if (puddle) {
+    const pts: number[] = [];
+    for (let i = 0; i < puddle.length; i++) if (puddle[i] === 1) pts.push(i);
+    const cnt = Math.min(60, Math.floor(pts.length / 24));
+    for (let k = 0; k < cnt; k++) { const i = pts[Math.floor(r.next() * pts.length)]; splashes.push({ x: i % w, y: Math.floor(i / w), at: r.int(0, n - 1) }); }
+  }
+  return frames.map((src, f) => {
+    const out: Sprite = { ...src, data: src.data.slice() };
+    const put = (x: number, y: number, v: number) => { if (x >= 0 && y >= 0 && x < w && y < h && out.data[y * w + x]) out.data[y * w + x] = v; };
+    // three periods down and one across per loop: slope about 0.5, a few px per frame
+    const dy = (f * RAIN_H * 3) / n, dx = (f * RAIN_W) / n;
+    const head = reflectionColor("rain", 1, depth), tail = reflectionColor("rain", 0.3, depth);
+    for (const d of drops) {
+      const px = (((Math.round(d.x - dx) % RAIN_W) + RAIN_W) % RAIN_W), py = Math.round(d.y + dy) % RAIN_H;
+      for (let ox = 0; ox < w; ox += RAIN_W)
+        for (let oy = 0; oy < h; oy += RAIN_H)
+          for (let k = 0; k < d.len; k++) put(ox + px - k, oy + py + k, k === d.len - 1 && d.bright ? head : k === 0 ? head : tail);
+    }
+    const sp = reflectionColor("splash", 1, depth);
+    for (const s of splashes) {
+      const age = (f - s.at + n) % n;
+      if (age === 0) put(s.x, s.y, sp);
+      else if (age === 1) { put(s.x - 1, s.y, sp); put(s.x + 1, s.y, sp); put(s.x, s.y - 1, sp); }
+    }
+    return out;
+  });
 }

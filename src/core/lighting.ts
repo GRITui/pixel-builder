@@ -3,6 +3,7 @@
 // material at the same level), so the output is still 100% kit colours.
 import { colorIndexFine, decodeIndex, normalizeDepth, type Material, type RampDepth } from "./palette";
 import { cloneSprite } from "./sprite";
+import { wetField, wetGlow, wetGround, type Wet } from "./wet";
 import type { LightDir, Sprite, StyleKit, TileMap } from "./types";
 
 export const TIMES = ["day", "dawn", "dusk", "night"] as const;
@@ -32,6 +33,8 @@ export interface LightingOptions {
   seed?: number;
   /** extra light sources in image pixels (lanterns carried by characters, a campfire not in the map) */
   lights?: Light[];
+  /** wet ground: darker stone, puddles, reflections of lights and buildings (applied around the grade) */
+  wet?: Wet;
 }
 
 const BASE_POS: Record<RampDepth, number[]> = { 5: [0, 1, 2, 3, 4], 7: [0, 1, 3, 5, 6], 9: [0, 2, 4, 6, 8] };
@@ -235,7 +238,11 @@ export function grade(img: Sprite, kit: StyleKit, time: TimeOfDay, lights: Light
 /** Everything in one call: shadows, dapple, reflections, then the time-of-day grade. */
 export function applyLighting(img: Sprite, objects: LitObject[], kit: StyleKit, opts: LightingOptions = {}): Sprite {
   const cast = castLight(img, objects, kit, opts);
-  return grade(cast, kit, opts.time ?? "day", findLights(objects, opts.lights), opts.seed ?? 0);
+  const time = opts.time ?? "day", lights = findLights(objects, opts.lights);
+  if (!opts.wet || opts.wet === "dry") return grade(cast, kit, time, lights, opts.seed ?? 0);
+  // ground gets wet before the grade; emitter reflections are drawn after it so they stay bright at night
+  const field = wetField(cast, objects, kit, { wet: opts.wet, seed: opts.seed, time });
+  return wetGlow(grade(wetGround(cast, field), kit, time, lights, opts.seed ?? 0), field, time);
 }
 
 /** The objects of a tile map placed in image pixels. */

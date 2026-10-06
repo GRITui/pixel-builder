@@ -9,7 +9,7 @@ import { Painter } from "../painter";
 import { finalize } from "../enforce";
 import { blit, createSprite } from "../sprite";
 import { foliageGenerator } from "./foliage";
-import { MAP_FPS, MAP_FRAMES_DEFAULT, renderMapFrames } from "../mapanim";
+import { addRain, MAP_FPS, MAP_FRAMES_DEFAULT, renderMapFrames } from "../mapanim";
 import { applyGroundDetail, DETAIL_LEVELS } from "./map-detail";
 import { FOREST_SEASONS, forestMmoPlan } from "./map-forest";
 import { calmDirt, farmBuildingSprite, farmMmoPlan, farmPropSprite, farmWalkable, FARM_PROP_KINDS, FARM_SOLID } from "./map-farm";
@@ -20,7 +20,8 @@ import { objectGenerator } from "./object";
 import { applyTerrain, hillsLayout, type TerrainInfo, type TerrainOptions } from "./map-terrain";
 import type { Sprite } from "../types";
 import { bool, defaults, num, str, type Generator, type GenResult, type Params } from "./types";
-import { lightMap, TIMES } from "../lighting";
+import { lightMap, mapLitObjects, TIMES } from "../lighting";
+import { applyWet, WET_MODES, wetField, type Wet } from "../wet";
 
 // Rendering a building or a full animal sheet costs far more than the rest of a map,
 // so village deco sprites are memoised per kit object (kits are replaced, not mutated).
@@ -464,6 +465,7 @@ export const mapGenerator: Generator = {
     { key: "frames", label: "Animation frames (animate only)", type: "number", min: 2, max: 24, step: 1, default: 8 },
     { key: "lighting", label: "Lighting (cast shadows, dappled light, water reflections, time-of-day grade; palette-locked)", type: "select", options: ["off", "on"], default: "off" },
     { key: "time", label: "Time of day (needs lighting on)", type: "select", options: [...TIMES], default: "day" },
+    { key: "wet", label: "Wet ground (damp = darker stone, glints, puddles, reflected lamps and buildings; rain = more puddles, and falling rain + splashes when animate is on)", type: "select", options: [...WET_MODES], default: "dry" },
     { key: "terrain", label: "Terrain (hills = raised plateaus with cliffs, ramps/stairs and, on forest-mmo, a waterfall where the river leaves the plateau; farm-mmo: a plateau behind the farm on maps 30+ rows tall; not farm / rice-village)", type: "select", options: ["flat", "hills"], default: "flat" },
     { key: "ramp", label: "Ramp / stairs material (terrain hills)", type: "material", options: ["stone", "wood"], default: "wood" },
     { key: "cliff", label: "Cliff material (terrain hills)", type: "material", options: ["stone", "dirt"], default: "dirt" },
@@ -475,10 +477,16 @@ export const mapGenerator: Generator = {
       const n = clamp(Math.round(num(p, "frames")) || MAP_FRAMES_DEFAULT, 2, 24);
       res = { ...res, rows: [{ name: "map", frames: renderMapFrames(res.tilemap, kit, n, seed >>> 0) }], fps: MAP_FPS };
     }
-    if (str(p, "lighting") !== "on" || !res.tilemap) return res;
+    const wet = ((WET_MODES as readonly string[]).includes(str(p, "wet")) ? str(p, "wet") : "dry") as Wet;
+    const lit = str(p, "lighting") === "on";
+    if ((!lit && wet === "dry") || !res.tilemap) return res;
     const time = (TIMES as readonly string[]).includes(str(p, "time")) ? (str(p, "time") as (typeof TIMES)[number]) : "day";
-    const tm = res.tilemap;
-    return { ...res, rows: [{ name: "map", frames: res.rows[0].frames.map((f) => lightMap(f, tm, kit, { time, seed: seed >>> 0 })) }] };
+    const tm = res.tilemap, s = seed >>> 0;
+    if (wet === "dry") return { ...res, rows: [{ name: "map", frames: res.rows[0].frames.map((f) => lightMap(f, tm, kit, { time, seed: s })) }] };
+    const objects = mapLitObjects(tm);
+    let frames = res.rows[0].frames.map((f) => (lit ? lightMap(f, tm, kit, { time: time, seed: s, wet }) : applyWet(f, objects, kit, { wet, seed: s })));
+    if (wet === "rain" && frames.length > 1) frames = addRain(frames, kit, s, wetField(res.rows[0].frames[0], objects, kit, { wet, seed: s }).puddle);
+    return { ...res, rows: [{ name: "map", frames }] };
   },
 };
 
