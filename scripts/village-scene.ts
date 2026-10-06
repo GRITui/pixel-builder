@@ -5,7 +5,7 @@
  * villagers walking the street, y-sorted so they pass behind lamp posts and trunks.
  *
  *   npx tsx scripts/village-scene.ts                  # docs/img/village-scene.png (day) + village-scene-night.png
- *   npx tsx scripts/village-scene.ts out.png kit-hd-rich [seed]     (TIME=night for the lit version)
+ *   npx tsx scripts/village-scene.ts out.png kit-hd-rich [seed]     (TIME=night for the lit version, FX=rich for the cinematic grade)
  *   npx tsx scripts/village-scene.ts --gif            # docs/img/village-scene.gif
  */
 import { writeFileSync } from "node:fs";
@@ -18,9 +18,9 @@ import { attachmentById, CLIPS, rigById, withHumanoidDefaults } from "../src/cor
 import { blit, bounds, cloneSprite, createSprite } from "../src/core/sprite";
 import { renderTileMap } from "../src/core/tilemap";
 import { mapAnimator, renderMapFrames } from "../src/core/mapanim";
-import { castLight, findLights, grade, mapLitObjects, type TimeOfDay } from "../src/core/lighting";
+import { castLight, findLights, grade, mapLitObjects, type GradeFx, type TimeOfDay } from "../src/core/lighting";
 import { encodeGif } from "../src/node/gif";
-import { kitColors } from "../src/node/png";
+import { kitColorsFx as kitColors } from "../src/node/png";
 import type { Sprite, StyleKit, TileMap } from "../src/core/types";
 import { savePng } from "./sheet";
 
@@ -51,10 +51,10 @@ function walkFrames(a: Actor, dir: string, kit: StyleKit): Sprite[] {
   return rows.find((r) => r.name === `${a.clip}-${dir}`)!.frames;
 }
 
-export const renderScene = (kit: StyleKit, seed: number, time?: TimeOfDay): Sprite => renderSceneFrames(kit, seed, 1, time)[0];
+export const renderScene = (kit: StyleKit, seed: number, time?: TimeOfDay, fx: GradeFx = "classic"): Sprite => renderSceneFrames(kit, seed, 1, time, fx)[0];
 
 /** n = 1: the still scene. n > 1: a living loop (use a multiple of 12 for a seamless one). */
-export function renderSceneFrames(kit: StyleKit, seed: number, n: number, time?: TimeOfDay): Sprite[] {
+export function renderSceneFrames(kit: StyleKit, seed: number, n: number, time?: TimeOfDay, fx: GradeFx = "classic"): Sprite[] {
   const gen = (id: string, p: object, s = 1) => {
     const g = GENERATORS.find((x) => x.id === id)!;
     return g.generate({ ...defaults(g), ...p } as never, kit, s);
@@ -131,7 +131,7 @@ export function renderSceneFrames(kit: StyleKit, seed: number, n: number, time?:
     }
     if (time) {
       const carried = crew.map((c) => ({ x: c.item.x + c.item.sprite.w / 2, y: c.item.y + c.item.sprite.h * 0.6, r: 22 }));
-      world = grade(world, kit, time, findLights(mapLitObjects(tm), carried), seed, keepHue);
+      world = grade(world, kit, time, findLights(mapLitObjects(tm), carried), seed, keepHue, fx);
     }
     return world;
   };
@@ -154,11 +154,12 @@ if (process.argv[1]?.endsWith("village-scene.ts")) {
   const args = process.argv.slice(2), gif = args.includes("--gif");
   const [out, kitId, seedArg] = args.filter((x) => x !== "--gif");
   const time = process.env.TIME as TimeOfDay | undefined;
+  const fx: GradeFx = process.env.FX === "rich" ? "rich" : "classic";
   const seed = Number(seedArg ?? process.env.SEED ?? 1);
   if (gif) {
     const kit = KIT_PRESETS.find((k) => k.id === (kitId ?? "kit-hd-rich"))!;
     const file = out ?? "docs/img/village-scene.gif";
-    const frames = renderSceneFrames(kit, seed, Number(process.env.FRAMES ?? 24), time);
+    const frames = renderSceneFrames(kit, seed, Number(process.env.FRAMES ?? 24), time, fx);
     const bytes = encodeGif(frames, { colors: kitColors(kit), fps: Number(process.env.FPS ?? 8), scale: Number(process.env.GIF_SCALE ?? 1) });
     writeFileSync(file, bytes);
     console.log(`wrote ${file} (${frames.length} frames, ${(bytes.length / 1024).toFixed(0)} KB)`);
@@ -167,7 +168,7 @@ if (process.argv[1]?.endsWith("village-scene.ts")) {
     for (const [file, id, tod] of jobs) {
       const kit = KIT_PRESETS.find((k) => k.id === id);
       if (!kit) throw new Error(`unknown kit ${id}`);
-      savePng(file, [[renderScene(kit, seed, tod)]], kit, SCALE);
+      savePng(file, [[renderScene(kit, seed, tod, fx)]], kit, SCALE);
       console.log(`wrote ${file}`);
     }
   }

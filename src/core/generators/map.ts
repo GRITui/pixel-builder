@@ -464,6 +464,7 @@ export const mapGenerator: Generator = {
     { key: "frames", label: "Animation frames (animate only)", type: "number", min: 2, max: 24, step: 1, default: 8 },
     { key: "lighting", label: "Lighting (cast shadows, dappled light, water reflections, time-of-day grade; palette-locked)", type: "select", options: ["off", "on"], default: "off" },
     { key: "time", label: "Time of day (needs lighting on)", type: "select", options: [...TIMES], default: "day" },
+    { key: "fx", label: "Light colour treatment (needs lighting on; rich = cinematic blue-violet night/dusk with warm lamplight, uses the night/lamplight fx ramps; classic = unchanged)", type: "select", options: ["classic", "rich"], default: "classic" },
     { key: "terrain", label: "Terrain (hills = raised plateaus with cliffs, ramps/stairs and, on forest-mmo, a waterfall where the river leaves the plateau; farm-mmo: a plateau behind the farm on maps 30+ rows tall; not farm / rice-village)", type: "select", options: ["flat", "hills"], default: "flat" },
     { key: "ramp", label: "Ramp / stairs material (terrain hills)", type: "material", options: ["stone", "wood"], default: "wood" },
     { key: "cliff", label: "Cliff material (terrain hills)", type: "material", options: ["stone", "dirt"], default: "dirt" },
@@ -478,7 +479,7 @@ export const mapGenerator: Generator = {
     if (str(p, "lighting") !== "on" || !res.tilemap) return res;
     const time = (TIMES as readonly string[]).includes(str(p, "time")) ? (str(p, "time") as (typeof TIMES)[number]) : "day";
     const tm = res.tilemap;
-    return { ...res, rows: [{ name: "map", frames: res.rows[0].frames.map((f) => lightMap(f, tm, kit, { time, seed: seed >>> 0 })) }] };
+    return { ...res, rows: [{ name: "map", frames: res.rows[0].frames.map((f) => lightMap(f, tm, kit, { time, seed: seed >>> 0, fx: str(p, "fx") === "rich" ? "rich" : "classic" })) }] };
   },
 };
 

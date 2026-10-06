@@ -1,7 +1,7 @@
 // PNG contact-sheet writer shared by the preview scripts (node:zlib only).
 import { writeFileSync } from "node:fs";
 import { deflateSync } from "node:zlib";
-import { flattenPalette, hexToRgb } from "../src/core/palette";
+import { flattenPaletteFx, hexToRgb } from "../src/core/palette";
 import { resolveRamps } from "../src/core/kit";
 import type { Sprite, StyleKit } from "../src/core/types";
 
@@ -24,7 +24,7 @@ function chunk(type: string, data: Buffer) {
 }
 
 export function savePng(path: string, sheet: Sprite[][], kit: StyleKit, scale = 4) {
-  const flat = flattenPalette(resolveRamps(kit));
+  const flat = flattenPaletteFx(resolveRamps(kit));
   const cw = Math.max(...sheet.map((r) => r.reduce((a, s) => a + s.w + 2, 0)));
   const ch = sheet.reduce((a, r) => a + Math.max(...r.map((s) => s.h)) + 2, 0);
   const W = cw * scale, H = ch * scale;
