@@ -28,6 +28,7 @@ const KINDS: Record<LightKind, KindSpec> = {
   fire: { color: srgbLin(1, 0.5, 0.14), reach: 2, gain: 2.2, ground: true, emit: 3 },
   magic: { color: srgbLin(0.3, 0.95, 0.9), reach: 2.2, gain: 2.8, ground: true, emit: 2.4 },
   moon: { color: srgbLin(0.5, 0.62, 1), reach: 1, gain: 0.5, ground: false, emit: 0 },
+  sign: { color: srgbLin(1, 0.3, 0.75), reach: 1.8, gain: 2.4, ground: true, emit: 2.4 },
 };
 
 interface Ambient { mul: V3; floor: V3; desat: number; lights: number }
@@ -79,6 +80,12 @@ const hash = (x: number, y: number, s: number): number => {
   h ^= h >>> 12;
   return (h >>> 0) / 4294967296;
 };
+
+/** A light's own colour: [r,g,b] 0-255 or "#rrggbb". */
+function lightRgb(c: [number, number, number] | string): V3 {
+  const [r, g, b] = typeof c === "string" ? [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16)) : c;
+  return srgbLin(r / 255, g / 255, b / 255);
+}
 
 /** Colour of a vending machine: the most saturated lit pixels around its light point. */
 function sampledColor(img: Sprite, pal: V3[], l: Light): V3 {
@@ -195,7 +202,7 @@ export function lightScene(img: Sprite, objects: LitObject[], kit: StyleKit, opt
   const STEPS = 6;
   for (const l of lights) {
     const spec = KINDS[l.kind];
-    const color = l.color ? srgbLin(l.color[0] / 255, l.color[1] / 255, l.color[2] / 255) : l.kind === "vending" ? sampledColor(img, pal, l) : spec.color;
+    const color = l.color ? lightRgb(l.color) : l.kind === "vending" ? sampledColor(img, pal, l) : spec.color;
     const R = Math.max(6, (l.r ?? 12) * spec.reach), gain = spec.gain * (l.intensity ?? 1) * amb.lights;
     const gy = spec.ground ? l.base - 1 : l.y;
     const hw = l.w ? l.w / 2 : Math.max(1, (l.r ?? 8) * 0.35), hh = l.h ? l.h / 2 : Math.max(1, (l.r ?? 8) * 0.28);
@@ -254,7 +261,7 @@ export function lightScene(img: Sprite, objects: LitObject[], kit: StyleKit, opt
     for (const l of lights) {
       const spec = KINDS[l.kind];
       if (l.kind === "moon") continue;
-      const color = l.color ? srgbLin(l.color[0] / 255, l.color[1] / 255, l.color[2] / 255) : l.kind === "vending" ? sampledColor(img, pal, l) : spec.color;
+      const color = l.color ? lightRgb(l.color) : l.kind === "vending" ? sampledColor(img, pal, l) : spec.color;
       const gain = (l.intensity ?? 1) * amb.lights;
       const drop = Math.min(10, Math.max(0, l.base - l.y) * 0.3);
       const y0 = Math.round(l.base + 1 + drop), ph = hash(Math.round(l.x), Math.round(l.y), seed) * 6.28;

@@ -21,7 +21,7 @@ export interface LitObject {
 }
 
 /** What a light is; picks its colour, reach and whether it pools on the ground (rich fx only). */
-export type LightKind = "point" | "lamp" | "window" | "lantern" | "vending" | "fire" | "moon" | "magic";
+export type LightKind = "point" | "lamp" | "window" | "lantern" | "vending" | "fire" | "moon" | "magic" | "sign";
 
 export interface Light {
   x: number;
@@ -31,7 +31,7 @@ export interface Light {
   /** rich fx: default window inside an object's `lights`, point for `extra` lights */
   kind?: LightKind;
   /** rich fx: sRGB 0-255 override of the kind's colour (vending machines sample their own) */
-  color?: [number, number, number];
+  color?: [number, number, number] | string;
   /** rich fx: multiplier on the kind's intensity (default 1) */
   intensity?: number;
   /** rich fx: window pane size in px for area lights */
