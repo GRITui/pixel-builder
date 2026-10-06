@@ -12,7 +12,7 @@ npx tsx src/agent/cli.ts mcp                                   # MCP over stdio
 npx tsx src/agent/cli.ts mcp --http --port 8788                # Streamable HTTP on 127.0.0.1
 ```
 
-Tools (MCP tools = CLI commands): `pixelize`, `validate`. More arrive per `docs/` issues (look presets,
+Tools (MCP tools = CLI commands): `pixelize`, `validate`, `looks` (save/list/delete a locked palette+settings; pass `look` to `pixelize`). More arrive per `docs/` issues (look presets,
 sprite/tile modes, effect GIFs, prompt-to-image). Setup snippets for hosts: `llms.txt`, `skills/pixel-builder/SKILL.md`.
 
-Status: the pixelization pipeline is a placeholder (box downscale + k-means); the core lane replaces it.
+Pipeline: lanczos 2x, Kuwahara flatten, box to native, preset grade in OKLCH, bloom (linear light), era palette (NES greedy / RGB555 / free k-means, or a locked look), calm-area Bayer dither, OKLab nearest, orphan cleanup, optional outline.

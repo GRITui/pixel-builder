@@ -9,6 +9,7 @@ import { fetchImage, FetchError } from "../net/fetch-safe";
 import { pixelize } from "../pixel/pipeline";
 import { BLOOMS, DITHERS, ERAS, MODES, PRESETS } from "../pixel/types";
 import { validate } from "../pixel/validate";
+import { loadLook, looksDir } from "./looks";
 import { registerTool, ToolError, type ToolImage } from "./registry";
 
 export { TOOLS, ToolError, callTool } from "./registry";
@@ -56,25 +57,28 @@ registerTool({
     bloom: z.enum(BLOOMS as [string, ...string[]]).default("off"),
     dither: z.enum(DITHERS as [string, ...string[]]).default("off"),
     outline: z.boolean().default(false).describe("Add a 1px dark outline."),
+    look: z.string().optional().describe("Name of a saved look (see the looks tool): forces its era, palette and settings."),
     size: z.number().int().min(8).max(2048).optional().describe("Native width in pixels (default from era)."),
     seed: z.number().int().min(0).max(2 ** 31).default(1),
     out_dir: z.string().optional().describe("Output folder (default ./pixel-out)."),
   },
   async run(ctx, i) {
     const { img, stem } = await loadImage(i.image);
+    const look = i.look ? loadLook(looksDir(i.out_dir ?? ctx.outDir), i.look) : undefined;
     const result = pixelize(img, {
+      look,
       mode: i.mode as "scene", era: i.era, preset: i.preset as "vivid", bloom: i.bloom as "off", dither: i.dither as "off",
-      outline: i.outline, width: i.size ?? ERAS[i.era].width, seed: i.seed,
+      outline: i.outline, width: i.size ?? ERAS[look?.era ?? i.era].width, seed: i.seed,
     });
     const dir = resolve(i.out_dir ?? ctx.outDir);
     mkdirSync(dir, { recursive: true });
-    const name = `${stem}-${i.mode}-${i.era}bit`;
+    const name = `${stem}-${i.mode}-${result.meta.era}bit`;
     const k = previewScale(result.native.w, result.native.h);
     const files = { native: join(dir, `${name}.png`), preview: join(dir, `${name}@${k}x.png`), meta: join(dir, `${name}.json`) };
     const previewPng = encodePng(upscale(result.native, k));
     atomicWrite(files.native, encodePng(result.native));
     atomicWrite(files.preview, previewPng);
-    atomicWrite(files.meta, JSON.stringify({ ...result.meta, palette: result.palette, preview_scale: k, source: i.image }, null, 2));
+    atomicWrite(files.meta, JSON.stringify({ ...result.meta, palette: result.palette, preview_scale: k, source: i.image, ...(look ? { look: look.id } : {}) }, null, 2));
     const images: ToolImage[] = [{ png: previewPng, label: `${name} (${k}x preview)` }];
     return {
       data: { files, width: result.native.w, height: result.native.h, colours: result.meta.colours, preview_scale: k, meta: result.meta },
