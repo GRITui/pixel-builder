@@ -6,17 +6,11 @@
     "pixel-builder": "bin/pixel-builder.mjs"
   },
   "scripts": {
-    "dev": "concurrently -k -n web,api \"vite\" \"tsx watch server/index.ts\"",
-    "build": "tsc && vite build",
-    "start": "NODE_ENV=production tsx server/index.ts",
     "test": "vitest run",
-    "e2e": "playwright test",
     "typecheck": "tsc",
-    "cli": "tsx src/node/cli.ts",
-    "bench": "tsx scripts/bench.ts",
-    "mcp": "tsx src/node/cli.ts mcp",
-    "build:server": "esbuild server/index.ts --bundle --platform=node --format=esm --target=node20 --packages=external --outfile=dist-node/server.mjs",
-    "build:node": "esbuild src/node/cli.ts --bundle --platform=node --format=esm --target=node20 --packages=external --banner:js=\"#!/usr/bin/env node\" --outfile=dist-node/cli.mjs"
+    "cli": "tsx src/agent/cli.ts",
+    "mcp": "tsx src/agent/cli.ts mcp",
+    "build:node": "esbuild src/agent/cli.ts --bundle --platform=node --format=esm --target=node20 --packages=external --banner:js=\"#!/usr/bin/env node\" --outfile=dist-node/cli.mjs"
   },
   "repository": {
     "type": "git",

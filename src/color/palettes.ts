@@ -1,7 +1,7 @@
 // Fixed hardware palettes as #rrggbb strings.
 const hex = (list: number[]): string[] => list.map((n) => "#" + n.toString(16).padStart(6, "0"));
 
-/** NES 2C02: the 54 distinct usable colours. */
+/** NES 2C02 master palette as listed in the prototype (55 distinct entries). */
 export const NES = hex([
   0x7c7c7c, 0x0000fc, 0x0000bc, 0x4428bc, 0x940084, 0xa80020, 0xa81000, 0x881400, 0x503000, 0x007800, 0x006800, 0x005800, 0x004058, 0x000000,
   0xbcbcbc, 0x0078f8, 0x0058f8, 0x6844fc, 0xd800cc, 0xe40058, 0xf83800, 0xe45c10, 0xac7c00, 0x00b800, 0x00a800, 0x00a844, 0x008888,
