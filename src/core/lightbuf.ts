@@ -260,7 +260,7 @@ export function lightScene(img: Sprite, objects: LitObject[], kit: StyleKit, opt
     const streakLen = Math.round(tile * 4);
     for (const l of lights) {
       const spec = KINDS[l.kind];
-      if (l.kind === "moon") continue;
+      if (l.kind === "moon" || !spec.ground) continue; // wall windows do not reflect onto the road
       const color = l.color ? lightRgb(l.color) : l.kind === "vending" ? sampledColor(img, pal, l) : spec.color;
       const gain = (l.intensity ?? 1) * amb.lights;
       const drop = Math.min(10, Math.max(0, l.base - l.y) * 0.3);

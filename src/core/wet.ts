@@ -157,7 +157,7 @@ export function wetGround(img: Sprite, f: WetField): Sprite {
       else out.data[i] = shiftIndex(src, -1, depth);
     }
   // glints: 2-3px dashes of sky light, only on dry-ish wet ground
-  const dens = f.mode === "rain" ? 0.012 : 0.007;
+  const dens = f.mode === "rain" ? 0.006 : 0.004;
   for (let y = 0; y < h; y++)
     for (let x = 0; x < w; x++) {
       if (hash(x, y, f.seed + 5) >= dens) continue;
