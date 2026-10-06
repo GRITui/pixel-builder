@@ -72,7 +72,7 @@ describe("get_style_guide / list_generators", () => {
     const all = data("list_generators").generators;
     expect(all.map((g: { id: string }) => g.id)).toEqual(GENERATORS.map((g) => g.id));
     const env = data("list_generators", { category: "environment" }).generators;
-    expect(env.map((g: { id: string }) => g.id)).toEqual(["environment", "tileset", "sideview", "foliage", "iso-tile", "iso-prop", "crop"]);
+    expect(env.map((g: { id: string }) => g.id)).toEqual(["environment", "tileset", "sideview", "foliage", "iso-tile", "iso-prop", "crop", "urban-prop", "urban-tile"]);
     expect(env[0].params.find((p: { key: string }) => p.key === "kind").options).toContain("oak");
     expect(env[0].defaults.kind).toBe("oak");
   });
@@ -113,7 +113,7 @@ describe("generate_asset / generate_variations", () => {
   });
 
   it("gives actionable errors for unknown generators and params", () => {
-    expect(() => call("generate_asset", { generator: "tre" })).toThrow(/Unknown generator 'tre'\. Generators: character,/);
+    expect(() => call("generate_asset", { generator: "tre" })).toThrow(/Unknown generator 'tre'\..*Generators: character,/);
     expect(() => call("generate_asset", { generator: "oak" })).toThrow(/Unknown generator 'oak'\. Generators: /);
     expect(() => call("generate_asset", { generator: "nope" })).toThrow(/^(?!.*with params)/);
     expect(() => call("generate_asset", { generator: "enviroment" })).toThrow(/Did you mean 'environment'\?/);

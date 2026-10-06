@@ -15,8 +15,10 @@ import { sideLevelGenerator } from "./sidelevel";
 import { sideviewGenerator } from "./sideview";
 import type { Generator } from "./types";
 import { uiGenerator } from "./ui";
+import { urbanPropGenerator } from "./urban";
+import { isoStreetGenerator, urbanBuildingGenerator, urbanTileGenerator } from "./urban-iso";
 
-export const GENERATORS: Generator[] = [characterGenerator, animalGenerator, buildingGenerator, environmentGenerator, objectGenerator, uiGenerator, mapGenerator, tilesetGenerator, sideviewGenerator, sideEnemyGenerator, sideLevelGenerator, foliageGenerator, isoTileGenerator, isoPropGenerator, isoBuildingGenerator, isoMapGenerator, cropsGenerator];
+export const GENERATORS: Generator[] = [characterGenerator, animalGenerator, buildingGenerator, environmentGenerator, objectGenerator, uiGenerator, mapGenerator, tilesetGenerator, sideviewGenerator, sideEnemyGenerator, sideLevelGenerator, foliageGenerator, isoTileGenerator, isoPropGenerator, isoBuildingGenerator, isoMapGenerator, cropsGenerator, urbanPropGenerator, urbanBuildingGenerator, urbanTileGenerator, isoStreetGenerator];
 
 /** Primary generator for a category (the first registered; "character" also has "animal"). */
 export function generatorFor(category: Category): Generator {
