@@ -160,7 +160,7 @@ export function addRain(frames: Sprite[], kit: StyleKit, seed = 0, puddle?: Uint
     for (const s of splashes) {
       const age = (f - s.at + n) % n;
       if (age === 0) put(s.x, s.y, sp);
-      else if (age === 1) { put(s.x - 1, s.y, sp); put(s.x + 1, s.y, sp); put(s.x, s.y - 1, sp); }
+      if (age === 1 || n === 1) { put(s.x - 1, s.y, sp); put(s.x + 1, s.y, sp); put(s.x, s.y - 1, sp); }
     }
     return out;
   });

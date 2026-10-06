@@ -33,6 +33,7 @@ export interface WetField {
   emitters: Emitter[];
   silhouettes: LitObject[];
   depth: RampDepth;
+  tile: number;
   mode: Exclude<Wet, "dry">;
   seed: number;
 }
@@ -93,14 +94,14 @@ export function wetField(img: Sprite, objects: LitObject[], kit: StyleKit, opts:
   const puddle = new Uint8Array(w * h);
   const r = rng((seed >>> 0) ^ 0x9e11);
   const unit = Math.max(1, kit.sizes.tile / 16);
-  const want = Math.floor(area / (opts.wet === "rain" ? 650 : 1500) / (unit * unit));
+  const want = Math.floor(area / (opts.wet === "rain" ? 1100 : 2800) / (unit * unit));
   const wetPts: number[] = [];
   for (let i = 0; i < w * h; i++) if (wet[i]) wetPts.push(i);
   let made = 0;
   for (let tries = 0; tries < want * 12 && made < want && wetPts.length; tries++) {
     const c = wetPts[Math.floor(r.next() * wetPts.length)];
     const cx = c % w, cy = Math.floor(c / w);
-    const rx = (3 + r.next() * 4.5) * unit * (opts.wet === "rain" ? 1.15 : 0.9), ry = rx * (0.4 + r.next() * 0.2);
+    const rx = (3 + r.next() * 4.5) * unit * (opts.wet === "rain" ? 1.6 : 1.3), ry = rx * (0.4 + r.next() * 0.2);
     const ph = r.next() * 6.28, ph2 = r.next() * 6.28;
     const cells: number[] = [];
     let on = 0, tot = 0;
@@ -135,7 +136,7 @@ export function wetField(img: Sprite, objects: LitObject[], kit: StyleKit, opts:
   }
   for (const l of opts.lights ?? []) emitters.push({ ...l, base: Math.round(l.y) + 6 });
   const silhouettes = objects.filter((o) => !NO_MIRROR.test(o.name));
-  return { w, h, wet, puddle, emitters, silhouettes, depth, mode: opts.wet, seed };
+  return { w, h, wet, puddle, emitters, silhouettes, depth, tile: kit.sizes.tile, mode: opts.wet, seed };
 }
 
 /** Stage 1 (before the grade): darker wet ground, glints, puddles and the silhouette reflections. */
@@ -147,8 +148,12 @@ export function wetGround(img: Sprite, f: WetField): Sprite {
       const i = y * w + x;
       if (!f.wet[i]) continue;
       const src = img.data[i];
-      if (f.puddle[i] === 1) out.data[i] = reflectionColor("puddle", 0.55 + 0.3 * hash(x >> 2, y >> 1, f.seed), depth);
-      else if (f.puddle[i] === 2) out.data[i] = shiftIndex(src, 1, depth);
+      if (f.puddle[i] === 1) out.data[i] = shiftIndex(src, -2, depth);
+      else if (f.puddle[i] === 2) {
+        // thin lighter rim on the sides away from the light (bottom / right), a rare cool pixel on the others
+        const away = !f.puddle[i + w] || !f.puddle[i + 1];
+        out.data[i] = away ? shiftIndex(src, 2, depth) : hash(x, y, f.seed + 9) < 0.18 ? reflectionColor("puddle", 0, depth) : shiftIndex(src, -2, depth);
+      }
       else out.data[i] = shiftIndex(src, -1, depth);
     }
   // glints: 2-3px dashes of sky light, only on dry-ish wet ground
@@ -192,19 +197,19 @@ export function wetGround(img: Sprite, f: WetField): Sprite {
 export function wetGlow(img: Sprite, f: WetField, time: TimeOfDay = "day"): Sprite {
   const out = cloneSprite(img);
   const { w, h, depth } = f;
-  const gain = GLOW_BY_TIME[time];
+  const gain = GLOW_BY_TIME[time], kitTile = Math.max(8, f.tile);
   f.emitters.forEach((e, n) => {
-    const drop = Math.min(18, Math.max(0, e.base - e.y) * 0.45);
+    const drop = Math.min(10, Math.max(0, e.base - e.y) * 0.3);
     const y0 = Math.round(e.base + 1 + drop);
-    const len = Math.round((7 + Math.min(10, e.r * 0.3)) * (0.6 + gain * 0.6));
+    const len = Math.round(kitTile * (e.r >= 20 ? 2.6 : 2.2) * (0.5 + gain * 0.5));
     const ph = hash(Math.round(e.x), Math.round(e.y), f.seed) * 6.28;
-    for (let k = 0; k < len * 1.6; k++) {
+    for (let k = 0; k < len; k++) {
       const y = y0 + k;
       if (y < 0 || y >= h) continue;
-      const fade = 1 - k / (len * 1.6);
+      const fade = 1 - k / len;
       if (fade <= 0 || k % 3 === 2) continue;
       const cx = Math.round(e.x + Math.sin(k * 1.3 + ph) * (0.6 + k / 6));
-      const wide = k < len * 0.9 && e.r >= 8 ? 1 : 0;
+      const wide = Math.min(2, (e.r >= 8 ? 1 : 0) + Math.floor(k / 14));
       for (let dx = -wide; dx <= wide; dx++) {
         const x = cx + dx;
         if (x < 0 || x >= w) continue;
@@ -212,7 +217,7 @@ export function wetGlow(img: Sprite, f: WetField, time: TimeOfDay = "day"): Spri
         if (!f.wet[i]) continue;
         const inP = f.puddle[i] > 0;
         // outside puddles only the brighter part of the streak catches the cobbles
-        if (!inP && (fade * gain < 0.12 || (x + y + n) % 4 === 0)) continue;
+        if (!inP && (fade * gain < 0.08 || (x + y + n) % 4 === 0)) continue;
         if (dx !== 0 && k % 2) continue;
         out.data[i] = reflectionColor("emitter", Math.min(1, 0.35 + fade * gain * (inP ? 1.2 : 0.9)), depth);
       }

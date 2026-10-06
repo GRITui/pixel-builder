@@ -485,7 +485,7 @@ export const mapGenerator: Generator = {
     if (wet === "dry") return { ...res, rows: [{ name: "map", frames: res.rows[0].frames.map((f) => lightMap(f, tm, kit, { time, seed: s })) }] };
     const objects = mapLitObjects(tm);
     let frames = res.rows[0].frames.map((f) => (lit ? lightMap(f, tm, kit, { time: time, seed: s, wet }) : applyWet(f, objects, kit, { wet, seed: s })));
-    if (wet === "rain" && frames.length > 1) frames = addRain(frames, kit, s, wetField(res.rows[0].frames[0], objects, kit, { wet, seed: s }).puddle);
+    if (wet === "rain") frames = addRain(frames, kit, s, wetField(res.rows[0].frames[0], objects, kit, { wet, seed: s }).puddle, frames.length > 1 ? 1 : 0.7);
     return { ...res, rows: [{ name: "map", frames }] };
   },
 };

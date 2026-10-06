@@ -141,7 +141,7 @@ export function renderSceneFrames(kit: StyleKit, seed: number, n: number, time?:
     return world;
   };
   const out = Array.from({ length: animated ? n : 1 }, (_, f) => compose(f));
-  return wet === "rain" && animated ? addRain(out, kit, seed, field!.puddle) : out;
+  return wet === "rain" ? addRain(out, kit, seed, field!.puddle, animated ? 1 : 0.7) : out;
 }
 
 /** A soft contact shadow: darkens the ground one ramp step under the feet (only ground pixels). */
