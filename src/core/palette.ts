@@ -386,3 +386,54 @@ export function makeQuantizer(ramps: Ramps, allowed?: Material[]) {
     return best;
   };
 }
+
+// ---------- fx ramps (night / lamplight) ----------
+// Two light-colour ramps used only by the "rich" time-of-day grade. They are NOT materials: adding
+// materials would grow Ramps/rampOverrides/legend/finalize and every test that counts MATERIALS, for
+// ramps that no generator paints with. Instead they are an "fx block" appended after the last
+// material index (PALETTE_SIZE_ALL = 172): night 172..176, lamplight 177..181. They exist only in
+// post-grade images; flattenPalette is unchanged (172 entries), flattenPaletteFx adds the 10 fx colours.
+
+export const FX_RAMPS = ["night", "lamplight"] as const;
+export type FxRamp = (typeof FX_RAMPS)[number];
+export type FxRamps = Record<FxRamp, string[]>;
+
+/** First fx index: night level l -> FX_START + l, lamplight level l -> FX_START + RAMP_LEN + l. */
+export const FX_START = PALETTE_SIZE_ALL;
+/** Every index valid in a graded image (<= 256): the 172 sprite indices plus the 10 fx shades. */
+export const PALETTE_SIZE_FX = FX_START + FX_RAMPS.length * RAMP_LEN;
+
+export const nightIndex = (level: number) => FX_START + Math.max(0, Math.min(RAMP_LEN - 1, Math.round(level)));
+export const lampIndex = (level: number) => FX_START + RAMP_LEN + Math.max(0, Math.min(RAMP_LEN - 1, Math.round(level)));
+export const isFxIndex = (idx: number) => idx >= FX_START && idx < PALETTE_SIZE_FX;
+
+/** deep navy -> indigo -> violet -> moonlit grey-blue */
+const NIGHT = ["#090c22", "#1a1f4a", "#37337a", "#5b5a9e", "#a4b4de"];
+/** ember -> orange -> amber -> warm cream -> near-white */
+const LAMP = ["#5c1a16", "#b8461c", "#f09a2c", "#ffd98a", "#fff7e0"];
+
+/**
+ * Fx ramps for a resolved palette: the stock ramps scaled to the palette's own saturation (neon
+ * stays vivid, ashen muted); a 4-tone handheld palette maps to its own four shades.
+ */
+export function fxRamps(ramps: Ramps): FxRamps {
+  const w = ramps.water;
+  const tones = new Set(Object.values(ramps).flat()).size;
+  if (tones <= 6) {
+    // handheld: darks for night, lights for lamps, ordered by luma
+    const t = [...new Set(Object.values(ramps).flat())].sort((a, b) => luma(a) - luma(b));
+    const at = (i: number) => t[Math.min(t.length - 1, Math.max(0, i))];
+    return { night: [at(0), at(0), at(1), at(1), at(2)], lamplight: [at(1), at(2), at(2), at(3), at(3)] };
+  }
+  const ref = rgbToHsl(hexToRgb(HEARTH_WATER2))[1] || 1;
+  const k = Math.max(0.55, Math.min(1.3, rgbToHsl(hexToRgb(w[Math.floor(w.length / 2)]))[1] / ref));
+  const tune = (r: string[], sat: number) => r.map((c) => adjustColor(c, { saturation: sat }));
+  return { night: tune(NIGHT, k), lamplight: tune(LAMP, Math.max(0.8, k)) };
+}
+const HEARTH_WATER2 = hearthwood.water[2];
+
+/** flattenPalette plus the fx block: PALETTE_SIZE_FX entries, for rendering/export of graded images. */
+export function flattenPaletteFx(ramps: Ramps): (string | null)[] {
+  const fx = fxRamps(ramps);
+  return [...flattenPalette(ramps), ...fx.night, ...fx.lamplight];
+}

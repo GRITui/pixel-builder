@@ -1,8 +1,9 @@
 // Lighting & atmosphere: a palette-locked post pass over a rendered map image.
 // It only ever re-picks palette indices (shifting ramp levels, or swapping to a neighbouring
 // material at the same level), so the output is still 100% kit colours.
-import { colorIndexFine, decodeIndex, normalizeDepth, type Material, type RampDepth } from "./palette";
+import { colorIndex, colorIndexFine, decodeIndex, lampIndex, nightIndex, normalizeDepth, type Material, type RampDepth } from "./palette";
 import { cloneSprite } from "./sprite";
+import { wetField, wetGlow, wetGround, type Wet } from "./wet";
 import type { LightDir, Sprite, StyleKit, TileMap } from "./types";
 
 export const TIMES = ["day", "dawn", "dusk", "night"] as const;
@@ -24,14 +25,21 @@ export interface Light {
   r: number;
 }
 
+/** "classic": level shifts and material swaps only. "rich": cinematic grade using the night/lamplight fx ramps. */
+export type GradeFx = "classic" | "rich";
+
 export interface LightingOptions {
   time?: TimeOfDay;
+  /** colour treatment of the time-of-day grade (default classic) */
+  fx?: GradeFx;
   shadows?: boolean;
   dapple?: boolean;
   reflections?: boolean;
   seed?: number;
   /** extra light sources in image pixels (lanterns carried by characters, a campfire not in the map) */
   lights?: Light[];
+  /** wet ground: darker stone, puddles, reflections of lights and buildings (applied around the grade) */
+  wet?: Wet;
 }
 
 const BASE_POS: Record<RampDepth, number[]> = { 5: [0, 1, 2, 3, 4], 7: [0, 1, 3, 5, 6], 9: [0, 2, 4, 6, 8] };
@@ -199,8 +207,9 @@ const GRADES: Record<TimeOfDay, Grade> = {
 };
 
 /** Time-of-day colour grade over the whole image; at night the lights glow. */
-export function grade(img: Sprite, kit: StyleKit, time: TimeOfDay, lights: Light[] = [], seed = 0, keepHue?: Uint8Array): Sprite {
+export function grade(img: Sprite, kit: StyleKit, time: TimeOfDay, lights: Light[] = [], seed = 0, keepHue?: Uint8Array, fx: GradeFx = "classic"): Sprite {
   if (time === "day") return img;
+  if (fx === "rich") return gradeRich(img, kit, time, lights, seed, keepHue);
   const g = GRADES[time];
   const depth = normalizeDepth(kit.rampDepth);
   const out = cloneSprite(img);
@@ -232,10 +241,109 @@ export function grade(img: Sprite, kit: StyleKit, time: TimeOfDay, lights: Light
   return out;
 }
 
+// ---------- rich grade (fx: "rich") ----------
+
+interface RichTone {
+  /** scale of the per-level share of pixels recoloured into the night ramp */
+  amt: number;
+  /** level drop for scenery */
+  drop: number;
+  /** rim colour: moonlit night shade, or warm lamplight at dusk/dawn */
+  rim: "moon" | "warm";
+  /** weight of the desaturating stone stand-in */
+  grey: number;
+}
+const RICH: Partial<Record<TimeOfDay, RichTone>> = {
+  dawn: { amt: 0.5, drop: 0.5, rim: "warm", grey: 0.3 },
+  dusk: { amt: 0.8, drop: 0.7, rim: "warm", grey: 0.35 },
+  night: { amt: 1, drop: 1.4, rim: "moon", grey: 1 },
+};
+/** Per original level (0..4): chance to become night ramp / a desaturated stand-in material. */
+const TO_NIGHT = [1, 0.8, 0.58, 0.42, 0.3];
+const TO_GREY = [0, 0.1, 0.2, 0.26, 0.3];
+/** Warm or saturated scenery is desaturated through stone; already-cool materials are not. */
+const DESAT = new Set<Material>(["grass", "foliage", "dirt", "sand", "wood", "roof", "cloth2", "leather", "gold", "blossom", "skin", "hair"]);
+const COOL = new Set<Material>(["water", "cloth", "metal", "accent"]);
+
+const smooth = (t: number) => t * t * (3 - 2 * t);
+/** Blobby 0..1 value noise on a `cell`-pixel lattice: swaps come in clusters, not single pixels. */
+function cluster(x: number, y: number, cell: number, seed: number): number {
+  const fx = x / cell, fy = y / cell, x0 = Math.floor(fx), y0 = Math.floor(fy);
+  const u = smooth(fx - x0), v = smooth(fy - y0);
+  const a = hash(x0, y0, seed), b = hash(x0 + 1, y0, seed), c = hash(x0, y0 + 1, seed), d = hash(x0 + 1, y0 + 1, seed);
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+}
+
+/**
+ * Warm light pool: the lamplight-ramp index for a pixel near an emitter, or null outside the glow.
+ * Kept separate so the glow lane can replace the falloff with bloom and banding. `level` is the
+ * pixel's own (graded) brightness 0..4, `glow` the 0..1 strength from the light's radius.
+ */
+export function emitterTone(level: number, glow: number): number | null {
+  if (glow < 0.2) return null;
+  return lampIndex(Math.min(glow > 0.8 ? 4 : 3, level * 0.35 + (glow - 0.1) * 2.9));
+}
+
+function gradeRich(img: Sprite, kit: StyleKit, time: TimeOfDay, lights: Light[], seed: number, keepHue?: Uint8Array): Sprite {
+  const tone = RICH[time]!;
+  const depth = normalizeDepth(kit.rampDepth);
+  const out = cloneSprite(img);
+  const { w, h } = img;
+  const emissive = time === "night" || time === "dusk";
+  const at = (x: number, y: number) => (x < 0 || y < 0 || x >= w || y >= h ? 0 : img.data[y * w + x]);
+  const isInk = (idx: number) => {
+    const m = decodeIndex(idx);
+    return !!m && (m.mat === "ink" || m.mat === "ui") && m.level <= 1;
+  };
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      const d = decodeIndex(img.data[i]);
+      if (!d) continue;
+      let glow = 0;
+      if (emissive) for (const l of lights) glow = Math.max(glow, 1 - Math.hypot(x - l.x, (y - l.y) * 1.3) / l.r);
+      glow = glow > 0 ? glow ** 1.4 * (time === "night" ? 1 : 0.5) : 0;
+      const keep = !!keepHue?.[i];
+      const ink = d.mat === "ink" || d.mat === "ui";
+      // outlines and characters keep their hue; they only sink in level
+      if (ink || keep) {
+        let idx = shiftIndex(img.data[i], -tone.drop * (keep ? 0.7 : 0.4), depth);
+        const e = emitterTone(d.level, glow);
+        if (keep && e !== null && glow > 0.3) idx = e;
+        out.data[i] = idx;
+        continue;
+      }
+      const level = Math.max(0, Math.min(4, Math.round(d.level - tone.drop * (d.level >= 3 ? 1.2 : 1))));
+      const v = cluster(x, y, 4, seed + 3) * 0.7 + cluster(x + 7, y + 3, 2, seed + 9) * 0.3;
+      // the pool is solid at its core and breaks into clusters toward the edge, so ground texture survives
+      const warm = emitterTone(Math.max(level, d.level - 1), glow);
+      if (warm !== null && glow > 0.3 + (v - 0.5) * 0.2) {
+        out.data[i] = warm;
+        continue;
+      }
+      const pn = TO_NIGHT[d.level] * tone.amt * (COOL.has(d.mat) ? 0.7 : 1);
+      const pg = DESAT.has(d.mat) ? TO_GREY[d.level] + 0.3 : 0;
+      let idx: number;
+      if (v < pn) idx = nightIndex(level + (d.level >= 3 ? 0.5 : 0));
+      else if (v < pn + pg * tone.grey) idx = colorIndex("stone", level);
+      else idx = shiftIndex(img.data[i], level - d.level, depth);
+      // moonlit rim: lit (top-left) edge of a shape, i.e. the pixel just inside an outline
+      if (d.level >= 2 && (isInk(at(x - 1, y)) || isInk(at(x, y - 1))) && !isInk(at(x + 1, y)) && glow < 0.16) {
+        idx = tone.rim === "moon" ? nightIndex(d.level >= 4 ? 4 : 3) : lampIndex(d.level >= 4 ? 3 : 2);
+      }
+      out.data[i] = idx;
+    }
+  return out;
+}
+
 /** Everything in one call: shadows, dapple, reflections, then the time-of-day grade. */
 export function applyLighting(img: Sprite, objects: LitObject[], kit: StyleKit, opts: LightingOptions = {}): Sprite {
   const cast = castLight(img, objects, kit, opts);
-  return grade(cast, kit, opts.time ?? "day", findLights(objects, opts.lights), opts.seed ?? 0);
+  const time = opts.time ?? "day", lights = findLights(objects, opts.lights);
+  if (!opts.wet || opts.wet === "dry") return grade(cast, kit, time, lights, opts.seed ?? 0, undefined, opts.fx);
+  // ground gets wet before the grade; emitter reflections are drawn after it so they stay bright at night
+  const field = wetField(cast, objects, kit, { wet: opts.wet, seed: opts.seed, time });
+  return wetGlow(grade(wetGround(cast, field), kit, time, lights, opts.seed ?? 0, undefined, opts.fx), field, time);
 }
 
 /** The objects of a tile map placed in image pixels. */
