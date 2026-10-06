@@ -7,6 +7,8 @@ import { encodePng, decodePng } from "../io/png";
 import { upscale } from "../io/resize";
 import { fetchImage, FetchError } from "../net/fetch-safe";
 import { pixelize } from "../pixel/pipeline";
+import { pixelizeSprite } from "../pixel/sprite";
+import { pixelizeTile } from "../pixel/tile";
 import { BLOOMS, DITHERS, ERAS, MODES, PRESETS } from "../pixel/types";
 import { validate } from "../pixel/validate";
 import { registerTool, ToolError, type ToolImage } from "./registry";
@@ -57,15 +59,18 @@ registerTool({
     dither: z.enum(DITHERS as [string, ...string[]]).default("off"),
     outline: z.boolean().default(false).describe("Add a 1px dark outline."),
     size: z.number().int().min(8).max(2048).optional().describe("Native width in pixels (default from era)."),
+    bg: z.string().optional().describe("Sprite mode: background colour #rrggbb to key out (default: estimated from the border)."),
     seed: z.number().int().min(0).max(2 ** 31).default(1),
     out_dir: z.string().optional().describe("Output folder (default ./pixel-out)."),
   },
   async run(ctx, i) {
     const { img, stem } = await loadImage(i.image);
-    const result = pixelize(img, {
+    const popts = {
       mode: i.mode as "scene", era: i.era, preset: i.preset as "vivid", bloom: i.bloom as "off", dither: i.dither as "off",
-      outline: i.outline, width: i.size ?? ERAS[i.era].width, seed: i.seed,
-    });
+      outline: i.outline, width: i.size ?? (i.mode === "scene" ? ERAS[i.era].width : 32), seed: i.seed,
+    };
+    const tile = i.mode === "tile" ? pixelizeTile(img, popts) : undefined;
+    const result = tile ?? (i.mode === "sprite" ? pixelizeSprite(img, popts, { bg: i.bg }) : pixelize(img, popts));
     const dir = resolve(i.out_dir ?? ctx.outDir);
     mkdirSync(dir, { recursive: true });
     const name = `${stem}-${i.mode}-${i.era}bit`;
@@ -76,6 +81,12 @@ registerTool({
     atomicWrite(files.preview, previewPng);
     atomicWrite(files.meta, JSON.stringify({ ...result.meta, palette: result.palette, preview_scale: k, source: i.image }, null, 2));
     const images: ToolImage[] = [{ png: previewPng, label: `${name} (${k}x preview)` }];
+    if (tile) {
+      const sheetPath = join(dir, `${name}-3x3@${k}x.png`);
+      const sheetPng = encodePng(upscale(tile.sheet, k));
+      atomicWrite(sheetPath, sheetPng);
+      images.push({ png: sheetPng, label: `${name} 3x3 tiling check` });
+    }
     return {
       data: { files, width: result.native.w, height: result.native.h, colours: result.meta.colours, preview_scale: k, meta: result.meta },
       images,
