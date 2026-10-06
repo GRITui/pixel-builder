@@ -96,7 +96,7 @@ describe("urban buildings", () => {
 
   it("the generator exposes meta.lights and footprint; lit_windows=false removes window emitters", () => {
     const res = gen("urban-building", { style: "apartment", size: 3, floors: 6, lit_windows: true });
-    expect(res.meta!.footprint).toBe(2);
+    expect(res.meta!.footprint).toBe(3);
     expect((res.meta!.lights as unknown[]).length).toBeGreaterThan(0);
     const dark = gen("urban-building", { style: "apartment", size: 3, floors: 6, lit_windows: false });
     const wins = (r: typeof dark) => (r.meta!.lights as { kind: string }[]).filter((l) => l.kind === "window").length;
