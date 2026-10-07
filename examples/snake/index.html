@@ -16,10 +16,13 @@
   #pad [data-dir=U] { left: 63px; top: 0; } #pad [data-dir=D] { left: 63px; top: 126px; }
   #pad [data-dir=L] { left: 0; top: 63px; } #pad [data-dir=R] { left: 126px; top: 63px; }
   #pad #pausebtn { left: 63px; top: 63px; font-size: 16px; }
+  #erabtn { flex: none; height: 32px; padding: 0 14px; border: 2px solid #5a5a7a; background: #231d3a; color: #e8e0c8; font: bold 14px monospace; letter-spacing: 1px; border-radius: 6px; cursor: pointer; touch-action: manipulation; }
+  #erabtn:hover { background: #2e2650; } #erabtn:focus-visible { outline: 2px solid #f2c230; outline-offset: 2px; }
 </style>
 </head>
 <body>
 <canvas id="c" width="320" height="240" aria-label="Snake game"></canvas>
+<button id="erabtn" type="button">8-BIT</button>
 <div id="pad">
   <button data-dir="U" aria-label="Up">&#9650;</button>
   <button data-dir="L" aria-label="Left">&#9664;</button>

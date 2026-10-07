@@ -21,15 +21,22 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error("failed " + src)); i.src = src; });
 }
 
-async function loadAssets(): Promise<Assets> {
+type Era = 8 | 16;
+const ERA_KEY = "pixel-builder:snake:era";
+const loadEra = (): Era => { try { return localStorage.getItem(ERA_KEY) === "8" ? 8 : 16; } catch { return 16; } };
+const saveEra = (e: Era) => { try { localStorage.setItem(ERA_KEY, String(e)); } catch { /* storage unavailable */ } };
+
+/** One art set: 16-bit lives in assets/, 8-bit in assets-8bit/ (inlined under an "8bit/" prefix). */
+async function loadAssets(era: Era): Promise<Assets> {
   const inl = window.__SNAKE_ASSETS__;
-  const url = (n: string) => inl?.[n] ?? `assets/${n}`;
+  const prefix = era === 8 ? "8bit/" : "", dir = era === 8 ? "assets-8bit" : "assets";
+  const url = (n: string) => inl?.[prefix + n] ?? `${dir}/${n}`;
   const imgs = await Promise.all(NAMES.map((n) => loadImage(url(n + ".png"))));
   const img = Object.fromEntries(NAMES.map((n, i) => [n, imgs[i]])) as Record<Name, HTMLImageElement>;
   let palette: string[] = [];
   try {
-    const raw = inl?.["palette.json"];
-    const j = raw ? JSON.parse(raw) : await (await fetch("assets/palette.json")).json();
+    const raw = inl?.[prefix + "palette.json"];
+    const j = raw ? JSON.parse(raw) : await (await fetch(`${dir}/palette.json`)).json();
     if (Array.isArray(j.palette)) palette = j.palette.filter((c: unknown) => typeof c === "string");
   } catch { /* fall back to white/black */ }
   return { img, palette };
@@ -53,8 +60,9 @@ async function main() {
   const canvas = document.getElementById("c") as HTMLCanvasElement;
   const ctx = canvas.getContext("2d")!;
   ctx.imageSmoothingEnabled = false;
-  const { img, palette } = await loadAssets();
-  const col = colors(palette);
+  const sets = { 16: await loadAssets(16), 8: await loadAssets(8) };
+  let era = loadEra();
+  let img = sets[era].img, col = colors(sets[era].palette);
   const rng = Math.random;
 
   let mode: Mode = "title";
@@ -69,7 +77,17 @@ async function main() {
     const g = p.getContext("2d")!; g.fillStyle = color; g.fillRect(0, 0, 1, 1); g.fillRect(1, 1, 1, 1);
     return ctx.createPattern(p, "repeat")!;
   };
-  const dimPat = mkPattern(col.dark), flashPat = mkPattern(col.light);
+  let dimPat = mkPattern(col.dark), flashPat = mkPattern(col.light);
+  const eraBtn = document.getElementById("erabtn") as HTMLButtonElement;
+  const applyEra = () => {
+    img = sets[era].img; col = colors(sets[era].palette);
+    dimPat = mkPattern(col.dark); flashPat = mkPattern(col.light);
+    eraBtn.textContent = era === 16 ? "8-BIT" : "16-BIT";
+    eraBtn.setAttribute("aria-label", `Switch to ${era === 16 ? 8 : 16}-bit graphics`);
+  };
+  const toggleEra = () => { era = era === 16 ? 8 : 16; saveEra(era); applyEra(); };
+  applyEra();
+  eraBtn.addEventListener("click", (e) => { e.preventDefault(); toggleEra(); eraBtn.blur(); });
 
   const start = () => { s = createState(rng); sparks = []; acc = 0; last = performance.now(); mode = "play"; };
   const pause = () => { if (mode === "play") mode = "pause"; else if (mode === "pause") { mode = "play"; last = performance.now(); } };
@@ -86,6 +104,7 @@ async function main() {
   };
   addEventListener("keydown", (e) => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key === "g" || e.key === "G") { e.preventDefault(); toggleEra(); return; }
     if (e.key === "p" || e.key === "P" || e.key === "Escape") { if (mode === "play" || mode === "pause") pause(); else anyAction(); e.preventDefault(); return; }
     const d = KEYS[e.key];
     if (d) { e.preventDefault(); turn(d); return; }
@@ -93,7 +112,7 @@ async function main() {
   });
   let sx = 0, sy = 0, swiping = false, moved = false;
   addEventListener("pointerdown", (e) => {
-    if ((e.target as HTMLElement).closest("#pad")) return;
+    if ((e.target as HTMLElement).closest("#pad, #erabtn")) return;
     sx = e.clientX; sy = e.clientY; swiping = true; moved = false;
   });
   addEventListener("pointermove", (e) => {
@@ -118,7 +137,7 @@ async function main() {
     const touch = document.body.classList.contains("touch");
     const land = innerWidth > innerHeight;
     document.body.classList.toggle("land", land);
-    const padW = touch && land ? 200 : 0, padH = touch && !land ? 210 : 0;
+    const padW = touch && land ? 200 : 0, padH = (touch && !land ? 210 : 0) + 44; // + the 8/16-bit button row
     const scale = Math.max(1, Math.floor(Math.min((innerWidth - padW - 16) / W, (innerHeight - padH - 16) / H)));
     canvas.style.width = W * scale + "px";
     canvas.style.height = H * scale + "px";
@@ -173,6 +192,7 @@ async function main() {
     text("SCORE " + s.score, 8, 5, 1, col.light);
     const b = "BEST " + Math.max(best, s.score);
     text(b, W - 8 - textWidth(b, 1), 5, 1, col.accent);
+    center(era + "-BIT", 5, 1, col.light);
   }
 
   function frame(now: number) {
@@ -198,6 +218,7 @@ async function main() {
       center("SNAKE", 56, 6, col.accent);
       if (Math.floor(now / 500) % 2 === 0) center("PRESS ANY KEY / TAP", 184, 1, col.light);
       if (best > 0) center("BEST " + best, 200, 1, col.accent);
+      center("G: " + (era === 16 ? "8-BIT" : "16-BIT") + " GRAPHICS", 216, 1, col.light);
     } else {
       drawField(now);
       if (mode === "pause") {

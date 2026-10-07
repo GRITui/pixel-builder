@@ -1,5 +1,6 @@
-// Snake showcase art: procedural realistic sources -> pixelizer (era 16, one locked look) -> examples/snake/assets.
-// Run: npm run snake:assets [-- <preview-dir>]   (a preview dir also gets a contact sheet and a mock game frame)
+// Snake showcase art: procedural realistic sources -> pixelizer (one locked look per era) -> examples/snake/assets
+// (16-bit) and examples/snake/assets-8bit (8-bit: NES palette, 8x8 sprites shown at 2x so the game grid stays 16 px).
+// Run: npm run snake:assets [-- <preview-dir>]   (a preview dir also gets contact sheets and mock game frames)
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,8 +18,6 @@ import { fruit, grassTex, hex, KEY, REGS, snakePart, wallTex, type SnakePart } f
 import { titleScene } from "./scene";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const OUT = join(here, "assets");
-const LOOK_NAME = "snake-16bit";
 
 const blank = (w: number, h: number): Rgba => ({ w, h, data: new Uint8ClampedArray(w * h * 4) });
 const getPx = (im: Rgba, x: number, y: number): number[] => [...im.data.subarray((y * im.w + x) * 4, (y * im.w + x) * 4 + 4)];
@@ -38,7 +37,21 @@ export function rotCCW(im: Rgba): Rgba {
   return o;
 }
 
-export async function build(previewDir?: string) {
+/** 2x2 -> 1 by the most common opaque colour (a block with fewer than two opaque pixels becomes transparent). */
+export function down2(im: Rgba): Rgba {
+  const o = blank(im.w >> 1, im.h >> 1);
+  for (let y = 0; y < o.h; y++) for (let x = 0; x < o.w; x++) {
+    const px = [getPx(im, 2 * x, 2 * y), getPx(im, 2 * x + 1, 2 * y), getPx(im, 2 * x, 2 * y + 1), getPx(im, 2 * x + 1, 2 * y + 1)].filter((c) => c[3]);
+    if (px.length < 2) continue;
+    let best = px[0], n = 0;
+    for (const c of px) { const k = px.filter((d) => same(c, d)).length; if (k > n) { n = k; best = c; } }
+    setPx(o, x, y, best);
+  }
+  return o;
+}
+
+export async function build(previewDir?: string, era: 8 | 16 = 16) {
+  const OUT = join(here, era === 8 ? "assets-8bit" : "assets"), LOOK_NAME = `snake-${era}bit`;
   mkdirSync(OUT, { recursive: true });
   const out: Record<string, Rgba> = {};
 
@@ -55,10 +68,10 @@ export async function build(previewDir?: string) {
   const parts: SnakePart[] = ["head", "body", "corner", "tail"];
   const cells: Rgba[] = [...parts.map((p) => snakePart(p, 20, bgGrass, false).rgba()), fruit("apple", 320, bgGrass).rgba(), fruit("gold", 320, bgGrass).rgba(), wallTex(32).rgba(), wallTex(24).rgba()];
   cells.forEach((c, i) => put(c, (i % 4) * 320, 480 + Math.floor(i / 4) * 240, 320, 240));
-  const atlasPx = pixelize(atlas, { era: 16, preset: "vivid", seed: 1 });
-  const look: Look = { id: LOOK_NAME, name: LOOK_NAME, era: 16, palette: atlasPx.palette, preset: "vivid", bloom: "off", dither: "off", outline: false };
+  const atlasPx = pixelize(atlas, { era, preset: "vivid", seed: 1 });
+  const look: Look = { id: LOOK_NAME, name: LOOK_NAME, era, palette: atlasPx.palette, preset: "vivid", bloom: "off", dither: "off", outline: false };
   saveLook(join(here, "looks"), look);
-  const popts = { look, era: 16 as const, seed: 1 };
+  const popts = { look, era, seed: 1 };
   const palSet = new Set(look.palette);
   const lab = look.palette.map((h) => rgbToOklab(...hexToRgb(h)));
   /** Nearest look-palette colour to an rgb target (all hand edits go through this). */
@@ -114,21 +127,53 @@ export async function build(previewDir?: string) {
   for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) setPx(wall, x, y, getPx(wall48, x + 16, y + 16));
   out.wall = wall;
 
-  // 5. Title scene 320x240.
-  out.title = pixelize(title, { ...popts, mode: "scene", width: 320, height: 240 }).native;
+  // 5. Title scene 320x240 (8-bit: 160x120 at 2x).
+  out.title = era === 8 ? upscale(pixelize(title, { ...popts, mode: "scene", width: 160, height: 120 }).native, 2)
+    : pixelize(title, { ...popts, mode: "scene", width: 320, height: 240 }).native;
+
+  // 8-bit: every 16x16 cell becomes a true 8x8 sprite shown at 2x; snake joins are re-matched at 8x8.
+  if (era === 8) {
+    const d: Record<string, Rgba> = {};
+    for (const n of Object.keys(out)) if (n !== "title") d[n] = down2(out[n]);
+    const b = d.body;
+    for (let r = 0; r < 8; r++) {
+      setPx(b, 7, r, getPx(b, 0, r));
+      setPx(d.head, 0, r, getPx(b, 0, r)); setPx(d.tail, 7, r, getPx(b, 7, r));
+      setPx(d.corner, 0, r, getPx(b, 0, r)); setPx(d.corner, r, 7, getPx(b, 7, r));
+    }
+    // one-pixel eyes and tongue: the 2x2 vote drops details this small
+    for (const y of [2, 5]) { setPx(d.head, 5, y, near("#f8f4d0")); setPx(d.head, 6, y, near("#0c0814")); }
+    setPx(d.head, 7, 3, near("#e0203c")); setPx(d.head, 7, 4, near("#e0203c"));
+    // the vote turns the snake's soft rim into grey: make it a dark-green outline instead
+    const rim = near("#16402a");
+    for (const n of ["head", "body", "corner", "tail"]) {
+      const im = d[n];
+      for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) {
+        const c = getPx(im, x, y);
+        if (c[3] && Math.max(c[0], c[1], c[2]) - Math.min(c[0], c[1], c[2]) < 24 && c[0] < 200) setPx(im, x, y, rim);
+      }
+    }
+    // the vote also erases mortar lines, so the 8-bit wall is the classic NES brick, drawn in look colours
+    const mortar = near("#2a2a34"), brick = near("#8a8a96"), lit = near("#bcbcc8");
+    for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) {
+      const row = y % 4, off = y < 4 ? 0 : 4;
+      setPx(d.wall, x, y, row === 3 || (x + off) % 8 === 7 ? mortar : row === 0 ? lit : brick);
+    }
+    for (const [n, im] of Object.entries(d)) out[n] = upscale(im, 2);
+  }
 
   // 6. Write + validate
   const report: Record<string, unknown> = {};
   for (const [name, im] of Object.entries(out)) {
     writeFileSync(join(OUT, `${name}.png`), encodePng(im));
-    const v = validate(im, { maxColours: 48 });
+    const v = validate(im, { maxColours: look.palette.length });
     const used = new Set<string>();
     let offPalette = 0;
     for (let i = 0; i < im.w * im.h; i++) if (im.data[i * 4 + 3]) { const h = rgbToHex(im.data[i * 4], im.data[i * 4 + 1], im.data[i * 4 + 2]); used.add(h); if (!palSet.has(h)) offPalette++; }
     report[name] = { ok: v.ok && offPalette === 0, colours: v.colours, size: `${im.w}x${im.h}`, offPalette };
   }
   writeFileSync(join(OUT, "palette.json"), JSON.stringify({ look: LOOK_NAME, palette: look.palette }, null, 2) + "\n");
-  if (previewDir) writePreviews(out, previewDir);
+  if (previewDir) writePreviews(out, join(previewDir, `${era}bit`));
   return { report, palette: look.palette, out };
 }
 
@@ -154,8 +199,11 @@ function writePreviews(a: Record<string, Rgba>, dir: string) {
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  build(process.argv[2]).then(({ report, palette }) => {
-    console.log(JSON.stringify({ palette: palette.length, report }, null, 2));
-    if (Object.values(report).some((r) => !(r as { ok: boolean }).ok)) process.exit(1);
-  });
+  (async () => {
+    for (const era of [16, 8] as const) {
+      const { report, palette } = await build(process.argv[2], era);
+      console.log(JSON.stringify({ era, palette: palette.length, report }, null, 2));
+      if (Object.values(report).some((r) => !(r as { ok: boolean }).ok)) process.exit(1);
+    }
+  })();
 }
