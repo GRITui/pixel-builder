@@ -9,8 +9,9 @@ Output is TRUE pixel art: one solid colour per pixel, alpha 0/255, palette withi
 
 ## Tools (MCP tools = CLI commands `npx tsx src/agent/cli.ts <tool> --json`)
 
-- `pixelize` `image` (path or http(s) URL) `[mode: scene|sprite|tile] [era: 8|16|32|64] [preset: vivid|neon|pastel|warm|cool|sepia|neutral] [bloom: off|low|med|high] [dither: off|low|med] [outline] [size] [seed] [out_dir]`
+- `pixelize` `image` (path or http(s) URL) or `prompt` (text; needs `IMAGE_API_KEY`, optional `IMAGE_BASE_URL`, `IMAGE_MODEL`, `IMAGE_API_STYLE=chat`) `[mode: scene|sprite|tile] [era: 8|16|32|64] [preset: vivid|neon|pastel|warm|cool|sepia|neutral] [bloom: off|low|med|high] [dither: off|low|med] [outline] [size] [look] [seed] [out_dir] [effects: rain,snow,shimmer,flicker,bloom_pulse] [frames: 2-64] [fps]`. With effects it also writes a looping `-fx.gif`, `-fx-sheet.png` and `-fx-frames.json`.
   Writes `<name>.png` (native size, use this in games), `<name>@Nx.png` (integer-upscaled preview) and `<name>.json` (meta + palette). Look at the returned preview.
+- `looks` `action: save|list|delete` `[name] [from]` - save the era, palette and settings of a good result (`from` = its `.json`) as a named look; later `pixelize ... look=<name>` forces that exact palette and settings so a whole project matches.
 - `validate` `path` `[max_colours] [scale]` - run it on the native PNG (and on the preview with `scale`). Fix and re-run until `ok` is true.
 
 ## Workflow
