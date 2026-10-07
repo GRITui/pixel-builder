@@ -50,7 +50,7 @@ registerTool({
   name: "pixelize",
   title: "Pixelize an image",
   description:
-    "Turn a realistic image (file path or http(s) URL) into TRUE pixel art: every pixel one solid colour, era-limited palette. Writes <out_dir>/<name>.png (native size), <name>@Nx.png (upscaled preview) and <name>.json (meta); returns paths and shows the preview.",
+    "Turn a realistic image (file path or http(s) URL) into TRUE pixel art: every pixel one solid colour, era-limited palette. Writes <out_dir>/<name>.png (native size), <name>@Nx.png (upscaled preview) and <name>.json (meta); returns paths and shows the preview. Example: pixelize image=photo.jpg era=16 preset=neon bloom=med effects=[rain].",
   positional: "image",
   shape: {
     image: z.string().min(1).optional().describe("Image file path or http(s) URL (PNG, JPEG, WebP, GIF). Give this or prompt."),
@@ -116,7 +116,7 @@ registerTool({
 registerTool({
   name: "validate",
   title: "Validate true pixel art",
-  description: "Check a PNG is true pixel art: alpha only 0/255, colour count within a limit, and (with scale) every scale x scale block one solid colour.",
+  description: "Check a PNG is true pixel art: alpha only 0/255, colour count within a limit, and (with scale) every scale x scale block one solid colour. Example: validate path=pixel-out/photo-scene-16bit.png max_colours=48.",
   positional: "path",
   readOnly: true,
   shape: {
@@ -131,5 +131,50 @@ registerTool({
     try { img = decodePng(buf); } catch (e) { throw new ToolError(`Not a readable PNG: ${(e as Error).message}`); }
     const r = validate(img, { maxColours: i.max_colours ?? 256, scale: i.scale });
     return { data: { ...r } };
+  },
+});
+
+const PRESET_INFO: Record<string, string> = {
+  vivid: "Punchy saturated colours, the default.",
+  neon: "Hot magentas/cyans on deep darks; pairs with bloom for night scenes.",
+  pastel: "Soft, light, low-contrast colours.",
+  warm: "Orange/amber cast, golden-hour feel.",
+  cool: "Blue/teal cast, night or winter feel.",
+  sepia: "Brown monochrome, old-photo look.",
+  neutral: "No colour grade; faithful to the source.",
+};
+const EFFECT_INFO: Record<string, string> = {
+  rain: "Falling streaks over the whole frame.",
+  snow: "Drifting flakes.",
+  shimmer: "Water/reflective areas ripple (best on water scenes).",
+  flicker: "Bright emitters (lamps, neon) flicker.",
+  bloom_pulse: "Glow around bright emitters pulses.",
+};
+const MODE_INFO: Record<string, string> = {
+  scene: "Whole image to era width (default).",
+  sprite: "Cut-out subject on transparent background, exact small size (default 32 wide); bg keyed out.",
+  tile: "Seamless tile plus a 3x3 tiling-check sheet.",
+};
+
+registerTool({
+  name: "presets",
+  title: "List eras, presets and options",
+  description:
+    "List every valid choice for pixelize: eras (width, colour limit, palette rule), colour presets, bloom/dither levels, modes and effects, each with an example call. Read-only; call it first if unsure. Example: presets (no input).",
+  readOnly: true,
+  shape: {},
+  async run() {
+    const ex = (a: string) => `pixelize image=photo.jpg ${a}`;
+    return {
+      data: {
+        eras: Object.entries(ERAS).map(([era, e]) => ({ era: Number(era), width: e.width, max_colours: e.colours, palette: e.palette, example: ex(`era=${era}`) })),
+        presets: PRESETS.map((p) => ({ name: p, description: PRESET_INFO[p], example: ex(`preset=${p}`) })),
+        bloom: BLOOMS.map((b) => ({ level: b, example: ex(`bloom=${b}`) })),
+        dither: DITHERS.map((d) => ({ level: d, example: ex(`dither=${d}`) })),
+        modes: MODES.map((m) => ({ mode: m, description: MODE_INFO[m], example: ex(`mode=${m}`) })),
+        effects: EFFECTS.map((f) => ({ effect: f, description: EFFECT_INFO[f], example: ex(`effects=[${f}] frames=12 fps=10`) })),
+        other: { outline: ex("outline=true"), size: ex("size=256"), look: "looks action=save name=mine from=pixel-out/x.json; then pixelize image=y.jpg look=mine" },
+      },
+    };
   },
 });
