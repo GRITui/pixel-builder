@@ -21,7 +21,7 @@ describe("validate", () => {
   });
 });
 
-describe("pixelize (placeholder pipeline)", () => {
+describe("pixelize (core)", () => {
   it("is deterministic, size-correct and within the era colour budget", () => {
     const a = pixelize(gradient(200, 100), { era: 16, width: 80, seed: 3 });
     const b = pixelize(gradient(200, 100), { era: 16, width: 80, seed: 3 });

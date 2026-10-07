@@ -1,21 +1,19 @@
-// PLACEHOLDER pipeline (issue #104): box downscale + k-means to N colours in OKLab.
-// The core lane (#105) replaces the internals (presets, bloom, dither, outline, hardware palettes,
-// sprite/tile modes). Keep the exported names and the PixelResult contract stable.
-import { hexToRgb, labDist2, oklabToRgb, rgbToHex, rgbToOklab, type Vec3 } from "../color/oklab";
+// Scene pixelizer (#105): lanczos 2x -> kuwahara -> box to native -> grade -> bloom -> palette ->
+// calm-area ordered dither -> OKLab nearest -> orphan cleanup -> outline.
+import { hexToRgb, labDist2, type Vec3 } from "../color/oklab";
 import { resizeBox, resizeLanczos } from "../io/resize";
+import { snap555 } from "../color/rgb555";
+import { bloom } from "./bloom";
+import { cleanup } from "./cleanup";
+import { ditherCalm } from "./dither";
+import { kuwahara } from "./flatten";
+import { grade } from "./grade";
+import { outline } from "./outline";
+import { buildPalette, chromaWeight, Nearest, paletteHex, toLab, type Rgb } from "./palette";
+import { rng } from "./rng";
 import { ERAS, type PixelOptions, type PixelResult, type Rgba } from "./types";
 
-/** Small seeded PRNG (mulberry32). */
-export function rng(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
+export { rng };
 
 /** k-means (k-means++ init) over OKLab points; returns centroids. */
 export function kmeans(points: Vec3[], k: number, seed = 1, iters = 16): Vec3[] {
@@ -49,40 +47,67 @@ export function pixelize(img: Rgba, opts: PixelOptions = {}): PixelResult {
   const spec = ERAS[era];
   const mode = opts.mode ?? "scene";
   const seed = opts.seed ?? 1;
+  const preset = look?.preset ?? opts.preset ?? "vivid";
+  const bloomLevel = look?.bloom ?? opts.bloom ?? "off";
+  const ditherLevel = look?.dither ?? opts.dither ?? "off";
+  const wantOutline = look?.outline ?? opts.outline ?? false;
   const width = Math.max(1, Math.min(img.w, Math.round(opts.width ?? spec.width)));
   const height = Math.max(1, Math.round(opts.height ?? (img.h * width) / img.w));
-  const big = resizeLanczos(img, width * 2, height * 2);
-  const small = resizeBox(big, width, height);
+  const n = width * height;
 
-  const pts: Vec3[] = [], at: number[] = [];
-  for (let i = 0; i < width * height; i++) {
-    if (small.data[i * 4 + 3] >= 128) { pts.push(rgbToOklab(small.data[i * 4], small.data[i * 4 + 1], small.data[i * 4 + 2])); at.push(i); }
+  // Lanczos to 2x, flatten photo noise, then box down to the native grid.
+  const big = resizeLanczos(img, width * 2, height * 2);
+  const bigRgb = new Float32Array(big.w * big.h * 3);
+  for (let i = 0; i < big.w * big.h; i++) { bigRgb[i * 3] = big.data[i * 4]; bigRgb[i * 3 + 1] = big.data[i * 4 + 1]; bigRgb[i * 3 + 2] = big.data[i * 4 + 2]; }
+  const flat = kuwahara(bigRgb, big.w, big.h, spec.palette === "hardware-nes" ? 3 : 2);
+  const flatBytes = new Uint8ClampedArray(big.w * big.h * 4);
+  for (let i = 0; i < big.w * big.h; i++) flatBytes.set([flat[i * 3], flat[i * 3 + 1], flat[i * 3 + 2], big.data[i * 4 + 3]], i * 4);
+  const small = resizeBox({ w: big.w, h: big.h, data: flatBytes }, width, height);
+  const rgb = new Float32Array(n * 3);
+  const opaque = new Uint8Array(n);
+  for (let i = 0; i < n; i++) {
+    rgb[i * 3] = small.data[i * 4]; rgb[i * 3 + 1] = small.data[i * 4 + 1]; rgb[i * 3 + 2] = small.data[i * 4 + 2];
+    opaque[i] = small.data[i * 4 + 3] >= 128 ? 1 : 0;
   }
-  const out = new Uint8ClampedArray(width * height * 4);
-  let palette: string[] = [];
-  if (pts.length) {
-    const sample = pts.length > 8000 ? Array.from({ length: 8000 }, (_, i) => pts[Math.floor((i * pts.length) / 8000)]) : pts;
-    const cent = look ? look.palette.map((h) => rgbToOklab(...hexToRgb(h))) : kmeans(sample, spec.colours, seed);
-    const rgb = cent.map((c) => oklabToRgb(c[0], c[1], c[2]).map(Math.round));
-    const used = new Set<number>();
-    at.forEach((px, n) => {
-      let best = 0, bd = Infinity;
-      for (let j = 0; j < cent.length; j++) { const dd = labDist2(pts[n], cent[j]); if (dd < bd) { bd = dd; best = j; } }
-      used.add(best);
-      out.set([rgb[best][0], rgb[best][1], rgb[best][2], 255], px * 4);
-    });
-    palette = [...used].sort((a, b) => a - b).map((j) => rgbToHex(rgb[j][0], rgb[j][1], rgb[j][2]));
+
+  grade(rgb, preset);
+  bloom(rgb, width, height, bloomLevel);
+  if (spec.palette === "rgb555") for (let i = 0; i < rgb.length; i++) rgb[i] = snap555(rgb[i]);
+
+  const out = new Uint8ClampedArray(n * 4);
+  const idx = new Int32Array(n).fill(-1);
+  let pal: Rgb[] = [], used: number[] = [];
+  const cw = chromaWeight(spec.palette);
+  const ops: number[] = [];
+  for (let i = 0; i < n; i++) if (opaque[i]) ops.push(i);
+  if (ops.length) {
+    const op = new Float32Array(ops.length * 3);
+    ops.forEach((p, k) => op.set(rgb.subarray(p * 3, p * 3 + 3), k * 3));
+    pal = look ? look.palette.map((h) => hexToRgb(h) as Rgb) : buildPalette({ rgb: op, count: spec.colours, rule: spec.palette, seed });
+    const near = new Nearest(pal, cw);
+    if (ditherLevel !== "off") {
+      const lab = toLab(rgb, n, cw);
+      ditherCalm(lab, width, height, near.paletteL, ditherLevel, opaque);
+      for (const p of ops) idx[p] = near.byLab(lab[p * 3], lab[p * 3 + 1], lab[p * 3 + 2]);
+    } else {
+      for (const p of ops) idx[p] = near.byRgb(rgb[p * 3], rgb[p * 3 + 1], rgb[p * 3 + 2]);
+    }
+    cleanup(idx, width, height, ditherLevel !== "off" ? 1 : 2);
+    if (wantOutline) outline(idx, width, height, near.paletteL);
+    const seen = new Set<number>();
+    for (let i = 0; i < n; i++) {
+      const j = idx[i];
+      if (j < 0) continue;
+      seen.add(j);
+      out.set([pal[j][0], pal[j][1], pal[j][2], 255], i * 4);
+    }
+    used = [...seen].sort((a, b) => a - b);
   }
+  // A locked look reports its whole palette so two images share it exactly; otherwise only colours in use.
+  const palette = paletteHex(look ? pal : used.map((j) => pal[j]));
   return {
     native: { w: width, h: height, data: out },
     palette,
-    meta: {
-      era, mode, width, height, colours: palette.length, seed,
-      preset: look?.preset ?? opts.preset ?? "vivid",
-      bloom: look?.bloom ?? opts.bloom ?? "off",
-      dither: look?.dither ?? opts.dither ?? "off",
-      outline: look?.outline ?? opts.outline ?? false,
-      placeholder: true,
-    },
+    meta: { era, mode, width, height, colours: used.length, seed, preset, bloom: bloomLevel, dither: ditherLevel, outline: wantOutline, placeholder: false },
   };
 }
