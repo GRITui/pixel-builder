@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Snake - pixel-builder</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0b0912; overflow: hidden; overscroll-behavior: none; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  body { display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 8px; font-family: monospace; }
+  body.touch.land { flex-direction: row; gap: 16px; }
+  #c { image-rendering: pixelated; display: block; width: 320px; height: 240px; box-shadow: 0 0 0 2px #2a2140; }
+  #pad { display: none; position: relative; width: 186px; height: 186px; flex: none; }
+  body.touch #pad { display: block; }
+  #pad button { position: absolute; width: 60px; height: 60px; border: 2px solid #5a5a7a; background: #231d3a; color: #e8e0c8; font: bold 26px monospace; border-radius: 8px; touch-action: none; padding: 0; }
+  #pad button:active { background: #4a3d7a; }
+  #pad [data-dir=U] { left: 63px; top: 0; } #pad [data-dir=D] { left: 63px; top: 126px; }
+  #pad [data-dir=L] { left: 0; top: 63px; } #pad [data-dir=R] { left: 126px; top: 63px; }
+  #pad #pausebtn { left: 63px; top: 63px; font-size: 16px; }
+</style>
+</head>
+<body>
+<canvas id="c" width="320" height="240" aria-label="Snake game"></canvas>
+<div id="pad">
+  <button data-dir="U" aria-label="Up">&#9650;</button>
+  <button data-dir="L" aria-label="Left">&#9664;</button>
+  <button id="pausebtn" aria-label="Pause">II</button>
+  <button data-dir="R" aria-label="Right">&#9654;</button>
+  <button data-dir="D" aria-label="Down">&#9660;</button>
+</div>
+<!--ASSETS-->
+<script src="game.js"></script><!--SCRIPT-->
+</body>
+</html>
