@@ -1,8 +1,0 @@
-node_modules
-dist
-dist-node
-pixel-data
-pixel-assets
-.git
-.claude
-.env

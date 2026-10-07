@@ -6,7 +6,7 @@ import { existsSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const bundle = fileURLToPath(new URL("../dist-node/cli.mjs", import.meta.url));
-const source = fileURLToPath(new URL("../src/node/cli.ts", import.meta.url));
+const source = fileURLToPath(new URL("../src/agent/cli.ts", import.meta.url));
 
 let main;
 if (existsSync(bundle)) {
