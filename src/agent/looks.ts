@@ -61,7 +61,7 @@ registerTool({
   name: "looks",
   title: "Manage project looks",
   description:
-    "Save, list or delete a Look: a locked era + palette + preset/bloom/dither/outline kept in <out_dir>/looks (or $PIXEL_LOOKS_DIR). Pass its name to pixelize as `look` and every image is forced onto the same palette and settings. action=save needs `name` and `from` (the <name>.json meta file that pixelize wrote, or a look/meta JSON path).",
+    "Save, list or delete a Look: a locked era + palette + preset/bloom/dither/outline kept in <out_dir>/looks (or $PIXEL_LOOKS_DIR). Pass its name to pixelize as `look` and every image is forced onto the same palette and settings. action=save needs `name` and `from` (the <name>.json meta file that pixelize wrote, or a look/meta JSON path). Example: looks action=save name=arcade from=pixel-out/photo-scene-16bit.json.",
   positional: "action",
   shape: {
     action: z.enum(["save", "list", "delete"]).describe("save | list | delete"),

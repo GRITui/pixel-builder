@@ -1,5 +1,3 @@
-# bench (stub)
+# bench
 
-Eval harness for the pixelizer, filled in during wave 2: fixed input images, `pixelize` runs per era/preset,
-`validate` as the pass/fail gate, and a contact sheet for visual review. Old v1 generator benchmarks live
-on branch `archive/v1-generators`.
+`npx tsx bench/run.ts` (add `--quick` for the reduced matrix) runs the pixelizer on 8 synthetic images (`samples.ts`, no stock photos) across modes/eras/presets, checks `validate` + era colour limit, look-lock palette identity and an effect loop, and writes `RESULTS.md`. `bench.test.ts` runs a reduced version under vitest.
