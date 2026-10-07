@@ -140,7 +140,9 @@ async function main() {
     ctx.restore();
   };
   const text = (t: string, x: number, y: number, scale: number, color: string, shadow = col.dark) => {
-    drawText(ctx, t, x + scale, y + scale, scale, shadow);
+    // a full-cell shadow fills the gaps inside big 3x5 glyphs; a third of a cell reads as depth
+    const d = Math.max(1, Math.round(scale / 3));
+    drawText(ctx, t, x + d, y + d, scale, shadow);
     drawText(ctx, t, x, y, scale, color);
   };
   const center = (t: string, y: number, scale: number, color: string) => text(t, Math.round((W - textWidth(t, scale)) / 2), y, scale, color);
