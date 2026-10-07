@@ -31,4 +31,7 @@ and any upscale is integer nearest-neighbour. `validate` (`src/pixel/validate.ts
   `skills/pixel-builder/SKILL.md` (+ `.claude/skills/` copy), `llms.txt` and README together.
 - Adding a tool is one `registerTool({...})` in `src/agent/tools.ts`.
 - Look at outputs: open the preview PNG before claiming a pipeline change works.
-- Don't commit or push unless asked. Don't commit `.env` or `pixel-out/`. The v1 generator app is archived on branch `archive/v1-generators`.
+- Don't commit `.env` or `pixel-out/`. The v1 generator app is archived on branch `archive/v1-generators`.
+- Work on `main` directly (the owner's choice). Before every push run the CI checks locally:
+  `npx tsc && npm test && npm run build:node`. Push only when all three are green; never push a red tree,
+  never force-push. Parallel agent lanes still use their own worktrees and are merged into `main` the same way.
