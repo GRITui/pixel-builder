@@ -29,26 +29,5 @@ jobs:
         run: npx tsc
       - name: Unit tests
         run: npm test
-      - name: Build web app
-        run: npx vite build
       - name: Build CLI / MCP bundle
-        run: npm run build:node --if-present
-
-  previews:
-    name: Generator previews
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - name: Render every generator under every kit
-        run: npx tsx scripts/previews.ts previews
-      - uses: actions/upload-artifact@v4
-        with:
-          name: generator-previews
-          path: previews/
-          retention-days: 14
+        run: npm run build:node

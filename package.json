@@ -1,22 +1,16 @@
 {
   "name": "pixel-builder",
   "version": "0.1.0",
-  "description": "Vibe-code consistent pixel art: characters, buildings, maps, environments, objects and UI from one style kit.",
+  "description": "Turn realistic images into true pixel art (1 solid colour per pixel) at 8/16/32/64-bit era limits, with look presets. MCP + CLI for AI agents.",
   "bin": {
     "pixel-builder": "bin/pixel-builder.mjs"
   },
   "scripts": {
-    "dev": "concurrently -k -n web,api \"vite\" \"tsx watch server/index.ts\"",
-    "build": "tsc && vite build",
-    "start": "NODE_ENV=production tsx server/index.ts",
     "test": "vitest run",
-    "e2e": "playwright test",
     "typecheck": "tsc",
-    "cli": "tsx src/node/cli.ts",
-    "bench": "tsx scripts/bench.ts",
-    "mcp": "tsx src/node/cli.ts mcp",
-    "build:server": "esbuild server/index.ts --bundle --platform=node --format=esm --target=node20 --packages=external --outfile=dist-node/server.mjs",
-    "build:node": "esbuild src/node/cli.ts --bundle --platform=node --format=esm --target=node20 --packages=external --banner:js=\"#!/usr/bin/env node\" --outfile=dist-node/cli.mjs"
+    "cli": "tsx src/agent/cli.ts",
+    "mcp": "tsx src/agent/cli.ts mcp",
+    "build:node": "esbuild src/agent/cli.ts --bundle --platform=node --format=esm --target=node20 --packages=external --banner:js=\"#!/usr/bin/env node\" --outfile=dist-node/cli.mjs"
   },
   "repository": {
     "type": "git",
@@ -27,23 +21,14 @@
   },
   "homepage": "https://github.com/GRITui/pixel-builder#readme",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.131.0",
     "@modelcontextprotocol/sdk": "^1.32.0",
-    "jpeg-js": "^0.4.4",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
+    "sharp": "^0.35.5",
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@playwright/test": "^1.56.1",
     "@types/node": "^26.6.4",
-    "@types/react": "^18.3.31",
-    "@types/react-dom": "^18.3.7",
-    "@vitejs/plugin-react": "^4.7.0",
-    "concurrently": "^10.0.5",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
-    "vite": "^6.4.3",
     "vitest": "^3.2.7"
   },
   "private": true,
@@ -51,10 +36,8 @@
   "files": [
     "bin",
     "dist-node",
-    "dist",
     "skills",
     "AGENTS.md",
-    "llms.txt",
-    "docs/integrations.md"
+    "llms.txt"
   ]
 }

@@ -3,10 +3,8 @@
     "pixel-builder": {
       "type": "stdio",
       "command": "npx",
-      "args": ["tsx", "src/node/cli.ts", "mcp"],
-      "env": {
-        "PIXEL_BUILDER_WORKSPACE": "./pixel-assets"
-      }
+      "args": ["tsx", "src/agent/cli.ts", "mcp"],
+      "env": { "PIXEL_BUILDER_OUT": "./pixel-out" }
     }
   }
 }
