@@ -9,9 +9,10 @@ import { fetchImage, FetchError } from "../net/fetch-safe";
 import { pixelize } from "../pixel/pipeline";
 import { pixelizeSprite } from "../pixel/sprite";
 import { pixelizeTile } from "../pixel/tile";
-import { BLOOMS, DITHERS, ERAS, MODES, PRESETS } from "../pixel/types";
+import { BLOOMS, DITHERS, EFFECTS, ERAS, MODES, PRESETS, type Effect } from "../pixel/types";
 import { validate } from "../pixel/validate";
 import { loadLook, looksDir } from "./looks";
+import { imageFromPrompt, writeEffects } from "./pixelize-extras";
 import { registerTool, ToolError, type ToolImage } from "./registry";
 
 export { TOOLS, ToolError, callTool } from "./registry";
@@ -52,7 +53,8 @@ registerTool({
     "Turn a realistic image (file path or http(s) URL) into TRUE pixel art: every pixel one solid colour, era-limited palette. Writes <out_dir>/<name>.png (native size), <name>@Nx.png (upscaled preview) and <name>.json (meta); returns paths and shows the preview.",
   positional: "image",
   shape: {
-    image: z.string().min(1).describe("Image file path or http(s) URL (PNG, JPEG, WebP, GIF)."),
+    image: z.string().min(1).optional().describe("Image file path or http(s) URL (PNG, JPEG, WebP, GIF). Give this or prompt."),
+    prompt: z.string().min(1).max(2000).optional().describe("Generate the source image from this text instead of image (needs IMAGE_API_KEY / IMAGE_BASE_URL / IMAGE_MODEL)."),
     mode: z.enum(MODES as [string, ...string[]]).default("scene").describe("scene | sprite (cut-out, exact size) | tile (seamless)."),
     era: z.union([z.literal(8), z.literal(16), z.literal(32), z.literal(64)]).default(16).describe("Era: 8, 16, 32 or 64 (bit)."),
     preset: z.enum(PRESETS as [string, ...string[]]).default("vivid").describe("Colour look preset."),
@@ -64,9 +66,14 @@ registerTool({
     bg: z.string().optional().describe("Sprite mode: background colour #rrggbb to key out (default: estimated from the border)."),
     seed: z.number().int().min(0).max(2 ** 31).default(1),
     out_dir: z.string().optional().describe("Output folder (default ./pixel-out)."),
+    effects: z.array(z.enum(EFFECTS as [string, ...string[]])).optional().describe("Looping effects: rain, snow, shimmer, flicker, bloom_pulse. Also writes <name>-fx.gif, -fx-sheet.png, -fx-frames.json."),
+    frames: z.number().int().min(2).max(64).default(12).describe("Frames in the effect loop."),
+    fps: z.number().int().min(1).max(50).default(10).describe("Effect loop speed."),
   },
   async run(ctx, i) {
-    const { img, stem } = await loadImage(i.image);
+    if (!i.image === !i.prompt) throw new ToolError("Give exactly one of image (a file path or URL) or prompt (text to generate the image from).");
+    const src = i.prompt ? await imageFromPrompt(i.prompt, i.mode as "scene") : { ...(await loadImage(i.image!)), png: undefined };
+    const { img, stem } = src;
     const look = i.look ? loadLook(looksDir(i.out_dir ?? ctx.outDir), i.look) : undefined;
     const popts = {
       look,
@@ -83,7 +90,8 @@ registerTool({
     const previewPng = encodePng(upscale(result.native, k));
     atomicWrite(files.native, encodePng(result.native));
     atomicWrite(files.preview, previewPng);
-    atomicWrite(files.meta, JSON.stringify({ ...result.meta, palette: result.palette, preview_scale: k, source: i.image, ...(look ? { look: look.id } : {}) }, null, 2));
+    if (src.png) atomicWrite(join(dir, `${name}-source.png`), src.png);
+    atomicWrite(files.meta, JSON.stringify({ ...result.meta, palette: result.palette, preview_scale: k, source: i.image ?? { prompt: i.prompt }, ...(look ? { look: look.id } : {}) }, null, 2));
     const images: ToolImage[] = [{ png: previewPng, label: `${name} (${k}x preview)` }];
     if (tile) {
       const sheetPath = join(dir, `${name}-3x3@${k}x.png`);
@@ -91,8 +99,15 @@ registerTool({
       atomicWrite(sheetPath, sheetPng);
       images.push({ png: sheetPng, label: `${name} 3x3 tiling check` });
     }
+    const fx = i.effects?.length
+      ? writeEffects(result, { effects: i.effects as Effect[], frames: i.frames, fps: i.fps, seed: i.seed, gifScale: Math.max(1, Math.min(k, Math.floor(1024 / Math.max(result.native.w, result.native.h)))) }, dir, name, atomicWrite)
+      : undefined;
     return {
-      data: { files, width: result.native.w, height: result.native.h, colours: result.meta.colours, preview_scale: k, meta: result.meta },
+      data: {
+        files: { ...files, ...(src.png ? { source: join(dir, `${name}-source.png`) } : {}), ...fx?.files },
+        width: result.native.w, height: result.native.h, colours: result.meta.colours, preview_scale: k, meta: result.meta,
+        ...(fx ? { effects: { list: i.effects, frames: fx.frames, fps: fx.fps, stats: fx.stats } } : {}),
+      },
       images,
     };
   },
