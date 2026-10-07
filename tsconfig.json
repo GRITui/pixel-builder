@@ -12,5 +12,5 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["src", "vitest.config.ts"]
+  "include": ["src", "bench", "vitest.config.ts"]
 }
