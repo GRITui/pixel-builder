@@ -8,6 +8,7 @@
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc",
+    "snake:assets": "tsx examples/snake/make-assets.ts",
     "cli": "tsx src/agent/cli.ts",
     "mcp": "tsx src/agent/cli.ts mcp",
     "snake:build": "tsx examples/snake/build.ts",

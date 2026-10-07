@@ -1,5 +1,7 @@
 {
-  "look": "snake-16bit",
+  "id": "snake-16bit",
+  "name": "snake-16bit",
+  "era": 16,
   "palette": [
     "#18ce7b",
     "#297bff",
@@ -49,5 +51,9 @@
     "#84adff",
     "#009c42",
     "#4284ff"
-  ]
+  ],
+  "preset": "vivid",
+  "bloom": "off",
+  "dither": "off",
+  "outline": false
 }
