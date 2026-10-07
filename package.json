@@ -12,7 +12,8 @@
     "cli": "tsx src/agent/cli.ts",
     "mcp": "tsx src/agent/cli.ts mcp",
     "snake:build": "tsx examples/snake/build.ts",
-    "build:node": "esbuild src/agent/cli.ts --bundle --platform=node --format=esm --target=node20 --packages=external --banner:js=\"#!/usr/bin/env node\" --outfile=dist-node/cli.mjs"
+    "build:node": "esbuild src/agent/cli.ts --bundle --platform=node --format=esm --target=node20 --packages=external --banner:js=\"#!/usr/bin/env node\" --outfile=dist-node/cli.mjs",
+    "check": "tsc && vitest run && npm run build:node"
   },
   "repository": {
     "type": "git",
