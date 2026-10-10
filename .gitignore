@@ -12,6 +12,7 @@ scripts/qa[0-9]-*
 pixel-data/
 bench/out/
 bench/agents/runs/
+pixel-out/
 test-results/
 playwright-report/
 agent-test-out/
