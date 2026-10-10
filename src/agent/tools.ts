@@ -1,5 +1,5 @@
 // The tool layer. One implementation; MCP (mcp.ts) and CLI (cli.ts) are thin adapters.
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { basename, extname, join, resolve } from "node:path";
 import { z } from "zod";
 import { decodeImage } from "../io/decode";
@@ -7,6 +7,7 @@ import { encodePng, decodePng } from "../io/png";
 import { upscale } from "../io/resize";
 import { fetchImage, FetchError } from "../net/fetch-safe";
 import { pixelize } from "../pixel/pipeline";
+import { paletteBudget } from "../pixel/cohesion";
 import { pixelizeSprite } from "../pixel/sprite";
 import { pixelizeTile } from "../pixel/tile";
 import { BLOOMS, DITHERS, EFFECTS, ERAS, MODES, PRESETS, type Effect } from "../pixel/types";
@@ -45,6 +46,25 @@ export async function loadImage(src: string) {
 
 /** Integer scale so the preview's long side is about `target` px (>= 256 for multimodal hosts). */
 export const previewScale = (w: number, h: number, target = 768) => Math.max(1, Math.min(16, Math.round(target / Math.max(w, h))));
+
+/**
+ * Palettes of every other result already in `dir`, so a caller can see whether this asset
+ * joins the project's colours. A meta whose file is still being written (this run's own)
+ * is skipped by `exclude`. Results sharing a look already share a palette by construction,
+ * so they contribute no useful signal.
+ */
+export function siblingPalettes(dir: string, exclude: string): string[][] {
+  if (!existsSync(dir)) return [];
+  const out: string[][] = [];
+  for (const f of readdirSync(dir)) {
+    if (!f.endsWith(".json") || join(dir, f) === exclude) continue;
+    try {
+      const m = JSON.parse(readFileSync(join(dir, f), "utf8"));
+      if (Array.isArray(m.palette) && m.palette.length && !m.look) out.push(m.palette);
+    } catch { /* foreign or half-written json */ }
+  }
+  return out;
+}
 
 registerTool({
   name: "pixelize",
@@ -91,7 +111,8 @@ registerTool({
     atomicWrite(files.native, encodePng(result.native));
     atomicWrite(files.preview, previewPng);
     if (src.png) atomicWrite(join(dir, `${name}-source.png`), src.png);
-    atomicWrite(files.meta, JSON.stringify({ ...result.meta, palette: result.palette, preview_scale: k, source: i.image ?? { prompt: i.prompt }, ...(look ? { look: look.id } : {}) }, null, 2));
+    const budget = paletteBudget(result.palette, result.meta.era, siblingPalettes(dir, files.meta));
+    atomicWrite(files.meta, JSON.stringify({ ...result.meta, palette: result.palette, palette_budget: budget, preview_scale: k, source: i.image ?? { prompt: i.prompt }, ...(look ? { look: look.id } : {}) }, null, 2));
     const images: ToolImage[] = [{ png: previewPng, label: `${name} (${k}x preview)` }];
     if (tile) {
       const sheetPath = join(dir, `${name}-3x3@${k}x.png`);
@@ -106,6 +127,7 @@ registerTool({
       data: {
         files: { ...files, ...(src.png ? { source: join(dir, `${name}-source.png`) } : {}), ...fx?.files },
         width: result.native.w, height: result.native.h, colours: result.meta.colours, preview_scale: k, meta: result.meta,
+        palette_budget: budget,
         ...(fx ? { effects: { list: i.effects, frames: fx.frames, fps: fx.fps, stats: fx.stats } } : {}),
       },
       images,
@@ -174,6 +196,8 @@ registerTool({
         modes: MODES.map((m) => ({ mode: m, description: MODE_INFO[m], example: ex(`mode=${m}`) })),
         effects: EFFECTS.map((f) => ({ effect: f, description: EFFECT_INFO[f], example: ex(`effects=[${f}] frames=12 fps=10`) })),
         other: { outline: ex("outline=true"), size: ex("size=256"), look: "looks action=save name=mine from=pixel-out/x.json; then pixelize image=y.jpg look=mine" },
+        palette_budget:
+          "Every pixelize result reports palette_budget: colours vs the era limit, plus how many of them already exist in this out_dir (cohesion tight|partial|drifting|solo). Each call quantises independently, so two images in one era can share almost no colours. When cohesion is drifting, save one look and pass look=<name> to the rest so the project reads as one.",
       },
     };
   },
