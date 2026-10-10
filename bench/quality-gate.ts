@@ -25,18 +25,27 @@
 //   - One subject is not a finding. Sweep light/mid/dark backgrounds and a gradient.
 //   - Never assert a failure from one fixture; the gate must separate across all of them.
 //
-//   npx tsx bench/quality-gate.ts      # exits non-zero when a gate fails
+//   npx tsx bench/quality-gate.ts      # prints the table, exits non-zero on a gate failure
+//
+// Sprint 4a: the measurement is also exported as `valueGate()` so the standard bench
+// (bench/run.ts) reports it and the test suite locks the finding. NOTE the framing: gate 3
+// reports a KNOWN, documented limitation (the NES 55-set luma hole at 64-80, see
+// pixel-art-research/audit/S3b5-nes-assignment.md). It is a diagnostic, not a regression
+// gate — the bench reports it, and the test asserts it is STILL detected (alive), not that
+// it is zero. Gate 0 (mask constant) is the one that MUST pass; a failure there voids the
+// numbers and is a harness error, not a finding.
+import { fileURLToPath } from "node:url";
 import { keyBackground, pixelizeSprite } from "../src/pixel/sprite";
 import { shadedSubject, type Bg } from "../src/pixel/modes.fixtures";
 import { ERAS, type Era } from "../src/pixel/types";
 
 const luma = (r: number, g: number, b: number) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
-const ERAS_RUN: Era[] = [8, 16, 32, 64];
-const BUCKETS = 16;
+export const ERAS_RUN: Era[] = [8, 16, 32, 64];
+export const BUCKETS = 16;
 
 const pct = (ls: number[], p: number) => ls[Math.floor((ls.length - 1) * p)] ?? 0;
 
-interface Cell { bg: string; subject: string; era: Era; px: number; colours: number; p5: number; p50: number; p95: number; spread: number; occupied: number; occupiedLow: number; occupiedHigh: number }
+export interface Cell { bg: string; subject: string; era: Era; px: number; colours: number; p5: number; p50: number; p95: number; spread: number; occupied: number; occupiedLow: number; occupiedHigh: number }
 
 /** Percentiles + value-bucket occupancy over the keyed subject only. */
 function measure(bg: string, subject: string, src: ReturnType<typeof shadedSubject>, era: Era): Cell {
@@ -87,78 +96,117 @@ function sourceSpread(src: ReturnType<typeof shadedSubject>): number {
   return Math.round(pct(ls, 0.95) - pct(ls, 0.05));
 }
 
-const BGS: [string, Bg][] = [["dark", [20, 22, 30]], ["mid", [128, 128, 128]], ["light", [230, 230, 235]], ["gradient", "gradient"]];
-const rows: Cell[] = [];
-const srcSpread = new Map<string, number>();
+export const BGS: [string, Bg][] = [["dark", [20, 22, 30]], ["mid", [128, 128, 128]], ["light", [230, 230, 235]], ["gradient", "gradient"]];
 
-console.log(`Quality gates on the keyed subject (mask constant across eras)\n`);
-for (const [name, bg] of BGS) {
-  const base = shadedSubject(bg, 200, 240);
-  for (const [subject, src] of [["normal", base], ["dimmed", dimmed(base)]] as const) {
-    if (subject === "normal") srcSpread.set(name, sourceSpread(src));
-    for (const era of ERAS_RUN) {
-      const c = measure(name, subject, src, era);
-      rows.push(c);
-      console.log(`bg=${name.padEnd(8)} ${subject.padEnd(7)} era ${String(era).padStart(2)} limit ${String(ERAS[era].colours).padStart(3)}  px ${String(c.px).padStart(4)}  colours ${String(c.colours).padStart(3)}  p5 ${String(c.p5).padStart(3)} p50 ${String(c.p50).padStart(3)} p95 ${String(c.p95).padStart(3)}  spread ${String(c.spread).padStart(3)}  buckets ${"#".repeat(c.occupied).padEnd(BUCKETS, ".")} ${c.occupied}/${BUCKETS}  low ${c.occupiedLow} high ${c.occupiedHigh}`);
+export interface GateRow { bg: string; subject: string; era: Era; ok: boolean; detail: string }
+
+export interface ValueGateResult {
+  rows: Cell[];
+  /** gate 0 — mask identical across eras (MUST pass; a failure voids every other number). */
+  maskOk: boolean;
+  /** gate 1 — spread never shrinks vs the source subject. */
+  rangeOk: boolean;
+  /** gate 2 — at least 5 of 16 value buckets occupied. */
+  densityOk: boolean;
+  /** gate 3 — era 8 skew exceeds the same subject's widest-era skew by >= 2 buckets. */
+  balance: GateRow[];
+  /** gate 3 failures. A KNOWN finding (NES luma hole at 64-80), not a regression. */
+  balanceFailures: number;
+  /** gate 0+1+2 failures — a non-zero count here is a harness error or a real regression. */
+  hardFailures: number;
+}
+
+/** The four value gates as a pure measurement. Deterministic (fixed fixture, seed 1). */
+export function valueGate(): ValueGateResult {
+  const rows: Cell[] = [];
+  const srcSpread = new Map<string, number>();
+  for (const [name, bg] of BGS) {
+    const base = shadedSubject(bg, 200, 240);
+    for (const [subject, src] of [["normal", base], ["dimmed", dimmed(base)]] as const) {
+      if (subject === "normal") srcSpread.set(name, sourceSpread(src));
+      for (const era of ERAS_RUN) rows.push(measure(name, subject, src, era));
     }
   }
-  console.log();
-}
+  const at = (bg: string, era: Era, subject = "normal") => rows.find((r) => r.bg === bg && r.era === era && r.subject === subject)!;
 
-const at = (bg: string, era: Era, subject = "normal") => rows.find((r) => r.bg === bg && r.era === era && r.subject === subject)!;
-const avg = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
-let failures = 0;
+  // GATE 0 — the mask must be identical across eras or every number below is meaningless.
+  let maskOk = true;
+  for (const [name] of BGS) {
+    const px = new Set(ERAS_RUN.map((e) => at(name, e).px));
+    if (px.size !== 1) maskOk = false;
+  }
 
-// GATE 0 — the mask must be identical across eras or every number below is meaningless.
-console.log("=== gate 0: mask constant ===");
-for (const [name] of BGS) {
-  const px = new Set(ERAS_RUN.map((e) => at(name, e).px));
-  const ok = px.size === 1;
-  if (!ok) failures++;
-  console.log(`bg=${name.padEnd(8)} px ${[...px].join("/")}  ${ok ? "ok" : "FAIL - masks differ, results void"}`);
-}
+  // GATE 1 — spread must not shrink vs the source subject.
+  let rangeOk = true;
+  for (const [name] of BGS) {
+    const ss = srcSpread.get(name)!;
+    if (ERAS_RUN.some((e) => at(name, e).spread < ss)) rangeOk = false;
+  }
 
-console.log("\n=== gate 1: RANGE — spread must not shrink vs the source subject ===");
-for (const [name] of BGS) {
-  const ss = srcSpread.get(name)!;
-  const bad = ERAS_RUN.filter((e) => at(name, e).spread < ss);
-  if (bad.length) failures++;
-  console.log(`bg=${name.padEnd(8)} src ${ss}  ${bad.length ? `FAIL era ${bad.join(",")}` : "ok"}`);
-}
+  // GATE 2 — at least 5 of 16 buckets occupied.
+  let densityOk = true;
+  for (const [name] of BGS) {
+    if (ERAS_RUN.some((e) => at(name, e).occupied < 5)) densityOk = false;
+  }
 
-console.log("\n=== gate 2: DENSITY — at least 5 of 16 buckets occupied ===");
-for (const [name] of BGS) {
-  const bad = ERAS_RUN.filter((e) => at(name, e).occupied < 5);
-  if (bad.length) failures++;
-  console.log(`bg=${name.padEnd(8)} ${ERAS_RUN.map((e) => `${at(name, e).occupied}`).join("/")}  ${bad.length ? `FAIL era ${bad.join(",")}` : "ok"}`);
-}
-
-console.log("\n=== gate 3: BALANCE — a FAIL must separate the pixelizer from the control subject ===");
-// THE CONTROL IS THE GATE. `skew-origin.ts` showed a dimmed subject skews era 16 the same as
-// era 8, so "skew > 2" on one subject measures the FIXTURE, not the pixelizer. The only
-// defensible claim is a skew that appears at era 8 and NOT at the wide eras on the SAME input.
-// So: flag era 8 only when its skew exceeds the same subject's widest-era skew by >= 2 buckets.
-const wideSkew = (bg: string, subject: string) => Math.max(...ERAS_RUN.filter((e) => e > 8).map((e) => at(bg, e, subject).occupiedLow !== undefined ? Math.abs(at(bg, e, subject).occupiedLow - at(bg, e, subject).occupiedHigh) : 0));
-for (const [name] of BGS) {
-  for (const subject of ["normal", "dimmed"]) {
-    const w = wideSkew(name, subject);
-    for (const era of ERAS_RUN) {
-      const c = at(name, era, subject);
-      const skew = Math.abs(c.occupiedLow - c.occupiedHigh);
-      const excess = era === 8 ? skew - w : 0;
-      const ok = excess < 2;
-      if (!ok) failures++;
-      console.log(`bg=${name.padEnd(8)} ${subject.padEnd(7)} era ${String(era).padStart(2)}  low ${c.occupiedLow} high ${c.occupiedHigh} skew ${skew}  widest-era skew here ${w}  excess ${excess}  ${ok ? "ok" : "FAIL - skew the wide eras do not show"}`);
+  // GATE 3 — THE CONTROL IS THE GATE. `skew-origin.ts` showed a dimmed subject skews era 16
+  // the same as era 8, so "skew > 2" on one subject measures the FIXTURE, not the pixelizer.
+  // Flag era 8 only when its skew exceeds the same subject's widest-era skew by >= 2 buckets.
+  const wideSkew = (bg: string, subject: string) => Math.max(...ERAS_RUN.filter((e) => e > 8).map((e) => Math.abs(at(bg, e, subject).occupiedLow - at(bg, e, subject).occupiedHigh)));
+  const balance: GateRow[] = [];
+  for (const [name] of BGS) {
+    for (const subject of ["normal", "dimmed"]) {
+      const w = wideSkew(name, subject);
+      for (const era of ERAS_RUN) {
+        const c = at(name, era, subject);
+        const skew = Math.abs(c.occupiedLow - c.occupiedHigh);
+        const excess = era === 8 ? skew - w : 0;
+        const ok = excess < 2;
+        balance.push({ bg: name, subject, era, ok, detail: `low ${c.occupiedLow} high ${c.occupiedHigh} skew ${skew} widest-era ${w} excess ${excess}` });
+      }
     }
   }
+  const balanceFailures = balance.filter((r) => !r.ok).length;
+  const hardFailures = (maskOk ? 0 : 1) + (rangeOk ? 0 : 1) + (densityOk ? 0 : 1);
+  return { rows, maskOk, rangeOk, densityOk, balance, balanceFailures, hardFailures };
 }
 
-console.log("\n=== summary ===");
-console.log(`era  limit  spread  p50   p95   buckets  low  high`);
-for (const era of ERAS_RUN) {
-  console.log(`${String(era).padStart(3)}  ${String(ERAS[era].colours).padStart(5)}  ${avg(BGS.map(([n]) => at(n, era).spread)).toFixed(0).padStart(6)}  ${avg(BGS.map(([n]) => at(n, era).p50)).toFixed(0).padStart(4)}  ${avg(BGS.map(([n]) => at(n, era).p95)).toFixed(0).padStart(4)}  ${avg(BGS.map(([n]) => at(n, era).occupied)).toFixed(1).padStart(7)}  ${avg(BGS.map(([n]) => at(n, era).occupiedLow)).toFixed(1).padStart(4)}  ${avg(BGS.map(([n]) => at(n, era).occupiedHigh)).toFixed(1).padStart(4)}`);
-}
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  const g = valueGate();
+  const at = (bg: string, era: Era, subject = "normal") => g.rows.find((r) => r.bg === bg && r.era === era && r.subject === subject)!;
+  const avg = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
 
-console.log(`\n${failures} gate failure(s).`);
-if (failures) console.log("A failure here is a FINDING about the pixelizer, not a harness error — re-measure before acting on it.");
-process.exit(failures ? 1 : 0);
+  console.log(`Quality gates on the keyed subject (mask constant across eras)\n`);
+  for (const [name] of BGS) {
+    for (const subject of ["normal", "dimmed"]) {
+      for (const era of ERAS_RUN) {
+        const c = at(name, era, subject);
+        console.log(`bg=${name.padEnd(8)} ${subject.padEnd(7)} era ${String(era).padStart(2)} limit ${String(ERAS[era].colours).padStart(3)}  px ${String(c.px).padStart(4)}  colours ${String(c.colours).padStart(3)}  p5 ${String(c.p5).padStart(3)} p50 ${String(c.p50).padStart(3)} p95 ${String(c.p95).padStart(3)}  spread ${String(c.spread).padStart(3)}  buckets ${"#".repeat(c.occupied).padEnd(BUCKETS, ".")} ${c.occupied}/${BUCKETS}  low ${c.occupiedLow} high ${c.occupiedHigh}`);
+      }
+    }
+    console.log();
+  }
+
+  console.log("=== gate 0: mask constant ===");
+  for (const [name] of BGS) {
+    const px = [...new Set(ERAS_RUN.map((e) => at(name, e).px))];
+    console.log(`bg=${name.padEnd(8)} px ${px.join("/")}  ${px.length === 1 ? "ok" : "FAIL - masks differ, results void"}`);
+  }
+  console.log(`\n=== gate 1: RANGE — spread must not shrink vs the source subject === ${g.rangeOk ? "ok" : "FAIL"}`);
+  console.log(`\n=== gate 2: DENSITY — at least 5 of 16 buckets occupied === ${g.densityOk ? "ok" : "FAIL"}`);
+  console.log(`\n=== gate 3: BALANCE — era 8 skew vs the same subject's widest era ===`);
+  for (const r of g.balance) {
+    console.log(`bg=${r.bg.padEnd(8)} ${r.subject.padEnd(7)} era ${String(r.era).padStart(2)}  ${r.detail}  ${r.ok ? "ok" : "FAIL - skew the wide eras do not show"}`);
+  }
+
+  console.log("\n=== summary ===");
+  console.log(`era  limit  spread  p50   p95   buckets  low  high`);
+  for (const era of ERAS_RUN) {
+    console.log(`${String(era).padStart(3)}  ${String(ERAS[era].colours).padStart(5)}  ${avg(BGS.map(([n]) => at(n, era).spread)).toFixed(0).padStart(6)}  ${avg(BGS.map(([n]) => at(n, era).p50)).toFixed(0).padStart(4)}  ${avg(BGS.map(([n]) => at(n, era).p95)).toFixed(0).padStart(4)}  ${avg(BGS.map(([n]) => at(n, era).occupied)).toFixed(1).padStart(7)}  ${avg(BGS.map(([n]) => at(n, era).occupiedLow)).toFixed(1).padStart(4)}  ${avg(BGS.map(([n]) => at(n, era).occupiedHigh)).toFixed(1).padStart(4)}`);
+  }
+
+  console.log(`\n${g.hardFailures} hard gate failure(s), ${g.balanceFailures} known era-8 balance finding(s).`);
+  if (g.hardFailures) console.log("A hard failure is a harness error or a real regression — re-measure before acting on it.");
+  if (g.balanceFailures) console.log("The era-8 balance findings are the documented NES luma-hole limitation (audit/S3b5-nes-assignment.md).");
+  process.exit(g.hardFailures ? 1 : 0);
+}

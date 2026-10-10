@@ -2,11 +2,11 @@
 
 ## The eval harness (`run.ts`, `RESULTS.md`)
 
-`npx tsx bench/run.ts` (add `--quick` for the reduced matrix) runs the pixelizer on 8 synthetic images (`samples.ts`, no stock photos) across modes/eras/presets, checks `validate` + era colour limit, look-lock palette identity and an effect loop, and writes `RESULTS.md`. `bench.test.ts` runs a reduced version under vitest.
+`npx tsx bench/run.ts` (add `--quick` for the reduced matrix) runs the pixelizer on 8 synthetic images (`samples.ts`, no stock photos) across modes/eras/presets, checks `validate` + era colour limit, look-lock palette identity and an effect loop, and writes `RESULTS.md`. The **full** matrix also runs the value gates (below) and records them in `RESULTS.md`. `bench.test.ts` runs a reduced version under vitest plus the value-gate assertions.
 
 ## Sprite quality gates (`quality-gate.ts`)
 
-`npx tsx bench/quality-gate.ts` — exits non-zero when a gate fails.
+`npx tsx bench/quality-gate.ts` — exits non-zero on a HARD gate failure (0/1/2). Gate 3 findings are reported but do NOT fail the run: they are the documented NES luma-hole limitation, not a regression.
 
 Measures the **keyed subject** across all four eras, four backgrounds and two subjects:
 
@@ -59,5 +59,13 @@ they already cover.
 | `chroma-weight-proof.ts` | `chromaWeight` 3 starves the era 8 ramp | NOT SUPPORTED (skew flat vs weight) |
 | `skew-origin.ts` | the era 8 skew is a pixelizer defect, not the fixture | PARTLY — real on the normal subject, but a dimmed subject skews era 16 too |
 | `hue-by-material.ts` | era 8 breaks hue, not just value | NOT SUPPORTED (era 8 escapes *less*: 23% vs 35%) |
+| `nes-assignment.ts` | the era 8 skew comes from the pick's ASSIGNMENT stage | CONFIRMED — NES 55-set has 1 colour in luma 64-80; 55% of source midtone mass snaps below luma 50 |
+| `ramp-materials.ts` | the quantizer preserves a standard ramp's rotation + chroma curve | CONFIRMED for era 16/32/64 (~100% retained, chroma ±0.002); era 8 loses it (NES luma hole, hue side) |
+| `ramp-robust.ts` | the first run's findings survive second fixtures / other seeds | mixed — two of three did NOT; `ramp-divergence.ts` traced it to a hue-units bug in the fixture builder (base hue 15 passed to cos() as 15 RADIANS = green) + the vivid-preset confound. Pin `preset: "neutral"` when measuring the quantizer |
+
+`nes-assignment.ts` closed the S3b.5 root cause: the defect is **palette structure** (the
+fixed 55-set's luma hole at 64–80), not selection. `greedyPick` is correct; no 24-colour
+choice from this set can serve the luma 60–80 band. Real NES artists paint that band as a
+dither of the two neighbours. See `pixel-art-research/audit/S3b5-nes-assignment.md`.
 
 Do not change `chromaWeight` without new evidence — it was measured, not guessed.
