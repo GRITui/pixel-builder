@@ -46,6 +46,19 @@ Run the `presets` tool for the full list with example calls.
 
 A look locks era + palette + settings so a whole project matches: `looks action=save name=arcade from=pixel-out/x.json`, then `pixelize ... look=arcade`.
 
+## Palette cohesion
+
+Every `pixelize` quantises independently, so two images in one era can share almost nothing — measured, 1 of 48 colours on unrelated inputs, which makes a game look like several games. Each result reports `palette_budget`:
+
+| field | meaning |
+|---|---|
+| `colours` / `limit` | distinct colours used vs the era ceiling |
+| `overlap` | share of this image's colours that already exist in the output dir |
+| `cohesion` | `solo` (first asset) · `tight` (>=70%) · `partial` (>=30%) · `drifting` (<30%) |
+| `hint` | what to do next, or empty |
+
+On `drifting`, save the strongest result as a look and pass `look=<name>` to the rest.
+
 ## Prompt path
 
 `pixelize prompt="a rainy neon alley"` generates the source with an OpenAI-compatible images API. Env vars: `IMAGE_API_KEY` (required), `IMAGE_BASE_URL`, `IMAGE_MODEL`, `IMAGE_API_STYLE=chat` (OpenRouter-style chat endpoints). The generated source is saved next to the result as `-source.png`.
