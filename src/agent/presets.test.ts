@@ -3,7 +3,7 @@ import { TOOLS, callTool } from "./tools";
 
 describe("presets tool", () => {
   it("full tool set, each description ends with an example", () => {
-    expect(TOOLS.map((t) => t.name).sort()).toEqual(["looks", "presets", "pixelize", "validate"].sort());
+    expect(TOOLS.map((t) => t.name).sort()).toEqual(["looks", "presets", "pixelize", "validate", "generate-autotile", "quantize", "build-scene"].sort());
     for (const t of TOOLS) expect(t.description).toMatch(/Example: .*\.$/);
   });
   it("lists eras, presets, modes, effects with examples", async () => {
