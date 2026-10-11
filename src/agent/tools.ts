@@ -10,6 +10,9 @@ import { pixelize } from "../pixel/pipeline";
 import { paletteBudget } from "../pixel/cohesion";
 import { pixelizeSprite } from "../pixel/sprite";
 import { pixelizeTile } from "../pixel/tile";
+import { wangSheet, swatchMean, ramp, canonicalMasks, type WangOptions } from "../pixel/wang";
+import { enforceClusters } from "../pixel/cluster";
+import { buildScene } from "../pixel/scene";
 import { BLOOMS, DITHERS, EFFECTS, ERAS, MODES, PRESETS, type Effect } from "../pixel/types";
 import { validate } from "../pixel/validate";
 import { loadLook, looksDir } from "./looks";
@@ -199,6 +202,126 @@ registerTool({
         palette_budget:
           "Every pixelize result reports palette_budget: colours vs the era limit, plus how many of them already exist in this out_dir (cohesion tight|partial|drifting|solo). Each call quantises independently, so two images in one era can share almost no colours. When cohesion is drifting, save one look and pass look=<name> to the rest so the project reads as one.",
       },
+    };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Guide-spec tools: deterministic build engine (Game Asset Design Guide)
+// ---------------------------------------------------------------------------
+
+registerTool({
+  name: "generate-autotile",
+  title: "Generate a 47-tile Wang autotile sheet",
+  description:
+    "Build the 47-tile Wang autotile set from two or more base texture swatches (8-neighbour bitmask, N=1 NE=2 E=4 SE=8 S=16 SW=32 W=64 NW=128; diagonals only visible when both adjacent sides match). Writes <out>/<name>-wang.png (sheet, 8 columns) + <name>-wang.json (mask->tile-position map). Example: generate-autotile land=./tex/grass.png water=./tex/water.png tile_size=16 band=5.",
+  positional: "land",
+  shape: {
+    land: z.string().min(1).describe("Land-side base texture PNG."),
+    water: z.string().min(1).describe("Water-side base texture PNG."),
+    tile_size: z.number().int().min(8).max(64).default(16),
+    band: z.number().int().min(1).max(12).default(5).describe("Transition band thickness in px."),
+    cluster: z.number().int().min(2).max(8).default(2).describe("Dither cluster size (>=2: no single-pixel noise)."),
+    steps: z.number().int().min(2).max(5).default(3).describe("Ramp steps between land and water."),
+    seed: z.number().int().min(0).max(2 ** 31).default(1),
+    out: z.string().optional().describe("Output folder (default ./pixel-out)."),
+  },
+  async run(ctx, i) {
+    const landImg = (await loadImage(i.land)).img;
+    const waterImg = (await loadImage(i.water)).img;
+    const land = swatchMean(landImg), water = swatchMean(waterImg);
+    const o: WangOptions = { tileSize: i.tile_size, ramp: ramp(land, water, i.steps), band: i.band, cluster: i.cluster, seed: i.seed };
+    const { sheet, masks, tilePositions } = wangSheet(o);
+    const dir = resolve(i.out ?? ctx.outDir);
+    mkdirSync(dir, { recursive: true });
+    const stem = `wang-${i.tile_size}-b${i.band}`;
+    const pngPath = join(dir, `${stem}.png`);
+    const jsonPath = join(dir, `${stem}.json`);
+    const png = encodePng(upscale(sheet, previewScale(sheet.w, sheet.h, 1400)));
+    atomicWrite(pngPath, encodePng(sheet));
+    atomicWrite(jsonPath, JSON.stringify({ tileSize: i.tile_size, band: i.band, cluster: i.cluster, ramp: o.ramp, masks, positions: Object.fromEntries([...tilePositions].map(([m, [x, y]]) => [m, [x, y]])) }, null, 2));
+    void masks;
+    return {
+      data: { sheet: pngPath, map: jsonPath, tiles: canonicalMasks().length, tileSize: i.tile_size, band: i.band },
+      images: [{ png, label: `${stem}: 47-tile Wang sheet` }],
+    };
+  },
+});
+
+registerTool({
+  name: "quantize",
+  title: "Cluster-filter + palette-lock an image",
+  description:
+    "Post-process an image to the guide's anti-noise standard: merge any colour region smaller than min_cluster x min_cluster into its longest-shared-border neighbour (kills single-pixel noise crawl), snap alpha to 0/255, and (with palette lock) index every colour onto the given PNG palette. Example: quantize src=draft.png min_cluster=2 palette=palette.png.",
+  positional: "src",
+  shape: {
+    src: z.string().min(1).describe("Image to refine (PNG)."),
+    min_cluster: z.number().int().min(1).max(8).default(2).describe("Minimum colour-region footprint in px (2 = no 1px specks)."),
+    palette: z.string().optional().describe("Optional palette-lock source PNG: every opaque colour is re-indexed to its nearest colour in this image."),
+    out: z.string().optional().describe("Output path (default <src-dir>/<stem>-clustered.png)."),
+  },
+  async run(_ctx, i) {
+    const { img, stem } = await loadImage(i.src);
+    const report = enforceClusters(img, i.min_cluster);
+    let paletteLock: { colours: number } | undefined;
+    if (i.palette) {
+      const pal = (await loadImage(i.palette)).img;
+      const cols: [number, number, number][] = [];
+      for (let k = 0; k < pal.w * pal.h; k++) {
+        if (pal.data[k * 4 + 3] < 128) continue;
+        cols.push([pal.data[k * 4], pal.data[k * 4 + 1], pal.data[k * 4 + 2]]);
+      }
+      if (!cols.length) throw new ToolError("palette image has no opaque colours");
+      for (let k = 0; k < img.w * img.h; k++) {
+        if (img.data[k * 4 + 3] !== 255) continue;
+        let best = 0, bd = Infinity;
+        for (let c = 0; c < cols.length; c++) {
+          const d = (cols[c][0] - img.data[k * 4]) ** 2 + (cols[c][1] - img.data[k * 4 + 1]) ** 2 + (cols[c][2] - img.data[k * 4 + 2]) ** 2;
+          if (d < bd) { bd = d; best = c; }
+        }
+        img.data[k * 4] = cols[best][0]; img.data[k * 4 + 1] = cols[best][1]; img.data[k * 4 + 2] = cols[best][2];
+      }
+      paletteLock = { colours: cols.length };
+    }
+    const dir = resolve(i.out ? i.out.replace(/[^/]+$/, "") || "." : ".");
+    mkdirSync(dir, { recursive: true });
+    const outPath = i.out ?? join(i.src.replace(/[^/]+$/, ""), `${stem}-clustered.png`);
+    atomicWrite(outPath, encodePng(img));
+    return {
+      data: { file: outPath, ...report, paletteLock },
+      images: [{ png: encodePng(upscale(img, previewScale(img.w, img.h))), label: `cluster-filtered (merged ${report.merged})` }],
+    };
+  },
+});
+
+registerTool({
+  name: "build-scene",
+  title: "Compile a layered scene from scene-spec.json",
+  description:
+    "Deterministic scene builder per the Game Asset Design Guide: parses scene-spec.json (terrain wang layers with zOrder/alpha, entities with footprints + pivots + layerSplit, postProcessing clusterFilter/hueShift), renders the 4-layer stack (base / submerged 40-60% alpha blue-tinted / water surface / floating+canopy), writes layer PNGs + flat composite + scene.json with pivot metadata. Example: build-scene config=scene-spec.json out_dir=./build.",
+  positional: "config",
+  shape: {
+    config: z.string().min(1).describe("Path to scene-spec.json."),
+    out_dir: z.string().optional().describe("Output folder (default ./scene-build)."),
+  },
+  async run(_ctx, i) {
+    const dir = resolve(i.out_dir ?? "./scene-build");
+    const r = buildScene(i.config, dir);
+    mkdirSync(dir, { recursive: true });
+    const layerFiles = r.layers.map((l, idx) => {
+      const p = join(dir, `L${idx}.png`);
+      atomicWrite(p, encodePng(l));
+      return p;
+    });
+    const compositePath = join(dir, `${r.meta.name}-composite.png`);
+    atomicWrite(compositePath, encodePng(r.composite));
+    const metaPath = join(dir, "scene.json");
+    atomicWrite(metaPath, JSON.stringify(r.meta, null, 2));
+    const k = previewScale(r.composite.w, r.composite.h);
+    const previewPng = encodePng(upscale(r.composite, k));
+    return {
+      data: { layers: layerFiles, composite: compositePath, meta: metaPath, ...r.meta },
+      images: [{ png: previewPng, label: `${r.meta.name} composite (${k}x)` }],
     };
   },
 });
